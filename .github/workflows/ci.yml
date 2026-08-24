@@ -59,6 +59,28 @@ jobs:
     defaults:
       run:
         working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: edusphere
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: edusphere
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U edusphere"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # DATABASE_URL : rôle superutilisateur, migrations Alembic uniquement.
+      DATABASE_URL: postgresql+asyncpg://edusphere:ci_only_password@localhost:5432/edusphere
+      # APP_DATABASE_URL : rôle applicatif non-superutilisateur (nécessaire pour que RLS
+      # s'applique réellement) — créé par la migration 0002 avec ce mot de passe.
+      APP_DB_PASSWORD: ci_only_app_password
+      APP_DATABASE_URL: postgresql+asyncpg://edusphere_app:ci_only_app_password@localhost:5432/edusphere
+      JWT_SECRET_KEY: ci_only_not_for_production
     steps:
       - uses: actions/checkout@v4
 
@@ -75,6 +97,9 @@ jobs:
 
       - name: Type-check
         run: mypy app
+
+      - name: Migrate
+        run: alembic upgrade head
 
       - name: Test
         run: pytest

@@ -38,6 +38,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-edusphere}:${POSTGRES_PASSWORD:-changeme_local_only}@db:5432/${POSTGRES_DB:-edusphere}
+      APP_DATABASE_URL: postgresql+asyncpg://edusphere_app:${APP_DB_PASSWORD:-changeme_app_role_local_only}@db:5432/${POSTGRES_DB:-edusphere}
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
