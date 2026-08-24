@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_teacher_only
 from app.modules.academics.models import (
     AcademicTerm,
     AcademicYear,
@@ -40,9 +40,7 @@ from app.modules.academics.schemas import (
     TeacherAssignmentCreate,
     TeacherAssignmentOut,
 )
-from app.modules.rbac.models import Role, UserRole
 from app.modules.schools.models import School
-from app.modules.users.models import User
 
 router = APIRouter()
 
@@ -67,24 +65,6 @@ async def _get_class_or_404(db: AsyncSession, class_id: uuid.UUID) -> SchoolClas
     if school_class is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
     return school_class
-
-
-async def _is_teacher_only(db: AsyncSession, user: User, school: School) -> bool:
-    """True si, pour cette école, le seul rôle de l'utilisateur est TEACHER — cas où la règle
-    métier « un enseignant ne voit que ses classes/matières » (cahier des charges §10)
-    s'applique. Un DIRECTOR/STAFF/SCHOOL_ADMIN voit toujours toutes les classes."""
-    result = await db.execute(
-        select(Role.code)
-        .join(UserRole, UserRole.role_id == Role.id)
-        .where(
-            UserRole.user_id == user.id,
-            (UserRole.school_id == school.id)
-            | (UserRole.organization_id == school.organization_id)
-            | (UserRole.organization_id.is_(None) & UserRole.school_id.is_(None)),
-        )
-    )
-    role_codes = {row[0] for row in result.all()}
-    return role_codes == {"TEACHER"}
 
 
 # --- Academic years ------------------------------------------------------------
@@ -355,7 +335,7 @@ async def list_classes(
     await ensure_permission(db, current_user, "academics.read", organization_id=school.organization_id, school_id=school.id)
 
     stmt = select(SchoolClass).where(SchoolClass.school_id == school_id)
-    if await _is_teacher_only(db, current_user, school):
+    if await is_teacher_only(db, current_user, school.organization_id, school.id):
         stmt = (
             stmt.join(ClassSubject, ClassSubject.class_id == SchoolClass.id)
             .join(TeacherAssignment, TeacherAssignment.class_subject_id == ClassSubject.id)

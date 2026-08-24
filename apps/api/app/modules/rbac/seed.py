@@ -80,3 +80,18 @@ PHASE3_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "TEACHER": ["students.read"],
     "STAFF": ["students.read", "students.manage"],
 }
+
+# --- Phase 4 (académique — évaluations et notes) -------------------------------
+PHASE4_PERMISSIONS: dict[str, str] = {
+    "grades.read": "Consulter les évaluations, notes, moyennes et classements",
+    "grades.manage": "Saisir des évaluations/notes (un enseignant reste limité à ses classes affectées)",
+}
+
+PHASE4_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["grades.read", "grades.manage"],
+    "PLATFORM_SUPPORT": ["grades.read"],
+    "SCHOOL_ADMIN": ["grades.read", "grades.manage"],
+    "DIRECTOR": ["grades.read", "grades.manage"],
+    "TEACHER": ["grades.read", "grades.manage"],
+    "STAFF": ["grades.read"],
+}

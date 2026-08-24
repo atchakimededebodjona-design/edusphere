@@ -100,6 +100,24 @@ def require_permission(code: str):
     return dependency
 
 
+async def is_teacher_only(db: AsyncSession, user: User, organization_id: uuid.UUID, school_id: uuid.UUID) -> bool:
+    """True si, pour cette école, le seul rôle de l'utilisateur est TEACHER — cas où la règle
+    métier « un enseignant ne voit que ses classes/matières » (cahier des charges §10)
+    s'applique. Un DIRECTOR/STAFF/SCHOOL_ADMIN voit toujours tout."""
+    result = await db.execute(
+        select(Role.code)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(
+            UserRole.user_id == user.id,
+            (UserRole.school_id == school_id)
+            | (UserRole.organization_id == organization_id)
+            | (UserRole.organization_id.is_(None) & UserRole.school_id.is_(None)),
+        )
+    )
+    role_codes = {row[0] for row in result.all()}
+    return role_codes == {"TEACHER"}
+
+
 async def ensure_permission(
     db: AsyncSession,
     user: User,
