@@ -55,3 +55,6 @@ Thumbs.db
 # --- Database local data ---
 infrastructure/docker/pgdata/
 infrastructure/docker/redisdata/
+
+# --- Local file storage (StorageProvider, dev only) ---
+apps/api/storage/

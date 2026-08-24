@@ -65,3 +65,18 @@ PHASE2_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "TEACHER": ["academics.read"],
     "STAFF": ["academics.read"],
 }
+
+# --- Phase 3 (élèves) ---------------------------------------------------------
+PHASE3_PERMISSIONS: dict[str, str] = {
+    "students.read": "Consulter les dossiers élèves, familles et inscriptions",
+    "students.manage": "Gérer les dossiers élèves, familles, inscriptions et documents",
+}
+
+PHASE3_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["students.read", "students.manage"],
+    "PLATFORM_SUPPORT": ["students.read"],
+    "SCHOOL_ADMIN": ["students.read", "students.manage"],
+    "DIRECTOR": ["students.read", "students.manage"],
+    "TEACHER": ["students.read"],
+    "STAFF": ["students.read", "students.manage"],
+}

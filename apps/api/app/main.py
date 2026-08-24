@@ -8,6 +8,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.rbac.router import router as rbac_router
 from app.modules.schools.router import router as schools_router
+from app.modules.students.router import router as students_router
 
 app = FastAPI(title="EduSphere API", version="0.0.0")
 
@@ -25,3 +26,4 @@ app.include_router(organizations_router, prefix=f"{settings.api_v1_prefix}/organ
 app.include_router(schools_router, prefix=f"{settings.api_v1_prefix}/schools", tags=["schools"])
 app.include_router(rbac_router, prefix=settings.api_v1_prefix, tags=["rbac"])
 app.include_router(academics_router, prefix=settings.api_v1_prefix, tags=["academics"])
+app.include_router(students_router, prefix=settings.api_v1_prefix, tags=["students"])

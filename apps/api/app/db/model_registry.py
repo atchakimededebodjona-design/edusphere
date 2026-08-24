@@ -14,4 +14,12 @@ from app.modules.auth.models import PasswordResetToken, UserSession  # noqa: F40
 from app.modules.organizations.models import Organization  # noqa: F401
 from app.modules.rbac.models import Permission, Role, RolePermission, UserRole  # noqa: F401
 from app.modules.schools.models import School  # noqa: F401
+from app.modules.students.models import (  # noqa: F401
+    Guardian,
+    Student,
+    StudentDocument,
+    StudentEnrollment,
+    StudentGuardian,
+    StudentStatusHistory,
+)
 from app.modules.users.models import User  # noqa: F401

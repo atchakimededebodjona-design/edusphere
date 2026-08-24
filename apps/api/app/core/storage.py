@@ -9,6 +9,8 @@ sans réécrire les appelants.
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from app.core.config import settings
+
 
 class StorageProvider(ABC):
     @abstractmethod
@@ -60,3 +62,8 @@ def get_storage_provider(provider: str, local_path: str) -> StorageProvider:
     if provider == "local":
         return LocalStorageProvider(local_path)
     raise ValueError(f"Unknown storage provider: {provider}")
+
+
+# Instance partagée par les modules métier (élèves, plus tard bulletins/reçus...) — évite de
+# recréer un provider par requête. Reste dépendant de `settings`, jamais d'un SDK cloud direct.
+storage = get_storage_provider(settings.storage_provider, settings.storage_local_path)
