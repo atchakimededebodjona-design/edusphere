@@ -48,3 +48,20 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "PARENT": [],
     "STUDENT": [],
 }
+
+# --- Phase 2 (administration scolaire) --------------------------------------
+# Permissions et attributions ajoutées par la migration 0003, en plus de celles ci-dessus
+# (déjà appliquées par la migration 0002 — on ne les réinsère pas).
+PHASE2_PERMISSIONS: dict[str, str] = {
+    "academics.read": "Consulter les données académiques (années, classes, matières, salles...)",
+    "academics.manage": "Gérer les données académiques (années, classes, matières, salles...)",
+}
+
+PHASE2_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["academics.read", "academics.manage"],
+    "PLATFORM_SUPPORT": ["academics.read"],
+    "SCHOOL_ADMIN": ["academics.read", "academics.manage"],
+    "DIRECTOR": ["academics.read", "academics.manage"],
+    "TEACHER": ["academics.read"],
+    "STAFF": ["academics.read"],
+}
