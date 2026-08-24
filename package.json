@@ -1,0 +1,16 @@
+{
+  "name": "edusphere",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev:web": "pnpm --filter @edusphere/web dev",
+    "dev:mobile": "pnpm --filter @edusphere/mobile start",
+    "lint": "pnpm -r --filter=./apps/web --filter=./packages/** lint",
+    "type-check": "pnpm -r --filter=./apps/web --filter=./packages/** type-check",
+    "build": "pnpm -r --filter=./apps/web --filter=./packages/** build"
+  }
+}

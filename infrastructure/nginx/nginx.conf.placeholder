@@ -1,0 +1,5 @@
+# Placeholder — reverse proxy nginx (non activé en Phase 0)
+#
+# Ce fichier sera remplacé par une configuration réelle lorsque le besoin de
+# reverse proxy se présentera (ex: TLS termination, routage multi-tenant en
+# production). Aucun choix d'hébergeur n'est pris en Phase 0.
