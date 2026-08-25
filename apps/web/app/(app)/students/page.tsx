@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/useAuth";
 import { students, type Sex, type Student, type StudentStatus } from "@/lib/students/client";
+import { StudentImportForm } from "@/app/(app)/students/StudentImportForm";
 
 const STATUS_LABELS: Record<StudentStatus, string> = {
   ACTIVE: "Actif",
@@ -39,6 +40,11 @@ export default function StudentsPage() {
     if (!currentSchoolId) return;
     void students.list(currentSchoolId, { search: search || undefined, status: statusFilter || undefined }).then(setItems);
   }, [currentSchoolId, search, statusFilter]);
+
+  function refreshList() {
+    if (!currentSchoolId) return;
+    void students.list(currentSchoolId, { search: search || undefined, status: statusFilter || undefined }).then(setItems);
+  }
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -123,6 +129,8 @@ export default function StudentsPage() {
           </tbody>
         </table>
       </div>
+
+      {canManage && currentSchoolId && <StudentImportForm schoolId={currentSchoolId} onImported={refreshList} />}
 
       {canManage && (
         <form onSubmit={handleCreate} className="flex flex-col gap-3 rounded border border-dashed border-slate-300 p-4">

@@ -91,6 +91,15 @@ export type StudentDocument = {
   created_at: string;
 };
 
+export type StudentImportRowError = { row: number; reason: string };
+
+export type StudentImportReport = {
+  total_rows: number;
+  created: number;
+  duplicates_skipped: number;
+  errors: StudentImportRowError[];
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -142,6 +151,13 @@ export const students = {
     return response.json();
   },
   getPhotoBlobUrl: (id: string) => getBlobUrl(`/api/v1/students/${id}/photo`),
+  import: async (schoolId: string, file: File): Promise<StudentImportReport> => {
+    const form = new FormData();
+    form.append("school_id", schoolId);
+    form.append("file", file);
+    const response = await apiFetch("/api/v1/students/import", { method: "POST", body: form });
+    return response.json();
+  },
 };
 
 export const guardians = {
