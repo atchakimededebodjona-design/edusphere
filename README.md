@@ -12,8 +12,6 @@ Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 > L'app mobile est encore au stade de scaffold, rien n'y est construit.
 >
 > Manques connus, volontairement hors périmètre pour l'instant :
-> - import CSV/Excel en masse des élèves (l'endpoint API existe et est
->   testé, l'écran web reste à faire) ;
 > - affectation d'enseignants à une classe-matière (bloqué en amont :
 >   aucun endpoint API ne liste/recherche les utilisateurs d'une école) ;
 > - app mobile non démarrée.
@@ -120,6 +118,6 @@ filesystem local pour le développement.
 
 ## Prochaine étape
 
-Combler l'un des manques listés ci-dessus (import CSV élèves, module
-utilisateurs pour l'affectation d'enseignants, ou démarrage de l'app
-mobile), ou entamer une nouvelle phase métier (ex. paiements).
+Combler l'un des manques listés ci-dessus (module utilisateurs pour
+l'affectation d'enseignants, ou démarrage de l'app mobile), ou entamer une
+nouvelle phase métier (ex. paiements).
