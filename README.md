@@ -2,9 +2,14 @@
 
 Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 
-> **Statut : Phase 0 — Bootstrap technique.** Aucune logique métier n'est
-> implémentée à ce stade (pas d'auth, pas de gestion d'écoles/élèves, pas de
-> paiement). Voir [docs/architecture/overview.md](docs/architecture/overview.md).
+> **Statut : Phase 5 — Bulletins scolaires.** Côté API (FastAPI), les phases
+> 0 à 5 sont livrées : bootstrap, auth + multi-tenancy, administration
+> scolaire, élèves, académique (notes/moyennes/classement) et génération de
+> bulletins PDF avec vérification par QR code. Côté web (Next.js), seules les
+> pages d'authentification existent ; le reste de l'interface (écoles,
+> élèves, académique, bulletins) reste à construire. L'app mobile est encore
+> au stade de scaffold. Voir
+> [docs/architecture/overview.md](docs/architecture/overview.md).
 
 ## Structure du monorepo
 
@@ -106,4 +111,6 @@ filesystem local pour le développement.
 
 ## Prochaine étape
 
-Phase 1 — Authentification & Multi-tenancy (voir cahier des charges).
+Construire l'interface web (Next.js) pour les phases déjà livrées côté API
+(administration scolaire, élèves, académique, bulletins), aujourd'hui
+uniquement accessibles via l'API.

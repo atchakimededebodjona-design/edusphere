@@ -69,6 +69,9 @@ fichier de clé/certificat.
 
 ## Prochaine phase
 
-**Phase 1 — Authentification & Multi-tenancy** : ne démarre qu'après
-validation explicite que la Phase 0 est stable (les trois apps démarrent,
-la CI est verte, ce rapport a été relu).
+**Phase 1 — Authentification & Multi-tenancy** a démarré après validation
+explicite que la Phase 0 était stable (les trois apps démarrent, la CI est
+verte, ce rapport a été relu). Les principes ci-dessus (monorepo,
+abstraction du stockage, infrastructure locale, CI, secrets) restent en
+vigueur pour toutes les phases suivantes. Voir [README.md](../../README.md)
+pour le statut d'avancement actuel.
