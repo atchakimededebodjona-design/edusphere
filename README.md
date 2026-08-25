@@ -59,6 +59,13 @@ docker compose up --build
 - Postgres : localhost:5432
 - Redis : localhost:6379
 
+Shell `psql` sur la base du projet (le conteneur Postgres embarque déjà le
+client, rien à installer) :
+
+```bash
+./scripts/db-shell.sh
+```
+
 ## Développement local (sans Docker)
 
 ### Web
