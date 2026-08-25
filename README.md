@@ -4,16 +4,15 @@ Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 
 > **Statut : phases 0 à 5 livrées, API et web.** Côté API (FastAPI) :
 > bootstrap, auth + multi-tenancy, administration scolaire, élèves,
-> académique (notes/moyennes/classement) et génération de bulletins PDF
-> avec vérification par QR code. Côté web (Next.js) : session persistante
-> et layout protégé, puis une interface complète pour chaque module —
-> École, Configuration académique, Élèves, Notes, Bulletins (génération,
-> publication, téléchargement, page publique de vérification par QR).
+> académique (notes/moyennes/classement), génération de bulletins PDF avec
+> vérification par QR code, et gestion des utilisateurs par école (création
+> de comptes, rôles). Côté web (Next.js) : session persistante et layout
+> protégé, puis une interface complète pour chaque module — École,
+> Configuration académique (avec affectation d'enseignants aux classes),
+> Élèves (avec import CSV/Excel), Notes, Bulletins, Utilisateurs.
 > L'app mobile est encore au stade de scaffold, rien n'y est construit.
 >
-> Manques connus, volontairement hors périmètre pour l'instant :
-> - affectation d'enseignants à une classe-matière (bloqué en amont :
->   aucun endpoint API ne liste/recherche les utilisateurs d'une école) ;
+> Manque connu, volontairement hors périmètre pour l'instant :
 > - app mobile non démarrée.
 >
 > Voir [docs/architecture/overview.md](docs/architecture/overview.md).
@@ -118,6 +117,5 @@ filesystem local pour le développement.
 
 ## Prochaine étape
 
-Combler l'un des manques listés ci-dessus (module utilisateurs pour
-l'affectation d'enseignants, ou démarrage de l'app mobile), ou entamer une
-nouvelle phase métier (ex. paiements).
+Démarrer l'app mobile, ou entamer une nouvelle phase métier (ex.
+paiements).
