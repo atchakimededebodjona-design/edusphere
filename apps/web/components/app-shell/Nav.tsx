@@ -13,6 +13,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Tableau de bord" },
   { href: "/school", label: "École", permission: "schools.read" },
+  { href: "/academics", label: "Académique", permission: "academics.read" },
 ];
 
 export function Nav() {
