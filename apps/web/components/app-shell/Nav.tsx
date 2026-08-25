@@ -16,6 +16,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/academics", label: "Académique", permission: "academics.read" },
   { href: "/students", label: "Élèves", permission: "students.read" },
   { href: "/grades", label: "Notes", permission: "grades.read" },
+  { href: "/report-cards", label: "Bulletins", permission: "report_cards.read" },
 ];
 
 export function Nav() {

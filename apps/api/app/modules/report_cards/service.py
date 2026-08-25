@@ -76,7 +76,7 @@ async def _build_context(
         for average, class_subject, subject in result.all()
     ]
 
-    verify_url = f"{settings.public_base_url}{settings.api_v1_prefix}/report-cards/verify/{verification_code}"
+    verify_url = f"{settings.public_web_base_url}/verify/{verification_code}"
 
     return {
         "school": {"name": school.name, "logo_data_uri": logo_data_uri},

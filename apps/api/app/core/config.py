@@ -31,5 +31,9 @@ class Settings(BaseSettings):
     # Aucun hébergeur n'est encore choisi (règle Phase 0) — reste configurable via env var.
     public_base_url: str = "http://localhost:8000"
 
+    # URL de base de l'app web (Next.js) — le QR des bulletins pointe vers sa page de
+    # vérification publique (/verify/{code}), pas directement vers l'endpoint API JSON.
+    public_web_base_url: str = "http://localhost:3000"
+
 
 settings = Settings()
