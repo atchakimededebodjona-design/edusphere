@@ -16,6 +16,11 @@ out/
 *.tsbuildinfo
 .turbo/
 
+# --- Playwright (e2e) ---
+playwright-report/
+test-results/
+blob-report/
+
 # --- Expo / React Native ---
 .expo/
 .expo-shared/
