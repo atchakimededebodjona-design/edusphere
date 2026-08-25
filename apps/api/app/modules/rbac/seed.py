@@ -95,3 +95,18 @@ PHASE4_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "TEACHER": ["grades.read", "grades.manage"],
     "STAFF": ["grades.read"],
 }
+
+# --- Phase 5 (bulletins) --------------------------------------------------------
+PHASE5_PERMISSIONS: dict[str, str] = {
+    "report_cards.read": "Consulter et télécharger les bulletins",
+    "report_cards.manage": "Créer des modèles, générer et publier les bulletins",
+}
+
+PHASE5_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["report_cards.read", "report_cards.manage"],
+    "PLATFORM_SUPPORT": ["report_cards.read"],
+    "SCHOOL_ADMIN": ["report_cards.read", "report_cards.manage"],
+    "DIRECTOR": ["report_cards.read", "report_cards.manage"],
+    "TEACHER": ["report_cards.read"],
+    "STAFF": ["report_cards.read"],
+}

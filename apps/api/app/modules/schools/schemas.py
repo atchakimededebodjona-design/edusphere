@@ -16,6 +16,7 @@ class SchoolOut(BaseModel):
     email: str | None
     timezone: str
     currency: str
+    logo_path: str | None
     created_at: datetime
     updated_at: datetime
 

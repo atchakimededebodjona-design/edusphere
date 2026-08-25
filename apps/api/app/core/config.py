@@ -27,5 +27,9 @@ class Settings(BaseSettings):
     storage_provider: str = "local"
     storage_local_path: str = "./storage"
 
+    # URL de base utilisée pour construire les liens de vérification QR des bulletins (Phase 5).
+    # Aucun hébergeur n'est encore choisi (règle Phase 0) — reste configurable via env var.
+    public_base_url: str = "http://localhost:8000"
+
 
 settings = Settings()

@@ -24,6 +24,7 @@ class School(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Africa/Lome")
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="XOF")
+    logo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

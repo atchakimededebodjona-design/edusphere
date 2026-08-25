@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.storage import storage
 from app.modules.schools.models import School
 from app.modules.schools.schemas import SchoolCreate, SchoolOut, SchoolUpdate
 
@@ -70,6 +71,28 @@ async def update_school(
         setattr(school, field, value)
 
     # refresh() AVANT commit — voir commentaire dans create_school() ci-dessus.
+    await db.flush()
+    await db.refresh(school)
+    await db.commit()
+    return school
+
+
+@router.post("/{school_id}/logo", response_model=SchoolOut)
+async def upload_school_logo(
+    school_id: uuid.UUID, db: DbSession, current_user: CurrentUser, file: UploadFile = File(...)
+) -> School:
+    school = await db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="School not found")
+    await ensure_permission(
+        db, current_user, "schools.manage", organization_id=school.organization_id, school_id=school.id
+    )
+
+    content = await file.read()
+    storage_path = f"schools/{school.id}/logo_{uuid.uuid4().hex}_{file.filename}"
+    await storage.upload(storage_path, content)
+
+    school.logo_path = storage_path
     await db.flush()
     await db.refresh(school)
     await db.commit()

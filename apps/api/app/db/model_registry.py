@@ -20,6 +20,7 @@ from app.modules.grades.models import (  # noqa: F401
 )
 from app.modules.organizations.models import Organization  # noqa: F401
 from app.modules.rbac.models import Permission, Role, RolePermission, UserRole  # noqa: F401
+from app.modules.report_cards.models import ReportCard, ReportCardTemplate  # noqa: F401
 from app.modules.schools.models import School  # noqa: F401
 from app.modules.students.models import (  # noqa: F401
     Guardian,
