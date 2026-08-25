@@ -2,14 +2,23 @@
 
 Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 
-> **Statut : Phase 5 — Bulletins scolaires.** Côté API (FastAPI), les phases
-> 0 à 5 sont livrées : bootstrap, auth + multi-tenancy, administration
-> scolaire, élèves, académique (notes/moyennes/classement) et génération de
-> bulletins PDF avec vérification par QR code. Côté web (Next.js), seules les
-> pages d'authentification existent ; le reste de l'interface (écoles,
-> élèves, académique, bulletins) reste à construire. L'app mobile est encore
-> au stade de scaffold. Voir
-> [docs/architecture/overview.md](docs/architecture/overview.md).
+> **Statut : phases 0 à 5 livrées, API et web.** Côté API (FastAPI) :
+> bootstrap, auth + multi-tenancy, administration scolaire, élèves,
+> académique (notes/moyennes/classement) et génération de bulletins PDF
+> avec vérification par QR code. Côté web (Next.js) : session persistante
+> et layout protégé, puis une interface complète pour chaque module —
+> École, Configuration académique, Élèves, Notes, Bulletins (génération,
+> publication, téléchargement, page publique de vérification par QR).
+> L'app mobile est encore au stade de scaffold, rien n'y est construit.
+>
+> Manques connus, volontairement hors périmètre pour l'instant :
+> - import CSV/Excel en masse des élèves (l'endpoint API existe et est
+>   testé, l'écran web reste à faire) ;
+> - affectation d'enseignants à une classe-matière (bloqué en amont :
+>   aucun endpoint API ne liste/recherche les utilisateurs d'une école) ;
+> - app mobile non démarrée.
+>
+> Voir [docs/architecture/overview.md](docs/architecture/overview.md).
 
 ## Structure du monorepo
 
@@ -111,6 +120,6 @@ filesystem local pour le développement.
 
 ## Prochaine étape
 
-Construire l'interface web (Next.js) pour les phases déjà livrées côté API
-(administration scolaire, élèves, académique, bulletins), aujourd'hui
-uniquement accessibles via l'API.
+Combler l'un des manques listés ci-dessus (import CSV élèves, module
+utilisateurs pour l'affectation d'enseignants, ou démarrage de l'app
+mobile), ou entamer une nouvelle phase métier (ex. paiements).

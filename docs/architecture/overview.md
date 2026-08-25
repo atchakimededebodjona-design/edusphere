@@ -47,6 +47,15 @@ filesystem local. Une implémentation compatible S3 (ou autre) pourra être
 ajoutée plus tard sans modifier le code appelant. Le choix définitif
 d'hébergeur sera tranché avant la phase de déploiement production.
 
+**Note (phases 2-5)** : `get_url()` reste défini dans l'interface mais
+n'est pas la voie utilisée en pratique pour exposer un fichier au
+navigateur — chaque module qui en a eu besoin (logo d'école, photo/
+documents élève, PDF de bulletin) a ajouté son propre endpoint `GET`
+authentifié qui lit les octets via `storage.download()` et les retourne
+directement (`Response(content=..., media_type=...)`), protégé par
+`ensure_permission`. Ce choix garde le contrôle d'accès au niveau de
+l'API plutôt que de dépendre d'URLs signées ou publiques.
+
 ## Infrastructure locale
 
 - **PostgreSQL 16** et **Redis 7** tournent via Docker Compose
