@@ -6,6 +6,11 @@
     "node": ">=20"
   },
   "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "@types/react": "18.3.3"
+    }
+  },
   "scripts": {
     "dev:web": "pnpm --filter @edusphere/web dev",
     "dev:mobile": "pnpm --filter @edusphere/mobile start",
