@@ -2,18 +2,18 @@
 
 Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 
-> **Statut : phases 0 à 5 livrées, API et web.** Côté API (FastAPI) :
-> bootstrap, auth + multi-tenancy, administration scolaire, élèves,
-> académique (notes/moyennes/classement), génération de bulletins PDF avec
-> vérification par QR code, et gestion des utilisateurs par école (création
-> de comptes, rôles). Côté web (Next.js) : session persistante et layout
-> protégé, puis une interface complète pour chaque module — École,
-> Configuration académique (avec affectation d'enseignants aux classes),
-> Élèves (avec import CSV/Excel), Notes, Bulletins, Utilisateurs.
-> L'app mobile est encore au stade de scaffold, rien n'y est construit.
->
-> Manque connu, volontairement hors périmètre pour l'instant :
-> - app mobile non démarrée.
+> **Statut : phases 0 à 5 livrées, API, web et un premier périmètre
+> mobile.** Côté API (FastAPI) : bootstrap, auth + multi-tenancy,
+> administration scolaire, élèves, académique (notes/moyennes/classement),
+> génération de bulletins PDF avec vérification par QR code, et gestion des
+> utilisateurs par école (création de comptes, rôles). Côté web (Next.js) :
+> session persistante et layout protégé, puis une interface complète pour
+> chaque module — École, Configuration académique (avec affectation
+> d'enseignants aux classes), Élèves (avec import CSV/Excel), Notes,
+> Bulletins, Utilisateurs. Côté mobile (Expo/React Native) : espace
+> Enseignant — mes classes affectées, matières, évaluations, saisie de
+> notes ; les autres rôles (parent/élève, admin) et la création
+> d'évaluation depuis mobile restent hors périmètre pour l'instant.
 >
 > Voir [docs/architecture/overview.md](docs/architecture/overview.md).
 
@@ -106,7 +106,11 @@ pnpm --filter @edusphere/web build
 
 ## Variables d'environnement
 
-Voir [.env.example](.env.example). Ne jamais committer `.env`.
+Voir [.env.example](.env.example) (API/web/Docker) et
+[apps/mobile/.env.example](apps/mobile/.env.example) (`EXPO_PUBLIC_API_URL`
+— l'URL à utiliser dépend de la cible : simulateur iOS, émulateur Android
+ou appareil physique, voir le commentaire dans le fichier). Ne jamais
+committer `.env`.
 
 ## Stockage de fichiers
 
@@ -117,5 +121,6 @@ filesystem local pour le développement.
 
 ## Prochaine étape
 
-Démarrer l'app mobile, ou entamer une nouvelle phase métier (ex.
-paiements).
+Étendre l'app mobile à d'autres rôles (parent/élève, admin) ou d'autres
+écrans enseignant (création d'évaluation), ou entamer une nouvelle phase
+métier (ex. paiements).
