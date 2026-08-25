@@ -218,6 +218,58 @@ async def test_photo_and_document_upload(client: AsyncClient) -> None:
     assert delete_response.status_code == 204
 
 
+async def test_download_student_photo(client: AsyncClient) -> None:
+    data = await register_school(client, "studentphotoget")
+    token = await _login(client, data["user"]["email"])
+    headers = {"Authorization": f"Bearer {token}"}
+    school_id = data["school"]["id"]
+
+    student = await _create_student(client, headers, school_id)
+
+    not_found = await client.get(f"/api/v1/students/{student['id']}/photo", headers=headers)
+    assert not_found.status_code == 404
+
+    await client.post(
+        f"/api/v1/students/{student['id']}/photo",
+        headers=headers,
+        files={"file": ("photo.jpg", io.BytesIO(b"fake-jpeg-bytes"), "image/jpeg")},
+    )
+
+    photo_response = await client.get(f"/api/v1/students/{student['id']}/photo", headers=headers)
+    assert photo_response.status_code == 200
+    assert photo_response.headers["content-type"] == "image/jpeg"
+    assert photo_response.content == b"fake-jpeg-bytes"
+
+
+async def test_download_student_document(client: AsyncClient) -> None:
+    data = await register_school(client, "studentdocget")
+    token = await _login(client, data["user"]["email"])
+    headers = {"Authorization": f"Bearer {token}"}
+    school_id = data["school"]["id"]
+
+    student = await _create_student(client, headers, school_id)
+    doc_response = await client.post(
+        f"/api/v1/students/{student['id']}/documents",
+        headers=headers,
+        data={"document_type": "birth_certificate"},
+        files={"file": ("certificate.pdf", io.BytesIO(b"fake-pdf-bytes"), "application/pdf")},
+    )
+    document = doc_response.json()
+
+    download_response = await client.get(
+        f"/api/v1/students/{student['id']}/documents/{document['id']}", headers=headers
+    )
+    assert download_response.status_code == 200
+    assert download_response.headers["content-type"] == "application/pdf"
+    assert download_response.content == b"fake-pdf-bytes"
+    assert "certificate.pdf" in download_response.headers["content-disposition"]
+
+    unknown_response = await client.get(
+        f"/api/v1/students/{student['id']}/documents/00000000-0000-0000-0000-000000000000", headers=headers
+    )
+    assert unknown_response.status_code == 404
+
+
 async def test_csv_import_with_duplicates_and_errors(client: AsyncClient) -> None:
     data = await register_school(client, "studentimport")
     token = await _login(client, data["user"]["email"])

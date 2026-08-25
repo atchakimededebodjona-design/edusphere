@@ -1,6 +1,7 @@
+import mimetypes
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -191,6 +192,18 @@ async def upload_student_photo(
     return student
 
 
+@router.get("/students/{student_id}/photo")
+async def get_student_photo(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> Response:
+    student = await _get_student_or_404(db, student_id)
+    if student.photo_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student photo not found")
+    await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
+
+    content = await storage.download(student.photo_path)
+    media_type = mimetypes.guess_type(student.photo_path)[0] or "application/octet-stream"
+    return Response(content=content, media_type=media_type)
+
+
 # --- Documents ---------------------------------------------------------------------
 @router.post("/students/{student_id}/documents", response_model=StudentDocumentOut, status_code=status.HTTP_201_CREATED)
 async def upload_student_document(
@@ -230,6 +243,26 @@ async def list_student_documents(student_id: uuid.UUID, db: DbSession, current_u
     await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
     result = await db.execute(select(StudentDocument).where(StudentDocument.student_id == student_id))
     return list(result.scalars().all())
+
+
+@router.get("/students/{student_id}/documents/{document_id}")
+async def download_student_document(
+    student_id: uuid.UUID, document_id: uuid.UUID, db: DbSession, current_user: CurrentUser
+) -> Response:
+    student = await _get_student_or_404(db, student_id)
+    await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
+
+    document = await db.get(StudentDocument, document_id)
+    if document is None or document.student_id != student_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    content = await storage.download(document.file_path)
+    media_type = mimetypes.guess_type(document.original_filename)[0] or "application/octet-stream"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{document.original_filename}"'},
+    )
 
 
 @router.delete("/students/{student_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)

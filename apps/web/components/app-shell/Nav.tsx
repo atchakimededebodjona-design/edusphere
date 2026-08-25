@@ -14,6 +14,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Tableau de bord" },
   { href: "/school", label: "École", permission: "schools.read" },
   { href: "/academics", label: "Académique", permission: "academics.read" },
+  { href: "/students", label: "Élèves", permission: "students.read" },
 ];
 
 export function Nav() {
@@ -25,7 +26,7 @@ export function Nav() {
   return (
     <nav className="flex w-56 flex-col gap-1 border-r border-slate-200 bg-white p-4">
       {items.map((item) => {
-        const active = pathname === item.href;
+        const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
         return (
           <Link
             key={item.href}
