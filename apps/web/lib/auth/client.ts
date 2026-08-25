@@ -1,4 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { API_URL, ApiError, apiFetch, parseErrorDetail } from "@/lib/api/client";
+import { clearStoredTokens, getStoredTokens } from "@/lib/auth/session";
+
+export { ApiError };
 
 export type TokenPair = {
   access_token: string;
@@ -17,25 +20,24 @@ export type RegisterPayload = {
   admin_password: string;
 };
 
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-  ) {
-    super(message);
-  }
-}
+export type RoleAssignment = {
+  role_code: string;
+  organization_id: string | null;
+  school_id: string | null;
+};
 
-async function parseErrorDetail(response: Response): Promise<string> {
-  try {
-    const body = await response.json();
-    if (typeof body.detail === "string") return body.detail;
-    if (Array.isArray(body.detail)) return body.detail.map((d: { msg: string }) => d.msg).join(", ");
-  } catch {
-    // ignore
-  }
-  return `Request failed with status ${response.status}`;
-}
+export type Me = {
+  user: {
+    id: string;
+    email: string;
+    full_name: string;
+    phone: string | null;
+    is_active: boolean;
+    is_platform_admin: boolean;
+  };
+  roles: RoleAssignment[];
+  permissions: string[];
+};
 
 export async function login(email: string, password: string): Promise<TokenPair> {
   const response = await fetch(`${API_URL}/api/v1/auth/login`, {
@@ -54,5 +56,38 @@ export async function register(payload: RegisterPayload): Promise<{ tokens: Toke
     body: JSON.stringify(payload),
   });
   if (!response.ok) throw new ApiError(await parseErrorDetail(response), response.status);
+  return response.json();
+}
+
+export async function refresh(refreshToken: string): Promise<TokenPair> {
+  const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  if (!response.ok) throw new ApiError(await parseErrorDetail(response), response.status);
+  return response.json();
+}
+
+export async function logout(): Promise<void> {
+  const stored = getStoredTokens();
+  if (stored) {
+    // Best-effort : la session locale est effacée même si l'appel de révocation échoue
+    // (réseau coupé, refresh token déjà expiré, etc.).
+    try {
+      await fetch(`${API_URL}/api/v1/auth/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: stored.refresh_token }),
+      });
+    } catch {
+      // ignore
+    }
+  }
+  clearStoredTokens();
+}
+
+export async function me(): Promise<Me> {
+  const response = await apiFetch("/api/v1/auth/me");
   return response.json();
 }

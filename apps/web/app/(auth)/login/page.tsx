@@ -1,12 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { ApiError, login } from "@/lib/auth/client";
+import { useRouter } from "next/navigation";
+import { ApiError } from "@/lib/auth/client";
+import { useAuth } from "@/lib/auth/useAuth";
 
 export default function LoginPage() {
+  const { login } = useAuth();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: React.FormEvent) {
@@ -15,7 +19,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(email, password);
-      setStatus("success");
+      router.push("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");
@@ -49,7 +53,6 @@ export default function LoginPage() {
         >
           {status === "loading" ? "Connexion..." : "Se connecter"}
         </button>
-        {status === "success" && <p className="text-sm text-green-700">Connecté avec succès.</p>}
         {error && <p className="text-sm text-red-700">{error}</p>}
       </form>
     </main>

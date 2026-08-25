@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ApiError, register, type RegisterPayload } from "@/lib/auth/client";
+import { useAuth } from "@/lib/auth/useAuth";
 
 const initialForm: RegisterPayload = {
   organization_name: "",
@@ -15,8 +17,10 @@ const initialForm: RegisterPayload = {
 };
 
 export default function RegisterPage() {
+  const { login } = useAuth();
+  const router = useRouter();
   const [form, setForm] = useState<RegisterPayload>(initialForm);
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
   function update(field: keyof RegisterPayload) {
@@ -30,7 +34,10 @@ export default function RegisterPage() {
     setError(null);
     try {
       await register(form);
-      setStatus("success");
+      // register() ne persiste pas la session (voir lib/auth/client.ts) — on ré-authentifie via
+      // le contexte pour hydrater la session et /me avec les mêmes identifiants.
+      await login(form.admin_email, form.admin_password);
+      router.push("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");
@@ -102,7 +109,6 @@ export default function RegisterPage() {
         >
           {status === "loading" ? "Création..." : "Créer mon compte"}
         </button>
-        {status === "success" && <p className="text-sm text-green-700">École créée avec succès.</p>}
         {error && <p className="text-sm text-red-700">{error}</p>}
       </form>
     </main>

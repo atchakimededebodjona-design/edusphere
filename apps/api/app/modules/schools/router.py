@@ -1,6 +1,7 @@
+import mimetypes
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -97,3 +98,17 @@ async def upload_school_logo(
     await db.refresh(school)
     await db.commit()
     return school
+
+
+@router.get("/{school_id}/logo")
+async def get_school_logo(school_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> Response:
+    school = await db.get(School, school_id)
+    if school is None or school.logo_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="School logo not found")
+    await ensure_permission(
+        db, current_user, "schools.read", organization_id=school.organization_id, school_id=school.id
+    )
+
+    content = await storage.download(school.logo_path)
+    media_type = mimetypes.guess_type(school.logo_path)[0] or "application/octet-stream"
+    return Response(content=content, media_type=media_type)
