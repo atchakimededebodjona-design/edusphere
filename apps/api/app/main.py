@@ -11,6 +11,7 @@ from app.modules.rbac.router import router as rbac_router
 from app.modules.report_cards.router import router as report_cards_router
 from app.modules.schools.router import router as schools_router
 from app.modules.students.router import router as students_router
+from app.modules.users.router import router as users_router
 
 app = FastAPI(title="EduSphere API", version="0.0.0")
 
@@ -31,3 +32,4 @@ app.include_router(academics_router, prefix=settings.api_v1_prefix, tags=["acade
 app.include_router(students_router, prefix=settings.api_v1_prefix, tags=["students"])
 app.include_router(grades_router, prefix=settings.api_v1_prefix, tags=["grades"])
 app.include_router(report_cards_router, prefix=settings.api_v1_prefix, tags=["report_cards"])
+app.include_router(users_router, prefix=f"{settings.api_v1_prefix}/users", tags=["users"])

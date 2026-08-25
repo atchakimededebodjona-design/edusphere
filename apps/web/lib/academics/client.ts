@@ -105,6 +105,13 @@ export type ClassSubject = {
   created_at: string;
 };
 
+export type TeacherAssignment = {
+  id: string;
+  user_id: string;
+  class_subject_id: string;
+  created_at: string;
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -169,5 +176,14 @@ export const classSubjects = {
     postJson<ClassSubject>(`/api/v1/classes/${classId}/subjects`, payload),
   remove: async (classId: string, classSubjectId: string): Promise<void> => {
     await apiFetch(`/api/v1/classes/${classId}/subjects/${classSubjectId}`, { method: "DELETE" });
+  },
+};
+
+export const teacherAssignments = {
+  list: (classId: string) => getJson<TeacherAssignment[]>(`/api/v1/classes/${classId}/teachers`),
+  create: (classId: string, payload: { user_id: string; subject_id: string }) =>
+    postJson<TeacherAssignment>(`/api/v1/classes/${classId}/teachers`, payload),
+  remove: async (classId: string, assignmentId: string): Promise<void> => {
+    await apiFetch(`/api/v1/classes/${classId}/teachers/${assignmentId}`, { method: "DELETE" });
   },
 };

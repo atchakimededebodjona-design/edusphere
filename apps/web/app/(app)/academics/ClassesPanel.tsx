@@ -8,18 +8,118 @@ import {
   schoolClasses,
   academicYears,
   subjects as subjectsClient,
+  teacherAssignments,
   type ClassSubject,
   type EducationLevel,
   type SchoolClass,
   type AcademicYear,
   type Subject,
+  type TeacherAssignment,
 } from "@/lib/academics/client";
+import { users as usersClient, type UserWithRoles } from "@/lib/users/client";
+
+function TeacherAssignmentEditor({
+  classId,
+  classSubjectId,
+  subjectId,
+  assignments,
+  teachers,
+  canManage,
+  onAssignmentsChange,
+}: {
+  classId: string;
+  classSubjectId: string;
+  subjectId: string;
+  assignments: TeacherAssignment[];
+  teachers: UserWithRoles[];
+  canManage: boolean;
+  onAssignmentsChange: (next: TeacherAssignment[]) => void;
+}) {
+  const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const forThisSubject = assignments.filter((a) => a.class_subject_id === classSubjectId);
+  const assignedUserIds = new Set(forThisSubject.map((a) => a.user_id));
+  const available = teachers.filter((t) => !assignedUserIds.has(t.user.id));
+
+  async function handleAssign(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedTeacherId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await teacherAssignments.create(classId, { user_id: selectedTeacherId, subject_id: subjectId });
+      onAssignmentsChange([...assignments, created]);
+      setSelectedTeacherId("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove(assignmentId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await teacherAssignments.remove(classId, assignmentId);
+      onAssignmentsChange(assignments.filter((a) => a.id !== assignmentId));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ml-4 mt-1 flex flex-col gap-1 border-l border-slate-200 pl-3 text-xs">
+      {forThisSubject.map((a) => {
+        const teacher = teachers.find((t) => t.user.id === a.user_id);
+        return (
+          <div key={a.id} className="flex items-center justify-between gap-2">
+            <span>Enseignant : {teacher?.user.full_name ?? a.user_id}</span>
+            {canManage && (
+              <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="text-red-700 underline">
+                Retirer
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {forThisSubject.length === 0 && <span className="text-slate-400">Aucun enseignant affecté.</span>}
+      {canManage && available.length > 0 && (
+        <form onSubmit={handleAssign} className="flex items-center gap-2">
+          <select
+            value={selectedTeacherId}
+            onChange={(e) => setSelectedTeacherId(e.target.value)}
+            required
+            className="rounded border border-slate-300 px-1.5 py-0.5"
+          >
+            <option value="">—</option>
+            {available.map((t) => (
+              <option key={t.user.id} value={t.user.id}>
+                {t.user.full_name}
+              </option>
+            ))}
+          </select>
+          <button type="submit" disabled={busy} className="rounded bg-slate-900 px-2 py-0.5 text-white disabled:opacity-50">
+            Assigner
+          </button>
+        </form>
+      )}
+      {error && <p className="text-red-700">{error}</p>}
+    </div>
+  );
+}
 
 function ClassSubjectsEditor({
+  schoolId,
   schoolClass,
   subjects,
   canManage,
 }: {
+  schoolId: string;
   schoolClass: SchoolClass;
   subjects: Subject[];
   canManage: boolean;
@@ -29,10 +129,14 @@ function ClassSubjectsEditor({
   const [coefficient, setCoefficient] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
+  const [teachers, setTeachers] = useState<UserWithRoles[]>([]);
 
   useEffect(() => {
     void classSubjects.list(schoolClass.id).then(setAttached);
-  }, [schoolClass.id]);
+    void teacherAssignments.list(schoolClass.id).then(setAssignments);
+    void usersClient.list(schoolId).then((all) => setTeachers(all.filter((u) => u.roles.some((r) => r.role_code === "TEACHER"))));
+  }, [schoolClass.id, schoolId]);
 
   const available = useMemo(
     () => subjects.filter((s) => !attached?.some((a) => a.subject_id === s.id)),
@@ -78,15 +182,26 @@ function ClassSubjectsEditor({
         {attached.map((a) => {
           const subject = subjects.find((s) => s.id === a.subject_id);
           return (
-            <li key={a.id} className="flex items-center justify-between rounded border border-slate-200 px-3 py-1.5 text-sm">
-              <span>
-                {subject?.name ?? a.subject_id} — coefficient {a.coefficient}
-              </span>
-              {canManage && (
-                <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="text-xs text-red-700 underline">
-                  Retirer
-                </button>
-              )}
+            <li key={a.id} className="rounded border border-slate-200 px-3 py-1.5 text-sm">
+              <div className="flex items-center justify-between">
+                <span>
+                  {subject?.name ?? a.subject_id} — coefficient {a.coefficient}
+                </span>
+                {canManage && (
+                  <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="text-xs text-red-700 underline">
+                    Retirer
+                  </button>
+                )}
+              </div>
+              <TeacherAssignmentEditor
+                classId={schoolClass.id}
+                classSubjectId={a.id}
+                subjectId={a.subject_id}
+                assignments={assignments}
+                teachers={teachers}
+                canManage={canManage}
+                onAssignmentsChange={setAssignments}
+              />
             </li>
           );
         })}
@@ -293,7 +408,9 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
       )}
       {error && <p className="text-sm text-red-700">{error}</p>}
 
-      {selectedClass && <ClassSubjectsEditor schoolClass={selectedClass} subjects={subjects} canManage={canManage} />}
+      {selectedClass && (
+        <ClassSubjectsEditor schoolId={schoolId} schoolClass={selectedClass} subjects={subjects} canManage={canManage} />
+      )}
     </div>
   );
 }
