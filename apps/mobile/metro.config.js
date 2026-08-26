@@ -7,14 +7,17 @@ const path = require("path");
 // monorepo documentée par Expo : https://docs.expo.dev/guides/monorepos/
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, "../..");
+const workspaceNodeModules = path.resolve(workspaceRoot, "node_modules");
 
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = [workspaceRoot];
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, "node_modules"),
-  path.resolve(workspaceRoot, "node_modules"),
-];
+// Surveiller uniquement node_modules à la racine (où vit le store .pnpm), pas tout le
+// monorepo : watchFolders=[workspaceRoot] laissait Metro voir aussi apps/web (et son propre
+// react@18.3.1, différent de react@18.2.0 ici), ce qui produisait deux copies de React vues
+// comme des modules Haste distincts — plantage "Invalid hook call" / useId of null dès qu'un
+// composant utilisant des hooks se rendait (ex. l'overlay d'erreur de @expo/metro-runtime).
+config.watchFolders = [workspaceNodeModules];
+config.resolver.nodeModulesPaths = [path.resolve(projectRoot, "node_modules"), workspaceNodeModules];
 // PAS de disableHierarchicalLookup ici : ce réglage (recommandé pour les monorepos Yarn/npm à
 // node_modules aplati) casse la résolution avec pnpm, dont chaque paquet garde ses propres
 // dépendances directes dans son propre node_modules imbriqué (ex. expo-modules-core à côté de
