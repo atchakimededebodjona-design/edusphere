@@ -9,6 +9,7 @@ import { StudentPhoto } from "@/app/(app)/students/[id]/StudentPhoto";
 import { StudentGuardians } from "@/app/(app)/students/[id]/StudentGuardians";
 import { StudentEnrollments } from "@/app/(app)/students/[id]/StudentEnrollments";
 import { StudentDocuments } from "@/app/(app)/students/[id]/StudentDocuments";
+import { StudentFinancialSummary } from "@/app/(app)/students/[id]/StudentFinancialSummary";
 
 const STATUS_OPTIONS: { value: StudentStatus; label: string }[] = [
   { value: "ACTIVE", label: "Actif" },
@@ -23,6 +24,7 @@ export default function StudentDetailPage() {
   const studentId = params.id;
   const { permissions } = useAuth();
   const canManage = permissions.includes("students.manage");
+  const canManageFees = permissions.includes("payments.manage");
 
   const [student, setStudent] = useState<Student | null>(null);
   const [form, setForm] = useState({
@@ -183,6 +185,9 @@ export default function StudentDetailPage() {
       <StudentGuardians studentId={studentId} schoolId={student.school_id} canManage={canManage} />
       <StudentEnrollments studentId={studentId} schoolId={student.school_id} canManage={canManage} />
       <StudentDocuments studentId={studentId} canManage={canManage} />
+      {permissions.includes("fees.read") && (
+        <StudentFinancialSummary studentId={studentId} schoolId={student.school_id} canManage={canManageFees} />
+      )}
     </div>
   );
 }

@@ -54,6 +54,39 @@ export type ReportCard = {
   published_at: string | null;
 };
 
+// --- Frais scolaires (Phase 19) — lecture seule uniquement, voir PHASE_19_DISCOVERY.md §21.
+export type StudentFeeStatus = "PENDING" | "PARTIALLY_PAID" | "PAID" | "CANCELLED";
+
+export type StudentFeeWithBalance = {
+  id: string;
+  fee_schedule_name: string;
+  amount_due: string;
+  amount_paid: string;
+  balance: string;
+  due_date: string | null;
+  status: StudentFeeStatus;
+};
+
+export type FinancialSummary = {
+  student_id: string;
+  total_due: string;
+  total_paid: string;
+  balance: string;
+  fees: StudentFeeWithBalance[];
+};
+
+export type PaymentMethod = "CASH" | "BANK_TRANSFER" | "CHEQUE" | "AGENT_DEPOSIT" | "OTHER";
+export type PaymentStatus = "COMPLETED" | "CANCELLED";
+
+export type Payment = {
+  id: string;
+  amount: string;
+  method: PaymentMethod;
+  paid_at: string;
+  status: PaymentStatus;
+  receipt_number: string;
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -70,6 +103,14 @@ export const childAttendance = {
 
 export const childGrades = {
   get: (studentId: string) => getJson<StudentAverages>(`/api/v1/parent/children/${studentId}/grades`),
+};
+
+export const childFees = {
+  get: (studentId: string) => getJson<FinancialSummary>(`/api/v1/parent/children/${studentId}/fees`),
+};
+
+export const childPayments = {
+  list: (studentId: string) => getJson<Payment[]>(`/api/v1/parent/children/${studentId}/payments`),
 };
 
 async function downloadReportCardPdf(studentId: string, reportCardId: string): Promise<string> {
@@ -117,5 +158,46 @@ export const childReportCards = {
     const canShare = await Sharing.isAvailableAsync();
     if (!canShare) throw new ApiError("Le partage de fichiers n'est pas disponible sur cet appareil.", 0);
     await Sharing.shareAsync(fileUri, { mimeType: "application/pdf", dialogTitle: "Bulletin" });
+  },
+};
+
+async function downloadReceiptPdf(studentId: string, paymentId: string): Promise<string> {
+  const path = `/api/v1/parent/children/${studentId}/payments/${paymentId}/receipt.pdf`;
+  const fileUri = `${FileSystem.cacheDirectory}recu-${paymentId}.pdf`;
+
+  const tokens = await getStoredTokens();
+  if (!tokens) throw new ApiError("Session expirée — reconnectez-vous.", 401);
+
+  let result = await FileSystem.downloadAsync(`${API_URL}${path}`, fileUri, {
+    headers: { Authorization: `Bearer ${tokens.access_token}` },
+  });
+
+  if (result.status === 401) {
+    const refreshed = await refreshTokens();
+    if (!refreshed) throw new ApiError("Session expirée — reconnectez-vous.", 401);
+    const refreshedTokens = await getStoredTokens();
+    result = await FileSystem.downloadAsync(`${API_URL}${path}`, fileUri, {
+      headers: { Authorization: `Bearer ${refreshedTokens?.access_token}` },
+    });
+  }
+
+  if (result.status === 404) throw new ApiError("Ce reçu n'est plus disponible.", 404);
+  if (result.status !== 200) throw new ApiError("Impossible de récupérer ce reçu.", result.status);
+
+  return fileUri;
+}
+
+export const childReceipts = {
+  /** Même motif que childReportCards.openPdf — pas de paiement/déclaration possible côté parent,
+   * uniquement la consultation d'un reçu déjà émis (Phase 19 §21). */
+  openPdf: async (studentId: string, paymentId: string): Promise<void> => {
+    if (Platform.OS === "web") {
+      throw new ApiError("Le téléchargement de reçu est disponible sur l'application mobile uniquement.", 0);
+    }
+    const fileUri = await downloadReceiptPdf(studentId, paymentId);
+
+    const canShare = await Sharing.isAvailableAsync();
+    if (!canShare) throw new ApiError("Le partage de fichiers n'est pas disponible sur cet appareil.", 0);
+    await Sharing.shareAsync(fileUri, { mimeType: "application/pdf", dialogTitle: "Reçu" });
   },
 };

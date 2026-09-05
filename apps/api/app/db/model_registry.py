@@ -12,6 +12,7 @@ from app.modules.academics.models import (  # noqa: F401
 )
 from app.modules.attendance.models import AttendanceRecord, AttendanceSession  # noqa: F401
 from app.modules.auth.models import PasswordResetToken, UserSession  # noqa: F401
+from app.modules.fees.models import FeeCategory, FeeSchedule, Payment, PaymentAllocation, StudentFee  # noqa: F401
 from app.modules.grades.models import (  # noqa: F401
     Assessment,
     AssessmentResult,

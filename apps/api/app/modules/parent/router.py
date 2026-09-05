@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import CurrentUser, DbSession
 from app.core.storage import storage
 from app.modules.attendance import service as attendance_service
+from app.modules.fees import service as fees_service
+from app.modules.fees.models import Payment
+from app.modules.fees.schemas import FinancialSummaryOut, PaymentOut
 from app.modules.grades.models import StudentSubjectAverage, StudentTermAverage
 from app.modules.grades.schemas import StudentAveragesOut, StudentSubjectAverageOut, StudentTermAverageOut
 from app.modules.parent import service
@@ -100,4 +103,41 @@ async def download_child_report_card_pdf(
         content=content,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="bulletin_{student.matricule}.pdf"'},
+    )
+
+
+# --- Frais scolaires (Phase 19) — lecture seule uniquement ------------------------
+# Aucune permission RBAC vérifiée ici (comme le reste de ce module) : le lien Guardian via
+# _get_child_or_404 est le seul contrôle d'accès. Le parent ne peut jamais créer, modifier,
+# annuler un paiement ni déclarer un règlement — voir PHASE_19_DISCOVERY.md §21.
+@router.get("/parent/children/{student_id}/fees", response_model=FinancialSummaryOut)
+async def get_child_fees(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> FinancialSummaryOut:
+    student = await _get_child_or_404(db, current_user, student_id)
+    return await fees_service.compute_financial_summary(db, student)
+
+
+@router.get("/parent/children/{student_id}/payments", response_model=list[PaymentOut])
+async def list_child_payments(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> list[Payment]:
+    student = await _get_child_or_404(db, current_user, student_id)
+    result = await db.execute(
+        select(Payment).where(Payment.student_id == student.id).order_by(Payment.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/parent/children/{student_id}/payments/{payment_id}/receipt.pdf")
+async def download_child_receipt_pdf(
+    student_id: uuid.UUID, payment_id: uuid.UUID, db: DbSession, current_user: CurrentUser
+) -> Response:
+    student = await _get_child_or_404(db, current_user, student_id)
+
+    payment = await db.get(Payment, payment_id)
+    if payment is None or payment.student_id != student.id or payment.pdf_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt not found")
+
+    content = await storage.download(payment.pdf_path)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{payment.receipt_number}.pdf"'},
     )

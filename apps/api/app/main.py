@@ -11,6 +11,7 @@ from app.core.logging_config import configure_logging
 from app.modules.academics.router import router as academics_router
 from app.modules.attendance.router import router as attendance_router
 from app.modules.auth.router import router as auth_router
+from app.modules.fees.router import router as fees_router
 from app.modules.grades.router import router as grades_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.parent.router import router as parent_router
@@ -68,4 +69,5 @@ app.include_router(grades_router, prefix=settings.api_v1_prefix, tags=["grades"]
 app.include_router(report_cards_router, prefix=settings.api_v1_prefix, tags=["report_cards"])
 app.include_router(users_router, prefix=f"{settings.api_v1_prefix}/users", tags=["users"])
 app.include_router(attendance_router, prefix=settings.api_v1_prefix, tags=["attendance"])
+app.include_router(fees_router, prefix=settings.api_v1_prefix, tags=["fees"])
 app.include_router(parent_router, prefix=settings.api_v1_prefix, tags=["parent"])

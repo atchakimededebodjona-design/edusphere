@@ -19,6 +19,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/attendance", label: "Présences", permission: "attendance.read" },
   { href: "/grades", label: "Notes", permission: "grades.read" },
   { href: "/report-cards", label: "Bulletins", permission: "report_cards.read" },
+  { href: "/fees", label: "Frais scolaires", permission: "fees.read" },
+  { href: "/payments", label: "Paiements", permission: "payments.read" },
   { href: "/users", label: "Utilisateurs", permission: "users.read" },
 ];
 

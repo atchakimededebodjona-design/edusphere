@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { childAttendance, childGrades, childReportCards } from "@/lib/parent/client";
+import { childAttendance, childFees, childGrades, childPayments, childReceipts, childReportCards } from "@/lib/parent/client";
 import { ApiError } from "@/lib/api/client";
 import { useAsyncData } from "@/lib/api/useAsyncData";
 import { ErrorView } from "@/components/ScreenState";
 
-const TABS = ["Présence", "Notes", "Bulletins"] as const;
+const TABS = ["Présence", "Notes", "Bulletins", "Frais"] as const;
 type Tab = (typeof TABS)[number];
 
 function AttendanceTab({ studentId }: { studentId: string }) {
@@ -123,6 +123,81 @@ function ReportCardsTab({ studentId }: { studentId: string }) {
   );
 }
 
+function FeesTab({ studentId }: { studentId: string }) {
+  const summaryState = useAsyncData(() => childFees.get(studentId), [studentId]);
+  const paymentsState = useAsyncData(() => childPayments.list(studentId), [studentId]);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+
+  async function handleOpenReceipt(paymentId: string) {
+    setOpeningId(paymentId);
+    setOpenError(null);
+    try {
+      await childReceipts.openPdf(studentId, paymentId);
+    } catch (err) {
+      setOpenError(err instanceof ApiError ? err.message : "Le téléchargement du reçu a échoué.");
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
+  if (summaryState.status === "loading" || paymentsState.status === "loading") {
+    return <ActivityIndicator style={styles.tabLoading} />;
+  }
+  if (summaryState.status === "error") return <ErrorView message={summaryState.message} onRetry={summaryState.retry} />;
+  if (paymentsState.status === "error") return <ErrorView message={paymentsState.message} onRetry={paymentsState.retry} />;
+
+  const summary = summaryState.data;
+  const payments = paymentsState.data;
+
+  return (
+    <View style={styles.tabContent}>
+      <View style={styles.statRow}>
+        <Text style={styles.statLabel}>Total dû</Text>
+        <Text style={styles.statValue}>{summary.total_due}</Text>
+      </View>
+      <View style={styles.statRow}>
+        <Text style={styles.statLabel}>Total payé</Text>
+        <Text style={styles.statValue}>{summary.total_paid}</Text>
+      </View>
+      <View style={styles.statRow}>
+        <Text style={styles.statLabel}>Solde</Text>
+        <Text style={styles.statValue}>{summary.balance}</Text>
+      </View>
+
+      {openError && <Text style={[styles.errorText, styles.errorBanner]}>{openError}</Text>}
+
+      <FlatList
+        style={styles.reportCardList}
+        data={payments}
+        keyExtractor={(item) => item.id}
+        ListEmptyComponent={<Text style={styles.empty}>Aucun paiement enregistré pour le moment.</Text>}
+        renderItem={({ item }) => (
+          <View style={styles.row}>
+            <Text style={styles.rowTitle}>Montant : {item.amount}</Text>
+            <Text style={styles.rowSubtitle}>Reçu {item.receipt_number} — {item.paid_at}</Text>
+            {item.status === "CANCELLED" ? (
+              <Text style={styles.rowSubtitle}>Paiement annulé</Text>
+            ) : (
+              <TouchableOpacity
+                style={styles.pdfButton}
+                disabled={openingId === item.id}
+                onPress={() => void handleOpenReceipt(item.id)}
+              >
+                {openingId === item.id ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.pdfButtonText}>Voir le reçu</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
 export default function ChildDetailScreen() {
   const { studentId } = useLocalSearchParams<{ studentId: string }>();
   const [tab, setTab] = useState<Tab>("Présence");
@@ -142,6 +217,7 @@ export default function ChildDetailScreen() {
       {tab === "Présence" && <AttendanceTab studentId={studentId} />}
       {tab === "Notes" && <GradesTab studentId={studentId} />}
       {tab === "Bulletins" && <ReportCardsTab studentId={studentId} />}
+      {tab === "Frais" && <FeesTab studentId={studentId} />}
     </View>
   );
 }

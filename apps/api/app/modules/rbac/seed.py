@@ -125,3 +125,22 @@ PHASE6_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "TEACHER": ["attendance.read", "attendance.manage"],
     "STAFF": ["attendance.read"],
 }
+
+# --- Phase 19 (frais scolaires / paiements) -------------------------------------
+# Décision produit validée : SCHOOL_ADMIN et DIRECTOR configurent les frais ET gèrent les
+# paiements ; ACCOUNTANT (jusqu'ici sans permission de domaine, voir PHASE_13_DISCOVERY.md)
+# gère les paiements mais ne configure pas les barèmes — voir PHASE_19_DISCOVERY.md §18.
+PHASE19_PERMISSIONS: dict[str, str] = {
+    "fees.read": "Consulter les catégories, barèmes et obligations financières des élèves",
+    "fees.manage": "Configurer les catégories/barèmes de frais et ajuster une obligation financière",
+    "payments.read": "Consulter les paiements et les reçus",
+    "payments.manage": "Enregistrer et annuler des paiements",
+}
+
+PHASE19_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["fees.read", "fees.manage", "payments.read", "payments.manage"],
+    "PLATFORM_SUPPORT": ["fees.read", "payments.read"],
+    "SCHOOL_ADMIN": ["fees.read", "fees.manage", "payments.read", "payments.manage"],
+    "DIRECTOR": ["fees.read", "fees.manage", "payments.read", "payments.manage"],
+    "ACCOUNTANT": ["fees.read", "payments.read", "payments.manage"],
+}
