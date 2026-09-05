@@ -7,8 +7,10 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <AuthProvider>
         <Stack screenOptions={{ headerStyle: { backgroundColor: "#0f172a" }, headerTintColor: "#fff" }}>
+          <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="(teacher)" options={{ headerShown: false }} />
+          <Stack.Screen name="(parent)" options={{ headerShown: false }} />
         </Stack>
       </AuthProvider>
     </SafeAreaProvider>

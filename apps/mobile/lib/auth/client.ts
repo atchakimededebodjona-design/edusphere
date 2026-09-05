@@ -1,5 +1,9 @@
-import { API_URL, ApiError, apiFetch } from "@/lib/api/client";
+import { API_URL, ApiError, apiFetch, fetchWithTimeout } from "@/lib/api/client";
 import { clearStoredTokens, getStoredTokens } from "@/lib/auth/session";
+
+// Best-effort (voir logout ci-dessous) : pas besoin d'attendre 15s pour terminer une déconnexion
+// locale si le serveur ne répond pas.
+const LOGOUT_TIMEOUT_MS = 5000;
 
 export { ApiError };
 
@@ -40,7 +44,7 @@ async function parseErrorDetail(response: Response): Promise<string> {
 }
 
 export async function login(email: string, password: string): Promise<TokenPair> {
-  const response = await fetch(`${API_URL}/api/v1/auth/login`, {
+  const response = await fetchWithTimeout(`${API_URL}/api/v1/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -53,13 +57,18 @@ export async function logout(): Promise<void> {
   const stored = await getStoredTokens();
   if (stored) {
     try {
-      await fetch(`${API_URL}/api/v1/auth/logout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: stored.refresh_token }),
-      });
+      await fetchWithTimeout(
+        `${API_URL}/api/v1/auth/logout`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: stored.refresh_token }),
+        },
+        LOGOUT_TIMEOUT_MS,
+      );
     } catch {
-      // best-effort — la session locale est effacée même si la révocation échoue
+      // best-effort — la session locale est effacée même si la révocation échoue (réseau,
+      // timeout, ou tout autre échec serveur)
     }
   }
   await clearStoredTokens();

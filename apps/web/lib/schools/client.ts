@@ -24,6 +24,25 @@ export async function getSchool(schoolId: string): Promise<School> {
   return response.json();
 }
 
+export async function listSchools(organizationId: string): Promise<School[]> {
+  const response = await apiFetch(`/api/v1/schools?organization_id=${organizationId}`);
+  return response.json();
+}
+
+export type SchoolDashboard = {
+  active_student_count: number;
+  attendance_rate: number | null;
+  grade_completeness_rate: number | null;
+  published_report_card_count: number;
+  current_term_id: string | null;
+  current_term_name: string | null;
+};
+
+export async function getSchoolDashboard(schoolId: string): Promise<SchoolDashboard> {
+  const response = await apiFetch(`/api/v1/schools/${schoolId}/dashboard`);
+  return response.json();
+}
+
 export async function updateSchool(schoolId: string, patch: SchoolUpdate): Promise<School> {
   const response = await apiFetch(`/api/v1/schools/${schoolId}`, {
     method: "PATCH",

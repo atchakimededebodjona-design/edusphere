@@ -63,3 +63,11 @@ infrastructure/docker/redisdata/
 
 # --- Local file storage (StorageProvider, dev only) ---
 apps/api/storage/
+
+# --- PostgreSQL backups (Phase 7.3 — contient des données réelles, jamais committé) ---
+backups/
+
+# --- Couverture de tests (Phase 18 — aucun outil de coverage utilisé à ce jour, exclu par
+# précaution si l'un est introduit plus tard) ---
+coverage/
+htmlcov/

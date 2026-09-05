@@ -113,7 +113,7 @@ function TeacherAssignmentEditor({
   );
 }
 
-function ClassSubjectsEditor({
+export function ClassSubjectsEditor({
   schoolId,
   schoolClass,
   subjects,

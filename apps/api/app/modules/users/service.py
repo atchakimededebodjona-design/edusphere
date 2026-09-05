@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.email import send_email_best_effort
 from app.core.security import generate_opaque_token, hash_opaque_token, hash_password
 from app.modules.auth.models import PasswordResetToken
 from app.modules.rbac.models import PLATFORM_ROLE_CODES, Role, UserRole
@@ -66,7 +67,16 @@ async def create_or_attach_user(
                 expires_at=datetime.now(timezone.utc) + timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
             )
         )
-        # Email non intégré (voir auth/service.py::request_password_reset) — même règle ici.
+        await send_email_best_effort(
+            user.email,
+            "Bienvenue sur EduSphere — activez votre compte",
+            f"Un compte a été créé pour vous sur EduSphere. Pour définir votre mot de passe, "
+            f"ouvrez ce lien (valable {PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes) :\n"
+            f"{settings.public_web_base_url}/reset-password?token={raw_token}",
+        )
+        # dev_reset_token même règle que auth/service.py::request_password_reset (dev_token) :
+        # exposé hors production pour les tests/le développement, un email est envoyé dans tous
+        # les cas (voir app/core/email.py — LocalEmailProvider en dev, SMTP en production).
         dev_reset_token = None if settings.environment == "production" else raw_token
 
     duplicate_result = await db.execute(

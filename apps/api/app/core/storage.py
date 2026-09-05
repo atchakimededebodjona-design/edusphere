@@ -12,6 +12,28 @@ from pathlib import Path
 from app.core.config import settings
 
 
+class StoragePathError(ValueError):
+    """Chemin de stockage refusé — sa résolution finale sortirait du répertoire autorisé
+    (Phase 13 — traversée de chemin, voir LocalStorageProvider._resolve)."""
+
+
+def safe_filename(name: str | None) -> str:
+    """Réduit un nom de fichier fourni par l'utilisateur (upload) à un simple composant de nom,
+    sans séparateur ni référence `.`/`..` — jamais vide. Ne garantit PAS à elle seule l'absence de
+    traversée de chemin : c'est `LocalStorageProvider._resolve` (résolution + vérification de
+    confinement) qui fait réellement autorité. Sert ici à garder un nom lisible sur le disque et à
+    éviter qu'un nom de fichier contenant des séparateurs ne crée des sous-dossiers inattendus.
+    `os.path.basename`/`Path.name` ne coupent que sur `/` sous POSIX (l'environnement d'exécution
+    réel de ce backend) — on normalise aussi `\\` explicitement pour ne pas dépendre de cette
+    spécificité de plateforme."""
+    if not name:
+        return "file"
+    candidate = name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if candidate in ("", ".", ".."):
+        return "file"
+    return candidate
+
+
 class StorageProvider(ABC):
     @abstractmethod
     async def upload(self, path: str, content: bytes) -> str:
@@ -34,11 +56,23 @@ class LocalStorageProvider(StorageProvider):
     """Implémentation filesystem local, utilisée en développement."""
 
     def __init__(self, base_path: str) -> None:
-        self._base_path = Path(base_path)
+        self._base_path = Path(base_path).resolve()
         self._base_path.mkdir(parents=True, exist_ok=True)
 
     def _resolve(self, path: str) -> Path:
-        return self._base_path / path
+        # Phase 13 (HIGH #1 — traversée de chemin) : `path` peut contenir un nom de fichier fourni
+        # par l'utilisateur (voir students/router.py, schools/router.py) et n'est pas fiable en
+        # entrée. `Path.__truediv__` ne filtre RIEN — ni les séquences `..`, ni un `path` qui se
+        # trouve être un chemin absolu (auquel cas cet opérateur ignore silencieusement
+        # `self._base_path` et renvoie directement ce chemin absolu). Un simple retrait de
+        # sous-chaîne (`replace("../", "")`) serait contournable par imbrication/chemins alternatifs
+        # — la seule garantie robuste est de résoudre le chemin final réellement visé puis de
+        # vérifier qu'il reste À L'INTÉRIEUR de `self._base_path`, quelle qu'ait été la forme de
+        # l'entrée.
+        resolved = (self._base_path / path).resolve()
+        if not resolved.is_relative_to(self._base_path):
+            raise StoragePathError(f"Resolved path escapes storage root: {path!r}")
+        return resolved
 
     async def upload(self, path: str, content: bytes) -> str:
         target = self._resolve(path)

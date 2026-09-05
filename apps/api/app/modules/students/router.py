@@ -7,8 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
-from app.core.storage import storage
+from app.core.storage import safe_filename, storage
 from app.modules.academics.models import SchoolClass
+from app.modules.rbac.models import Role, UserRole
 from app.modules.schools.models import School
 from app.modules.students import service
 from app.modules.students.models import (
@@ -34,6 +35,7 @@ from app.modules.students.schemas import (
     StudentOut,
     StudentUpdate,
 )
+from app.modules.users.models import User
 
 router = APIRouter()
 
@@ -182,7 +184,7 @@ async def upload_student_photo(
     await ensure_permission(db, current_user, "students.manage", organization_id=student.organization_id, school_id=student.school_id)
 
     content = await file.read()
-    storage_path = f"students/{student.id}/photo_{uuid.uuid4().hex}_{file.filename}"
+    storage_path = f"students/{student.id}/photo_{uuid.uuid4().hex}_{safe_filename(file.filename)}"
     await storage.upload(storage_path, content)
 
     student.photo_path = storage_path
@@ -217,7 +219,7 @@ async def upload_student_document(
     await ensure_permission(db, current_user, "students.manage", organization_id=student.organization_id, school_id=student.school_id)
 
     content = await file.read()
-    storage_path = f"students/{student.id}/documents/{uuid.uuid4().hex}_{file.filename}"
+    storage_path = f"students/{student.id}/documents/{uuid.uuid4().hex}_{safe_filename(file.filename)}"
     await storage.upload(storage_path, content)
 
     document = StudentDocument(
@@ -313,6 +315,27 @@ async def create_guardian(payload: GuardianCreate, db: DbSession, current_user: 
     return guardian
 
 
+async def _ensure_valid_guardian_user_link(db: AsyncSession, guardian: Guardian, user_id: uuid.UUID) -> None:
+    """Un Guardian ne peut être lié qu'à un compte existant, ayant réellement un rôle PARENT
+    dans l'école de ce Guardian (Phase 7 — décision validée : aucune permission RBAC nouvelle,
+    le lien lui-même EST le contrôle d'accès). Le doublon (school_id, user_id) est laissé à la
+    contrainte d'unicité partielle de la migration 0008, remontée en 409 par l'appelant."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
+
+    result = await db.execute(
+        select(UserRole)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(UserRole.user_id == user_id, Role.code == "PARENT", UserRole.school_id == guardian.school_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User does not have a PARENT role in this guardian's school",
+        )
+
+
 @router.patch("/guardians/{guardian_id}", response_model=GuardianOut)
 async def update_guardian(
     guardian_id: uuid.UUID, payload: GuardianUpdate, db: DbSession, current_user: CurrentUser
@@ -320,10 +343,20 @@ async def update_guardian(
     guardian = await _get_guardian_or_404(db, guardian_id)
     await ensure_permission(db, current_user, "students.manage", organization_id=guardian.organization_id, school_id=guardian.school_id)
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    update_data = payload.model_dump(exclude_unset=True)
+    if "user_id" in update_data and update_data["user_id"] is not None:
+        await _ensure_valid_guardian_user_link(db, guardian, update_data["user_id"])
+
+    for field, value in update_data.items():
         setattr(guardian, field, value)
 
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="This user is already linked to a guardian in this school"
+        ) from exc
     await db.refresh(guardian)
     await db.commit()
     return guardian

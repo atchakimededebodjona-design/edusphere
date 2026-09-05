@@ -110,3 +110,18 @@ PHASE5_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "TEACHER": ["report_cards.read"],
     "STAFF": ["report_cards.read"],
 }
+
+# --- Phase 6 (présence / assiduité) ---------------------------------------------
+PHASE6_PERMISSIONS: dict[str, str] = {
+    "attendance.read": "Consulter les présences, absences et retards",
+    "attendance.manage": "Faire l'appel et corriger les présences (un enseignant reste limité aux classes où il a une affectation)",
+}
+
+PHASE6_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["attendance.read", "attendance.manage"],
+    "PLATFORM_SUPPORT": ["attendance.read"],
+    "SCHOOL_ADMIN": ["attendance.read", "attendance.manage"],
+    "DIRECTOR": ["attendance.read", "attendance.manage"],
+    "TEACHER": ["attendance.read", "attendance.manage"],
+    "STAFF": ["attendance.read"],
+}

@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.academics.models import AcademicTerm, ClassSubject
@@ -229,3 +229,34 @@ async def apply_results_and_recompute(
         await db.refresh(row)
     await db.commit()
     return saved_results
+
+
+async def compute_school_completeness(db: AsyncSession, school_id: uuid.UUID, academic_term_id: uuid.UUID) -> dict:
+    """Complétude de saisie des notes (Phase 10, tableau de bord admin) : pour les évaluations
+    créées ce terme, résultats attendus (un par élève activement inscrit dans la classe de
+    l'évaluation, cf. `student_enrollments.status == "ACTIVE"`, même filtre que
+    `recompute_term_average`/`recompute_term_ranks` ci-dessus) vs résultats effectivement
+    saisis (`assessment_results`). N'invente pas de notion de "note attendue" au-delà de ce que
+    le modèle représente déjà (une inscription active = un résultat attendu par évaluation)."""
+    expected_result = await db.execute(
+        select(func.count())
+        .select_from(Assessment)
+        .join(ClassSubject, ClassSubject.id == Assessment.class_subject_id)
+        .join(
+            StudentEnrollment,
+            (StudentEnrollment.class_id == ClassSubject.class_id) & (StudentEnrollment.status == "ACTIVE"),
+        )
+        .where(Assessment.school_id == school_id, Assessment.academic_term_id == academic_term_id)
+    )
+    expected = expected_result.scalar_one()
+
+    actual_result = await db.execute(
+        select(func.count())
+        .select_from(AssessmentResult)
+        .join(Assessment, Assessment.id == AssessmentResult.assessment_id)
+        .where(Assessment.school_id == school_id, Assessment.academic_term_id == academic_term_id)
+    )
+    actual = actual_result.scalar_one()
+
+    rate = round(actual / expected * 100, 2) if expected > 0 else None
+    return {"expected_results": expected, "actual_results": actual, "completeness_rate": rate}

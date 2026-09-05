@@ -6,9 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
-from app.core.storage import storage
+from app.core.storage import safe_filename, storage
+from app.modules.schools import service
 from app.modules.schools.models import School
-from app.modules.schools.schemas import SchoolCreate, SchoolOut, SchoolUpdate
+from app.modules.schools.schemas import SchoolCreate, SchoolDashboardOut, SchoolOut, SchoolUpdate
 
 router = APIRouter()
 
@@ -57,6 +58,21 @@ async def get_school(school_id: uuid.UUID, db: DbSession, current_user: CurrentU
     return school
 
 
+@router.get("/{school_id}/dashboard", response_model=SchoolDashboardOut)
+async def get_school_dashboard(school_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> SchoolDashboardOut:
+    """Tableau de bord admin (Phase 10) — nécessite une lecture sur les 4 domaines agrégés,
+    pas de nouvelle permission (voir docs/phases/PHASE_10_IMPLEMENTATION.md)."""
+    school = await db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="School not found")
+    for permission in ("students.read", "attendance.read", "grades.read", "report_cards.read"):
+        await ensure_permission(
+            db, current_user, permission, organization_id=school.organization_id, school_id=school.id
+        )
+    summary = await service.get_dashboard_summary(db, school)
+    return SchoolDashboardOut(**summary)
+
+
 @router.patch("/{school_id}", response_model=SchoolOut)
 async def update_school(
     school_id: uuid.UUID, payload: SchoolUpdate, db: DbSession, current_user: CurrentUser
@@ -90,7 +106,7 @@ async def upload_school_logo(
     )
 
     content = await file.read()
-    storage_path = f"schools/{school.id}/logo_{uuid.uuid4().hex}_{file.filename}"
+    storage_path = f"schools/{school.id}/logo_{uuid.uuid4().hex}_{safe_filename(file.filename)}"
     await storage.upload(storage_path, content)
 
     school.logo_path = storage_path

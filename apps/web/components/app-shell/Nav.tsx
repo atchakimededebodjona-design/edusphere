@@ -12,9 +12,11 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Tableau de bord" },
+  { href: "/setup", label: "Mise en place", permission: "academics.manage" },
   { href: "/school", label: "École", permission: "schools.read" },
   { href: "/academics", label: "Académique", permission: "academics.read" },
   { href: "/students", label: "Élèves", permission: "students.read" },
+  { href: "/attendance", label: "Présences", permission: "attendance.read" },
   { href: "/grades", label: "Notes", permission: "grades.read" },
   { href: "/report-cards", label: "Bulletins", permission: "report_cards.read" },
   { href: "/users", label: "Utilisateurs", permission: "users.read" },

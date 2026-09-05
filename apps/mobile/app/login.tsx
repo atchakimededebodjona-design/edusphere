@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Redirect } from "expo-router";
-import { ApiError } from "@/lib/auth/client";
+import { toUserMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/useAuth";
 
 export default function LoginScreen() {
@@ -19,7 +19,7 @@ export default function LoginScreen() {
     try {
       await login(email, password);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+      setError(toUserMessage(err));
     } finally {
       setSubmitting(false);
     }

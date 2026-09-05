@@ -34,6 +34,7 @@ export default function TeacherLayout() {
     >
       <Stack.Screen name="index" options={{ title: "Mes classes" }} />
       <Stack.Screen name="classes/[classId]" options={{ title: "Classe" }} />
+      <Stack.Screen name="attendance/[classId]" options={{ title: "Faire l'appel" }} />
       <Stack.Screen name="assessments/[classSubjectId]" options={{ title: "Évaluations" }} />
       <Stack.Screen name="assessments/[assessmentId]/grades" options={{ title: "Saisie des notes" }} />
     </Stack>

@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect } from "react";
+import { FlatList, StyleSheet, Text, TouchableOpacity } from "react-native";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { assessments, type Assessment } from "@/lib/grades/client";
+import { assessments } from "@/lib/grades/client";
+import { useAsyncData } from "@/lib/api/useAsyncData";
+import { ErrorView, LoadingView } from "@/components/ScreenState";
 
 export default function AssessmentsScreen() {
   const { classSubjectId, termId, classId, subjectName } = useLocalSearchParams<{
@@ -12,24 +14,19 @@ export default function AssessmentsScreen() {
   }>();
   const router = useRouter();
   const navigation = useNavigation();
-  const [items, setItems] = useState<Assessment[] | null>(null);
 
   useEffect(() => {
     navigation.setOptions({ title: subjectName ?? "Évaluations" });
   }, [navigation, subjectName]);
 
-  useEffect(() => {
-    if (!classSubjectId || !termId) return;
-    void assessments.list(classSubjectId, termId).then(setItems);
-  }, [classSubjectId, termId]);
+  const state = useAsyncData(() => assessments.list(classSubjectId as string, termId as string), [classSubjectId, termId], {
+    enabled: Boolean(classSubjectId && termId),
+  });
 
-  if (items === null) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
+  if (state.status === "error") return <ErrorView message={state.message} onRetry={state.retry} />;
+  if (state.status === "loading") return <LoadingView />;
+
+  const items = state.data;
 
   return (
     <FlatList
@@ -61,7 +58,6 @@ export default function AssessmentsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f8fafc" },
   empty: { textAlign: "center", marginTop: 32, color: "#94a3b8" },
   row: { padding: 16, borderBottomWidth: 1, borderBottomColor: "#e2e8f0", backgroundColor: "#fff" },
   rowTitle: { fontSize: 16, color: "#0f172a", fontWeight: "600" },
