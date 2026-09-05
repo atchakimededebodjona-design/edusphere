@@ -46,6 +46,27 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Phase 20 — en-têtes de sécurité de base, communs à toute API HTTP moderne, sans risque de
+    casser un client existant (aucun ne change le comportement fonctionnel des réponses).
+
+    Volontairement absents ici, avec justification (voir docs/deployment/PRODUCTION_CONFIGURATION.md) :
+    - `Strict-Transport-Security` (HSTS) : n'a de sens que posé par le reverse proxy qui termine
+      réellement le TLS — c'est lui, pas cette application, qui sait si la connexion est HTTPS.
+      L'ajouter ici avant qu'un tel proxy existe serait une affirmation non vérifiable.
+    - `Content-Security-Policy` : la cible pertinente est l'app Next.js (apps/web), pas cette API
+      qui ne sert que du JSON — une CSP mal calibrée peut casser silencieusement Next.js sans un
+      environnement de build/hébergement réel pour la valider (consigne explicite Phase 20).
+    """
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    return response
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Phase 16 — garantit une ligne de log exploitable pour toute exception qui échapperait

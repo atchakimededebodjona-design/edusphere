@@ -15,6 +15,7 @@ warning ; l'authentification elle-même (bcrypt, JWT) n'en dépend à aucun mome
 """
 
 import logging
+import uuid
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
@@ -127,3 +128,133 @@ async def register_forgot_password_attempt(email: str) -> None:
             await client.expire(key, settings.forgot_password_rate_limit_window_seconds)
     except RedisError:
         logger.warning("Rate limiting Redis indisponible — demande non comptabilisée (forgot-password).")
+
+
+# --- Inscription / création d'organisation (Phase 20) -----------------------------------------
+#
+# Clé IP, volontairement différente du choix "par email" du login : /auth/register ne représente
+# jamais un trafic légitime récurrent partagé par toute une école (contrairement au login, où de
+# nombreux utilisateurs réels d'une même école se connectent en continu depuis la même IP) — créer
+# une nouvelle organisation est un événement rare, une seule fois par client réel. Une même IP
+# dépassant le seuil est donc un signal d'abus (création automatisée de comptes), pas un usage
+# scolaire normal. Compte CHAQUE tentative (comme forgot-password), succès ou échec : le volume de
+# tentatives est le signal, pas seulement les échecs.
+
+
+def _register_key(ip: str) -> str:
+    return f"register_attempts:{ip}"
+
+
+async def ensure_register_not_rate_limited(ip: str | None) -> None:
+    """À appeler AVANT `auth/service.py::register`."""
+    key = _register_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.register_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            retry_after = max(ttl, 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many registration attempts from this network. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (register).")
+
+
+async def register_registration_attempt(ip: str | None) -> None:
+    key = _register_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.register_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (register).")
+
+
+# --- Refresh de token (Phase 20) ---------------------------------------------------------------
+#
+# Clé user_id, PAS le refresh token lui-même : le token tourne à chaque appel (rotation déjà en
+# place depuis la Phase 1, `auth/service.py::refresh` révoque l'ancien et en émet un nouveau) —
+# une clé basée sur le token ne verrait donc jamais plus d'une requête par fenêtre, quel que soit
+# le débit réel d'appels. `user_id` reste stable sur toute la chaîne de rotations et, comme pour le
+# login, évite qu'une IP d'école partagée pénalise des utilisateurs légitimes. Vérifié seulement
+# APRÈS validation du refresh token présenté (session active, utilisateur trouvé) et AVANT toute
+# mutation (révocation/émission) : un jeton invalide ne consomme jamais le compteur d'un vrai
+# utilisateur, et une requête rate-limitée ne brûle jamais le jeton encore valide du client.
+
+
+def _refresh_key(user_id: uuid.UUID) -> str:
+    return f"refresh_attempts:{user_id}"
+
+
+async def ensure_refresh_not_rate_limited(user_id: uuid.UUID) -> None:
+    key = _refresh_key(user_id)
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.refresh_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            retry_after = max(ttl, 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many refresh attempts. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (refresh).")
+
+
+async def register_refresh_attempt(user_id: uuid.UUID) -> None:
+    key = _refresh_key(user_id)
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.refresh_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (refresh).")
+
+
+# --- Vérification publique de bulletin (Phase 20) --------------------------------------------
+#
+# `GET /report-cards/verify/{code}` (report_cards/router.py) est public, non authentifié : la clé
+# IP est la seule disponible. Le code lui-même a 384 bits d'entropie (`generate_opaque_token` =
+# `secrets.token_urlsafe(48)`) — le brute-force reste infaisable indépendamment de cette limite ;
+# son seul rôle réel est de décourager un scraping automatisé à haut débit. Seuil volontairement
+# généreux (voir `config.py`) pour ne jamais bloquer plusieurs parents d'une même école scannant
+# chacun leur propre QR le même jour depuis le même réseau.
+
+
+def _report_card_verify_key(ip: str) -> str:
+    return f"report_card_verify_attempts:{ip}"
+
+
+async def ensure_report_card_verify_not_rate_limited(ip: str | None) -> None:
+    key = _report_card_verify_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.report_card_verify_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            retry_after = max(ttl, 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many verification attempts. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (report-card verify).")
+
+
+async def register_report_card_verify_attempt(ip: str | None) -> None:
+    key = _report_card_verify_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.report_card_verify_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (report-card verify).")

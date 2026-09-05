@@ -133,6 +133,14 @@ class StudentFee(Base):
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 20 (durcissement pré-pilote) : nullable — les lignes créées par `generate_student_fees`
+    # ne sont l'œuvre d'aucun utilisateur en particulier (action système déclenchée par un
+    # administrateur sur le barème, pas une modification de CETTE ligne). Renseigné uniquement par
+    # `PATCH /student-fees/{id}` (ajustement manuel), qui exige aussi une `note` non vide dès que
+    # `amount_due` change — voir fees/router.py::update_student_fee.
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

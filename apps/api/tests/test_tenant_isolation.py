@@ -69,7 +69,11 @@ async def test_admin_a_cannot_read_organization_b(client: AsyncClient) -> None:
         f"/api/v1/organizations/{school_b['organization']['id']}",
         headers={"Authorization": f"Bearer {token_a}"},
     )
-    assert response.status_code == 403
+    # Phase 20 : `organizations` a désormais RLS (comme `schools` depuis la Phase 1, voir
+    # test_admin_a_cannot_read_school_b ci-dessus, qui accepte déjà les deux codes pour la même
+    # raison) — la ligne de l'organisation B est invisible sous le contexte de A avant même que
+    # `ensure_permission` s'exécute, donc 404 plutôt que 403. Les deux valent isolation prouvée.
+    assert response.status_code in (403, 404)
 
 
 async def test_admin_a_cannot_create_school_under_organization_b(client: AsyncClient) -> None:

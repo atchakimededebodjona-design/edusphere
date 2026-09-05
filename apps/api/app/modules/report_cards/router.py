@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.rate_limit import ensure_report_card_verify_not_rate_limited, register_report_card_verify_attempt
 from app.core.storage import storage
 from app.modules.academics.models import AcademicTerm, SchoolClass
 from app.modules.report_cards import service
@@ -197,8 +198,17 @@ async def publish_report_card(report_card_id: uuid.UUID, db: DbSession, current_
 
 
 @router.get("/report-cards/verify/{code}", response_model=ReportCardVerifyOut)
-async def verify_report_card(code: str, db: DbSession) -> ReportCardVerifyOut:
-    """Endpoint public (pas d'authentification) — scanné depuis le QR code du bulletin papier."""
+async def verify_report_card(code: str, request: Request, db: DbSession) -> ReportCardVerifyOut:
+    """Endpoint public (pas d'authentification) — scanné depuis le QR code du bulletin papier.
+
+    Phase 20 — rate limiting par IP (voir app/core/rate_limit.py) : le code a 384 bits d'entropie,
+    le brute-force reste infaisable, mais rien ne protégeait auparavant contre un scraping
+    automatisé à haut débit de cet endpoint public.
+    """
+    ip = request.client.host if request.client else None
+    await ensure_report_card_verify_not_rate_limited(ip)
+    await register_report_card_verify_attempt(ip)
+
     report_card = await service.get_report_card_by_verification_code(db, code)
     if report_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown verification code")

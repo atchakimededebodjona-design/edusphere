@@ -41,6 +41,12 @@ async def update_organization(
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(organization, field, value)
 
-    await db.commit()
+    # Phase 20 — refresh() AVANT commit : `organizations` a désormais RLS (FORCE ROW LEVEL
+    # SECURITY), la ligne n'est visible que le temps de la transaction courante (le contexte
+    # tenant posé par apply_tenant_context/SET LOCAL expire au commit). Un refresh() après commit
+    # échouait silencieusement dès que RLS était active — même piège déjà documenté dans
+    # app/modules/schools/router.py::update_school et app/modules/auth/service.py::register.
+    await db.flush()
     await db.refresh(organization)
+    await db.commit()
     return organization

@@ -194,12 +194,28 @@ async def update_student_fee(student_fee_id: uuid.UUID, payload: StudentFeeUpdat
     if student_fee.status == "CANCELLED":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot adjust a cancelled fee")
 
+    # Phase 20 (traçabilité financière) : une note explicative est obligatoire dès qu'on modifie
+    # le montant dû — c'est une opération sensible qui doit toujours être justifiée, pas seulement
+    # attribuable (voir fees/models.py::StudentFee.updated_by).
+    if payload.amount_due is not None and not (payload.note and payload.note.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A note is required when adjusting the due amount",
+        )
+
+    changed = False
     if payload.amount_due is not None:
         student_fee.amount_due = payload.amount_due
+        changed = True
     if payload.due_date is not None:
         student_fee.due_date = payload.due_date
+        changed = True
     if payload.note is not None:
         student_fee.note = payload.note
+        changed = True
+
+    if changed:
+        student_fee.updated_by = current_user.id
 
     await db.flush()
     await db.refresh(student_fee)

@@ -73,6 +73,7 @@ class StudentFeeOut(BaseModel):
     due_date: date | None
     status: StudentFeeStatus
     note: str | None
+    updated_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
 
@@ -86,6 +87,9 @@ class StudentFeeBalanceOut(StudentFeeOut):
 class StudentFeeUpdate(BaseModel):
     amount_due: Decimal | None = Field(default=None, gt=0)
     due_date: date | None = None
+    # Phase 20 : obligatoire dès que `amount_due` est fourni (validé dans le router, pas ici, pour
+    # rester cohérent avec la convention déjà utilisée par ce module — validations croisées faites
+    # explicitement dans le handler plutôt que via un validator Pydantic dédié).
     note: str | None = Field(default=None, max_length=2000)
 
 

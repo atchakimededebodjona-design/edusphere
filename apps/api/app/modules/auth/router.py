@@ -7,8 +7,10 @@ from app.core.permissions import CurrentUser, DbSession, get_all_permission_code
 from app.core.rate_limit import (
     ensure_forgot_password_not_rate_limited,
     ensure_login_not_rate_limited,
+    ensure_register_not_rate_limited,
     register_failed_login_attempt,
     register_forgot_password_attempt,
+    register_registration_attempt,
     reset_login_attempts,
 )
 from app.modules.auth import service
@@ -35,7 +37,13 @@ def _client_ip(request: Request) -> str | None:
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
+async def register(payload: RegisterRequest, request: Request, db: DbSession) -> RegisterResponse:
+    ip = _client_ip(request)
+    await ensure_register_not_rate_limited(ip)
+    # Comptée avant toute validation métier (slug/email déjà pris, etc.) : le volume de tentatives
+    # est le signal recherché (création automatisée), pas seulement les échecs — voir
+    # app/core/rate_limit.py.
+    await register_registration_attempt(ip)
     organization, school, user, tokens = await service.register(db, payload)
     return RegisterResponse(
         organization=organization,  # type: ignore[arg-type]

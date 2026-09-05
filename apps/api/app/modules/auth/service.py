@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.email import send_email_best_effort
+from app.core.rate_limit import ensure_refresh_not_rate_limited, register_refresh_attempt
 from app.core.security import (
     create_access_token,
     generate_opaque_token,
@@ -180,6 +181,13 @@ async def refresh(db: AsyncSession, refresh_token: str, ip: str | None, user_age
     user = await db.get(User, session.user_id)
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+
+    # Phase 20 — vérifié seulement après validation du token présenté (session active, utilisateur
+    # trouvé) et AVANT toute mutation : un jeton invalide ne consomme jamais le compteur d'un vrai
+    # utilisateur, et une requête rate-limitée ne brûle jamais le jeton encore valide du client
+    # (voir app/core/rate_limit.py::ensure_refresh_not_rate_limited pour le choix de la clé user_id).
+    await ensure_refresh_not_rate_limited(user.id)
+    await register_refresh_attempt(user.id)
 
     session.revoked_at = datetime.now(timezone.utc)
     await db.commit()

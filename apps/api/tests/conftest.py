@@ -41,8 +41,32 @@ def unique_email(prefix: str) -> str:
     return f"{prefix}.{uuid.uuid4().hex[:10]}@edusphere-pytest.tg"
 
 
+async def _clear_register_rate_limit() -> None:
+    """Le rate limiting de /auth/register (Phase 20) est volontairement basé sur l'IP (voir
+    app/core/rate_limit.py) — une seule IP peut légitimement créer très peu d'organisations dans
+    la vraie vie, contrairement au login. Sous httpx `ASGITransport`, toutes les requêtes de toute
+    la suite de tests partagent la même IP factice : sans ce nettoyage, `register_school()` (appelé
+    des dizaines de fois par fichier de test, dans toute la suite) finirait par se heurter à cette
+    limite bien avant qu'aucun des tests dédiés au rate limiting ne s'exécute. Motif équivalent au
+    `_clear_key(email)` déjà utilisé dans test_auth_rate_limit.py, appliqué ici une fois pour
+    toutes dans le helper partagé plutôt que dans chaque test individuel. Tolérant à un Redis
+    injoignable (certains tests le rendent délibérément injoignable via monkeypatch) — un échec
+    ici ne doit jamais faire échouer `register_school()` elle-même."""
+    from redis.exceptions import RedisError
+
+    from app.core.rate_limit import _get_client as _get_rate_limit_client
+
+    try:
+        redis_client = _get_rate_limit_client()
+        async for key in redis_client.scan_iter(match="register_attempts:*"):
+            await redis_client.delete(key)
+    except RedisError:
+        pass
+
+
 async def register_school(client: AsyncClient, org_prefix: str = "org") -> dict:
     """Crée une organisation + école + SCHOOL_ADMIN via l'API et retourne la réponse complète."""
+    await _clear_register_rate_limit()
     payload = {
         "organization_name": f"{org_prefix} Group",
         "organization_slug": unique_slug(org_prefix),
