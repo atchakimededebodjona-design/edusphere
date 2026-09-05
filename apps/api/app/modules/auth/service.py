@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.email import send_email_best_effort
 from app.core.security import (
     create_access_token,
     generate_opaque_token,
@@ -24,6 +25,13 @@ from app.modules.schools.models import School
 from app.modules.users.models import User
 
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
+
+# Phase 13 (HIGH #2 — canal de fuite temporelle) : hash bcrypt précalculé une seule fois, au
+# chargement du module. `authenticate()` l'utilise pour payer un coût bcrypt identique que le
+# compte existe ou non, afin que la latence de réponse ne révèle plus l'existence d'un email. Le
+# mot de passe d'origine n'a aucune importance — ce hash n'est jamais comparé à une vraie entrée
+# utilisateur avec l'intention de réussir.
+_DUMMY_PASSWORD_HASH = hash_password("edusphere-timing-mitigation-placeholder")
 
 
 async def register(db: AsyncSession, payload: RegisterRequest) -> tuple[Organization, School, User, TokenPair]:
@@ -104,8 +112,20 @@ async def register(db: AsyncSession, payload: RegisterRequest) -> tuple[Organiza
 async def authenticate(db: AsyncSession, email: str, password: str) -> User:
     result = await db.execute(select(User).where(User.email == email.lower()))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active or not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    if user is None or not user.is_active:
+        # Phase 13 (HIGH #2) : coût bcrypt payé même quand il n'y a rien à vérifier, pour que
+        # cette branche prenne un temps comparable à un mot de passe invalide sur un compte actif
+        # ci-dessous — sans ce travail, un compte inexistant (ou désactivé) répondait nettement
+        # plus vite, ce qui constituait un oracle d'énumération de comptes malgré le message
+        # générique déjà en place.
+        verify_password(password, _DUMMY_PASSWORD_HASH)
+        raise invalid
+
+    if not verify_password(password, user.hashed_password):
+        raise invalid
 
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
@@ -192,10 +212,25 @@ async def revoke_session(db: AsyncSession, user_id: uuid.UUID, session_id: uuid.
 
 
 async def request_password_reset(db: AsyncSession, email: str) -> str | None:
-    """Retourne le token brut uniquement hors production (email non intégré en Phase 1)."""
+    """Retourne le token brut uniquement hors production (email non intégré en Phase 1).
+
+    Phase 13 (HIGH #2) : un travail équivalent (génération + hachage d'un token) est effectué
+    même pour un email inexistant, pour réduire l'écart de coût CPU par rapport à la branche
+    "compte existant" ci-dessous. Mitigation PARTIELLE, documentée comme telle (voir
+    PHASE_13_IMPLEMENTATION.md) : le principal facteur de latence restant — l'écriture en base
+    puis l'envoi de l'email, potentiellement un appel réseau SMTP variable — n'est pas équilibré
+    ici. Le faire proprement demanderait soit un délai artificiel disproportionné sur toutes les
+    requêtes, soit une file d'attente différée : les deux sont explicitement hors périmètre de
+    cette phase (pas de queue/worker sans besoin démontré). La limitation de débit déjà en place
+    (Phase 10.1 — 3 tentatives/15 min par email) reste la protection principale contre une
+    exploitation pratique de ce résidu."""
     result = await db.execute(select(User).where(User.email == email.lower()))
     user = result.scalar_one_or_none()
     if user is None:
+        # Travail factice de coût comparable à la préparation du token réel ci-dessous, sans
+        # écriture en base ni envoi d'email (jamais d'email supplémentaire pour un compte
+        # inexistant — voir docstring).
+        hash_opaque_token(generate_opaque_token())
         return None  # ne pas révéler si l'email existe
 
     raw_token = generate_opaque_token()
@@ -207,6 +242,14 @@ async def request_password_reset(db: AsyncSession, email: str) -> str | None:
     )
     db.add(reset_token)
     await db.commit()
+
+    await send_email_best_effort(
+        user.email,
+        "Réinitialisation de votre mot de passe EduSphere",
+        f"Pour définir un nouveau mot de passe, ouvrez ce lien (valable "
+        f"{PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes) :\n"
+        f"{settings.public_web_base_url}/reset-password?token={raw_token}",
+    )
 
     return None if settings.environment == "production" else raw_token
 

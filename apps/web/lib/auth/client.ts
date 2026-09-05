@@ -91,3 +91,21 @@ export async function me(): Promise<Me> {
   const response = await apiFetch("/api/v1/auth/me");
   return response.json();
 }
+
+export async function forgotPassword(email: string): Promise<void> {
+  const response = await fetch(`${API_URL}/api/v1/auth/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) throw new ApiError(await parseErrorDetail(response), response.status);
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  const response = await fetch(`${API_URL}/api/v1/auth/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+  if (!response.ok) throw new ApiError(await parseErrorDetail(response), response.status);
+}

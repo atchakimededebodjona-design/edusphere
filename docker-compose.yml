@@ -42,11 +42,35 @@ services:
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    volumes:
+      # Phase 14 — StorageProvider (app/core/storage.py) écrit sous STORAGE_LOCAL_PATH (./storage,
+      # résolu en /app/storage dans le conteneur : WORKDIR /app). Sans ce bind mount, chaque photo
+      # élève, document, logo école et PDF de bulletin vivait uniquement dans la couche writable
+      # du conteneur et disparaissait à toute recréation (`up --build`, `rm`, remplacement d'image).
+      # Chemin hôte déjà anticipé par le projet (voir apps/api/.gitignore et .dockerignore
+      # "storage") mais jamais réellement monté jusqu'ici.
+      - ./apps/api/storage:/app/storage
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      # Phase 16 — liveness (GET /health), pas readiness (GET /ready) : un check Docker doit
+      # décider s'il faut redémarrer LE CONTENEUR API, pas s'il faut redémarrer PostgreSQL (que
+      # /ready vérifierait). L'image (python:3.12-slim) n'a ni curl ni wget — urllib de la
+      # bibliothèque standard évite d'ajouter un paquet système juste pour ce check.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   web:
     build:

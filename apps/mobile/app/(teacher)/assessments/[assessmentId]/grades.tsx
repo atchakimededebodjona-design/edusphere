@@ -1,21 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import { ApiError } from "@/lib/api/client";
+import { toUserMessage } from "@/lib/api/client";
 import { results, type AssessmentResult } from "@/lib/grades/client";
 import { students as studentsClient, type Student } from "@/lib/students/client";
 import { useAuth } from "@/lib/auth/useAuth";
+import { useAsyncData } from "@/lib/api/useAsyncData";
+import { ErrorView, LoadingView } from "@/components/ScreenState";
 
 type RowValue = { score: string; is_absent: boolean };
+
+type GradeEntrySetup = {
+  roster: Student[];
+  existing: AssessmentResult[];
+};
+
+async function loadGradeEntrySetup(currentSchoolId: string, classId: string, assessmentId: string): Promise<GradeEntrySetup> {
+  const [studentList, existing] = await Promise.all([
+    studentsClient.list(currentSchoolId, classId),
+    results.list(assessmentId),
+  ]);
+  const roster = [...studentList].sort((a, b) => a.last_name.localeCompare(b.last_name));
+  return { roster, existing };
+}
 
 export default function GradeEntryScreen() {
   const { assessmentId, classId, name, maxScore } = useLocalSearchParams<{
@@ -27,7 +34,6 @@ export default function GradeEntryScreen() {
   const { currentSchoolId } = useAuth();
   const navigation = useNavigation();
 
-  const [roster, setRoster] = useState<Student[] | null>(null);
   const [values, setValues] = useState<Record<string, RowValue>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -37,23 +43,25 @@ export default function GradeEntryScreen() {
     navigation.setOptions({ title: name ?? "Saisie des notes" });
   }, [navigation, name]);
 
+  const enabled = Boolean(currentSchoolId && classId && assessmentId);
+  const state = useAsyncData(
+    () => loadGradeEntrySetup(currentSchoolId as string, classId as string, assessmentId as string),
+    [currentSchoolId, classId, assessmentId],
+    { enabled },
+  );
+
   useEffect(() => {
-    if (!currentSchoolId || !classId || !assessmentId) return;
-    void (async () => {
-      const [studentList, existing] = await Promise.all([
-        studentsClient.list(currentSchoolId, classId),
-        results.list(assessmentId),
-      ]);
-      const sorted = [...studentList].sort((a, b) => a.last_name.localeCompare(b.last_name));
-      setRoster(sorted);
-      const initial: Record<string, RowValue> = {};
-      for (const student of sorted) {
-        const row = existing.find((r: AssessmentResult) => r.student_id === student.id);
-        initial[student.id] = { score: row?.score != null ? String(row.score) : "", is_absent: row?.is_absent ?? false };
-      }
-      setValues(initial);
-    })();
-  }, [currentSchoolId, classId, assessmentId]);
+    if (state.status !== "success") return;
+    const initial: Record<string, RowValue> = {};
+    for (const student of state.data.roster) {
+      const row = state.data.existing.find((r) => r.student_id === student.id);
+      initial[student.id] = { score: row?.score != null ? String(row.score) : "", is_absent: row?.is_absent ?? false };
+    }
+    setValues(initial);
+    setSaved(false);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status === "success" ? state.data : null]);
 
   const maxScoreNumber = useMemo(() => Number(maxScore ?? 20), [maxScore]);
 
@@ -62,7 +70,8 @@ export default function GradeEntryScreen() {
   }
 
   async function handleSave() {
-    if (!roster) return;
+    if (state.status !== "success") return;
+    const { roster } = state.data;
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -78,19 +87,16 @@ export default function GradeEntryScreen() {
       await results.submit(assessmentId, entries);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+      setError(toUserMessage(err));
     } finally {
       setSaving(false);
     }
   }
 
-  if (roster === null) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
+  if (state.status === "error") return <ErrorView message={state.message} onRetry={state.retry} />;
+  if (state.status === "loading" || !enabled) return <LoadingView />;
+
+  const { roster } = state.data;
 
   return (
     <View style={styles.container}>
@@ -137,7 +143,6 @@ export default function GradeEntryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc", padding: 16, gap: 8 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f8fafc" },
   hint: { fontSize: 13, color: "#475569" },
   empty: { textAlign: "center", marginTop: 32, color: "#94a3b8" },
   row: {

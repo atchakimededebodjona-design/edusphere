@@ -53,6 +53,13 @@ class Guardian(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_emergency_contact: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Lien optionnel vers le compte utilisateur (rôle PARENT) de ce tuteur — Phase 7. Nullable :
+    # la grande majorité des tuteurs n'ont pas de compte EduSphere. Un même compte peut être lié
+    # à des Guardian de plusieurs écoles (fratrie répartie), jamais deux fois dans la même école
+    # (contrainte partielle côté migration).
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

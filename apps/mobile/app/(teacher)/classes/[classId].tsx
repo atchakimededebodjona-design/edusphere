@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   academicTerms,
@@ -14,55 +14,71 @@ import {
   type TeacherAssignment,
 } from "@/lib/academics/client";
 import { useAuth } from "@/lib/auth/useAuth";
+import { useAsyncData } from "@/lib/api/useAsyncData";
+import { ErrorView, LoadingView } from "@/components/ScreenState";
+
+type ClassDetail = {
+  schoolClass: SchoolClass;
+  terms: AcademicTerm[];
+  mySubjects: { classSubject: ClassSubject; subject: Subject | undefined }[];
+};
+
+async function loadClassDetail(classId: string, currentSchoolId: string, userId: string): Promise<ClassDetail> {
+  const cls = await schoolClasses.get(classId);
+  const [termList, csList, subjectList, assignmentList] = await Promise.all([
+    academicTerms.list(cls.academic_year_id),
+    classSubjects.list(classId),
+    subjectsClient.list(currentSchoolId),
+    teacherAssignments.list(classId),
+  ]);
+
+  const myAssignedClassSubjectIds = new Set(
+    assignmentList.filter((a: TeacherAssignment) => a.user_id === userId).map((a) => a.class_subject_id),
+  );
+  const mySubjects = csList
+    .filter((cs) => myAssignedClassSubjectIds.has(cs.id))
+    .map((cs) => ({ classSubject: cs, subject: subjectList.find((s) => s.id === cs.subject_id) }));
+
+  return { schoolClass: cls, terms: termList, mySubjects };
+}
 
 export default function ClassDetailScreen() {
   const { classId } = useLocalSearchParams<{ classId: string }>();
   const { currentSchoolId, user } = useAuth();
   const router = useRouter();
 
-  const [schoolClass, setSchoolClass] = useState<SchoolClass | null>(null);
-  const [terms, setTerms] = useState<AcademicTerm[] | null>(null);
-  const [selectedTermId, setSelectedTermId] = useState("");
-  const [mySubjects, setMySubjects] = useState<{ classSubject: ClassSubject; subject: Subject | undefined }[] | null>(null);
-
+  const [selectedTermIdOverride, setSelectedTermIdOverride] = useState<string | null>(null);
   useEffect(() => {
-    if (!classId || !currentSchoolId || !user) return;
-    void (async () => {
-      const cls = await schoolClasses.get(classId);
-      setSchoolClass(cls);
-      const [termList, csList, subjectList, assignmentList] = await Promise.all([
-        academicTerms.list(cls.academic_year_id),
-        classSubjects.list(classId),
-        subjectsClient.list(currentSchoolId),
-        teacherAssignments.list(classId),
-      ]);
-      setTerms(termList);
-      setSelectedTermId(termList[0]?.id ?? "");
+    setSelectedTermIdOverride(null);
+  }, [classId]);
 
-      const myAssignedClassSubjectIds = new Set(
-        assignmentList.filter((a: TeacherAssignment) => a.user_id === user.id).map((a) => a.class_subject_id),
-      );
-      setMySubjects(
-        csList
-          .filter((cs) => myAssignedClassSubjectIds.has(cs.id))
-          .map((cs) => ({ classSubject: cs, subject: subjectList.find((s) => s.id === cs.subject_id) })),
-      );
-    })();
-  }, [classId, currentSchoolId, user]);
+  const enabled = Boolean(classId && currentSchoolId && user);
+  const state = useAsyncData(
+    // `enabled` garantit que classId/currentSchoolId/user sont non-nuls quand cette fonction est
+    // réellement invoquée (useAsyncData n'appelle pas fetcher tant que enabled est false).
+    () => loadClassDetail(classId as string, currentSchoolId as string, user!.id),
+    [classId, currentSchoolId, user],
+    { enabled },
+  );
 
-  const selectedTerm = useMemo(() => terms?.find((t) => t.id === selectedTermId), [terms, selectedTermId]);
+  if (state.status === "error") return <ErrorView message={state.message} onRetry={state.retry} />;
+  if (state.status === "loading" || !enabled) return <LoadingView />;
 
-  if (!schoolClass || terms === null || mySubjects === null) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
+  const { schoolClass, terms, mySubjects } = state.data;
+  const selectedTermId = selectedTermIdOverride ?? terms[0]?.id ?? "";
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{schoolClass.name}</Text>
+
+      {mySubjects.length > 0 && (
+        <TouchableOpacity
+          style={styles.attendanceButton}
+          onPress={() => router.push({ pathname: "/attendance/[classId]", params: { classId } })}
+        >
+          <Text style={styles.attendanceButtonText}>Faire l&apos;appel</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={styles.sectionLabel}>Période</Text>
       <FlatList
@@ -73,7 +89,7 @@ export default function ClassDetailScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.chip, item.id === selectedTermId && styles.chipSelected]}
-            onPress={() => setSelectedTermId(item.id)}
+            onPress={() => setSelectedTermIdOverride(item.id)}
           >
             <Text style={[styles.chipText, item.id === selectedTermId && styles.chipTextSelected]}>{item.name}</Text>
           </TouchableOpacity>
@@ -88,7 +104,7 @@ export default function ClassDetailScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.row}
-            disabled={!selectedTerm}
+            disabled={!selectedTermId}
             onPress={() =>
               router.push({
                 pathname: "/assessments/[classSubjectId]",
@@ -111,7 +127,6 @@ export default function ClassDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc", padding: 16, gap: 8 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f8fafc" },
   title: { fontSize: 22, fontWeight: "700", color: "#0f172a" },
   sectionLabel: { fontSize: 13, fontWeight: "600", color: "#475569", marginTop: 12 },
   empty: { color: "#94a3b8", marginTop: 8 },
@@ -129,4 +144,6 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: "#fff" },
   row: { padding: 14, borderBottomWidth: 1, borderBottomColor: "#e2e8f0", backgroundColor: "#fff", borderRadius: 6, marginTop: 6 },
   rowText: { fontSize: 15, color: "#0f172a" },
+  attendanceButton: { backgroundColor: "#0f172a", borderRadius: 8, paddingVertical: 10, alignItems: "center", marginTop: 4 },
+  attendanceButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 });

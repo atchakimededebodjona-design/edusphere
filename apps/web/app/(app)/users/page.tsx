@@ -141,13 +141,21 @@ export default function UsersPage() {
             {creating ? "Création..." : "Créer"}
           </button>
           {error && <p className="text-sm text-red-700">{error}</p>}
+          {lastCreated && !lastCreated.dev_reset_token && (
+            <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+              Un email d&apos;invitation a été envoyé à <strong>{lastCreated.user.email}</strong>{" "}
+              pour définir son mot de passe.
+            </p>
+          )}
           {lastCreated?.dev_reset_token && (
             <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
               <p className="font-semibold">
-                Environnement de développement uniquement — en production, un email serait envoyé.
+                Environnement de développement — l&apos;email d&apos;invitation n&apos;est pas
+                réellement envoyé ici (voir app/core/email.py), le lien est affiché ci-dessous pour
+                faciliter les tests.
               </p>
               <p className="mt-1">
-                Token de définition du mot de passe pour <strong>{lastCreated.user.email}</strong> :
+                Lien de définition du mot de passe pour <strong>{lastCreated.user.email}</strong> :
               </p>
               <code className="mt-1 block break-all rounded bg-white px-2 py-1">{lastCreated.dev_reset_token}</code>
             </div>

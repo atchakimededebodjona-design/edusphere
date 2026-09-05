@@ -1,6 +1,7 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import * as authClient from "@/lib/auth/client";
 import type { Me } from "@/lib/auth/client";
+import { onSessionExpired } from "@/lib/api/client";
 import { getStoredTokens, setStoredTokens } from "@/lib/auth/session";
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous";
@@ -42,6 +43,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, [loadMe]);
+
+  // Phase 12 — un 401 rencontré n'importe où dans l'app (pas seulement au chargement initial)
+  // peut révéler un refresh token expiré/révoqué. `apiFetch` vit hors de l'arbre React et ne peut
+  // pas modifier cet état directement ; il notifie via `onSessionExpired`, et c'est ici qu'on
+  // repasse réellement en "anonymous" — ce qui fait automatiquement rediriger vers /login via les
+  // `Redirect` déjà présents dans (teacher)/_layout.tsx et (parent)/_layout.tsx, sans aucun code
+  // de navigation supplémentaire à écrire.
+  useEffect(() => {
+    return onSessionExpired(() => {
+      setMe(null);
+      setStatus("anonymous");
+    });
+  }, []);
 
   const login = useCallback(
     async (email: string, password: string) => {

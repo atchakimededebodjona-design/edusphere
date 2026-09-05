@@ -167,11 +167,32 @@ async def publish_report_card(report_card_id: uuid.UUID, db: DbSession, current_
         db, current_user, "report_cards.manage", organization_id=report_card.organization_id, school_id=report_card.school_id
     )
 
+    # Phase 11 — évite un envoi dupliqué si /publish est appelé plusieurs fois sur un bulletin
+    # déjà publié (double-clic, nouvel appel accidentel) : réutilise published_at déjà existant
+    # comme signal, sans nouvelle table de suivi. Une régénération (generate_report_cards_for_class)
+    # remet published_at à None avant republication : ce cas redevient donc un "premier" envoi,
+    # ce qui est le comportement voulu (le contenu a changé).
+    was_already_published = report_card.published_at is not None
+
     report_card.status = "PUBLISHED"
     report_card.published_at = datetime.now(timezone.utc)
     await db.flush()
     await db.refresh(report_card)
+
+    # Lecture des destinataires AVANT le commit — le contexte RLS (SET LOCAL) est lié à la
+    # transaction courante et ne verrait plus rien après (voir
+    # report_cards/service.py::prepare_report_card_published_notifications).
+    notifications: list[tuple[str, str, str]] = []
+    if not was_already_published:
+        notifications = await service.prepare_report_card_published_notifications(db, report_card)
+
     await db.commit()
+
+    # Envoi réel (pur réseau, best-effort) APRÈS le commit : la publication est déjà durablement
+    # enregistrée, un échec d'envoi ne peut plus jamais l'affecter.
+    if notifications:
+        await service.send_report_card_published_notifications(notifications)
+
     return report_card
 
 

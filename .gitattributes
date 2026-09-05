@@ -1,0 +1,13 @@
+# Phase 18 — normalisation minimale des fins de ligne (dépôt développé sous Windows, Git exécuté
+# via WSL — voir docs/deployment/GIT_AND_CI.md). Règle simple, pas de configuration par extension
+# exhaustive : texte normalisé en LF au commit, binaires jamais touchés.
+* text=auto eol=lf
+
+# Binaires explicitement exclus de toute conversion, au cas où l'auto-détection se tromperait.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
+*.dump binary
+*.tar.gz binary

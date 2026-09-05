@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ApiError } from "@/lib/auth/client";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -55,6 +56,9 @@ export default function LoginPage() {
         </button>
         {error && <p className="text-sm text-red-700">{error}</p>}
       </form>
+      <Link href="/forgot-password" className="text-sm text-slate-600 underline">
+        Mot de passe oublié ?
+      </Link>
     </main>
   );
 }

@@ -1,9 +1,16 @@
 import uuid
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 
 from app.core.permissions import CurrentUser, DbSession, get_all_permission_codes
+from app.core.rate_limit import (
+    ensure_forgot_password_not_rate_limited,
+    ensure_login_not_rate_limited,
+    register_failed_login_attempt,
+    register_forgot_password_attempt,
+    reset_login_attempts,
+)
 from app.modules.auth import service
 from app.modules.auth.schemas import (
     ForgotPasswordRequest,
@@ -40,14 +47,25 @@ async def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
 
 @router.post("/login", response_model=TokenPair)
 async def login(payload: LoginRequest, request: Request, db: DbSession) -> TokenPair:
-    return await service.login(
-        db,
-        email=payload.email,
-        password=payload.password,
-        device_id=payload.device_id,
-        ip=_client_ip(request),
-        user_agent=request.headers.get("user-agent"),
-    )
+    await ensure_login_not_rate_limited(payload.email)
+    try:
+        tokens = await service.login(
+            db,
+            email=payload.email,
+            password=payload.password,
+            device_id=payload.device_id,
+            ip=_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            # Même comptage que le compte existe ou non (cf. `authenticate()` — le 401 est
+            # identique dans les deux cas), donc le rate limiting ne révèle jamais d'information
+            # sur l'existence d'un compte.
+            await register_failed_login_attempt(payload.email)
+        raise
+    await reset_login_attempts(payload.email)
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenPair)
@@ -64,7 +82,12 @@ async def logout(payload: LogoutRequest, db: DbSession) -> None:
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
 async def forgot_password(payload: ForgotPasswordRequest, db: DbSession) -> dict:
+    await ensure_forgot_password_not_rate_limited(payload.email)
     dev_token = await service.request_password_reset(db, payload.email)
+    # Comptée après chaque demande, que le compte existe ou non (Phase 10.1 — voir
+    # app/core/rate_limit.py::register_forgot_password_attempt) : limite l'abus d'envoi d'email
+    # sans jamais révéler si un compte existe.
+    await register_forgot_password_attempt(payload.email)
     # dev_token n'est renseigné que hors environnement "production" (email non intégré
     # en Phase 1) — voir app/modules/auth/service.py::request_password_reset.
     return {"detail": "If this email exists, a reset link has been sent.", "dev_token": dev_token}

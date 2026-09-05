@@ -1,26 +1,24 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FlatList, StyleSheet, Text, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
-import { schoolClasses, type SchoolClass } from "@/lib/academics/client";
+import { schoolClasses } from "@/lib/academics/client";
 import { useAuth } from "@/lib/auth/useAuth";
+import { useAsyncData } from "@/lib/api/useAsyncData";
+import { ErrorView, LoadingView } from "@/components/ScreenState";
 
 export default function MyClassesScreen() {
   const { currentSchoolId } = useAuth();
   const router = useRouter();
-  const [classes, setClasses] = useState<SchoolClass[] | null>(null);
 
-  useEffect(() => {
-    if (!currentSchoolId) return;
-    void schoolClasses.list(currentSchoolId).then(setClasses);
-  }, [currentSchoolId]);
+  const state = useAsyncData(() => schoolClasses.list(currentSchoolId as string), [currentSchoolId], {
+    enabled: currentSchoolId !== null,
+  });
 
-  if (!currentSchoolId || classes === null) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
+  if (state.status === "error") return <ErrorView message={state.message} onRetry={state.retry} />;
+  // currentSchoolId === null est un cas de configuration (aucun rôle scopé école), pas une erreur
+  // réseau — comportement inchangé par rapport à avant la Phase 12 (hors périmètre de ce correctif).
+  if (state.status === "loading" || currentSchoolId === null) return <LoadingView />;
+
+  const classes = state.data;
 
   return (
     <FlatList
@@ -39,7 +37,6 @@ export default function MyClassesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f8fafc" },
   empty: { textAlign: "center", marginTop: 32, color: "#94a3b8" },
   row: { padding: 16, borderBottomWidth: 1, borderBottomColor: "#e2e8f0", backgroundColor: "#fff" },
   rowText: { fontSize: 16, color: "#0f172a" },

@@ -73,6 +73,16 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Phase 7.2 — nécessaire pour les tests de rate limiting du login (app/core/rate_limit.py).
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # DATABASE_URL : rôle superutilisateur, migrations Alembic uniquement.
       DATABASE_URL: postgresql+asyncpg://edusphere:ci_only_password@localhost:5432/edusphere
@@ -81,6 +91,7 @@ jobs:
       APP_DB_PASSWORD: ci_only_app_password
       APP_DATABASE_URL: postgresql+asyncpg://edusphere_app:ci_only_app_password@localhost:5432/edusphere
       JWT_SECRET_KEY: ci_only_not_for_production
+      REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
 

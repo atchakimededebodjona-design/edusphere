@@ -64,6 +64,7 @@ class GuardianOut(BaseModel):
     email: str | None
     address: str | None
     is_emergency_contact: bool
+    user_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
 
@@ -85,6 +86,9 @@ class GuardianUpdate(BaseModel):
     email: str | None = None
     address: str | None = None
     is_emergency_contact: bool | None = None
+    # Lie (ou délie, si None explicite) ce Guardian à un compte utilisateur de rôle PARENT —
+    # validation complète (existence, école, rôle, doublon) faite dans le router (Phase 7).
+    user_id: uuid.UUID | None = None
 
 
 class StudentGuardianOut(BaseModel):
