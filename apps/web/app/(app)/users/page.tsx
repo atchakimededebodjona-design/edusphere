@@ -15,19 +15,62 @@ const initialForm = {
 };
 
 export default function UsersPage() {
-  const { currentSchoolId, permissions } = useAuth();
+  const { currentSchoolId, permissions, user: currentUser } = useAuth();
   const canManage = permissions.includes("users.manage");
 
   const [items, setItems] = useState<UserWithRoles[] | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [form, setForm] = useState(initialForm);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastCreated, setLastCreated] = useState<UserCreateResponse | null>(null);
 
-  useEffect(() => {
+  const [rowSaving, setRowSaving] = useState<Record<string, boolean>>({});
+  const [rowError, setRowError] = useState<Record<string, string>>({});
+  const [pendingToggleUserId, setPendingToggleUserId] = useState<string | null>(null);
+
+  function reload() {
     if (!currentSchoolId) return;
-    void users.list(currentSchoolId).then(setItems);
+    setListError(null);
+    void users
+      .list(currentSchoolId)
+      .then(setItems)
+      .catch((err) => setListError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }
+
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSchoolId]);
+
+  async function handleRoleChange(userId: string, roleCode: RoleCode) {
+    if (!currentSchoolId) return;
+    setRowSaving((prev) => ({ ...prev, [userId]: true }));
+    setRowError((prev) => ({ ...prev, [userId]: "" }));
+    try {
+      await users.update(userId, { school_id: currentSchoolId, role_code: roleCode });
+      reload();
+    } catch (err) {
+      setRowError((prev) => ({ ...prev, [userId]: err instanceof ApiError ? err.message : "Une erreur est survenue." }));
+    } finally {
+      setRowSaving((prev) => ({ ...prev, [userId]: false }));
+    }
+  }
+
+  async function handleToggleActive(userId: string, nextActive: boolean) {
+    if (!currentSchoolId) return;
+    setPendingToggleUserId(null);
+    setRowSaving((prev) => ({ ...prev, [userId]: true }));
+    setRowError((prev) => ({ ...prev, [userId]: "" }));
+    try {
+      await users.update(userId, { school_id: currentSchoolId, is_active: nextActive });
+      reload();
+    } catch (err) {
+      setRowError((prev) => ({ ...prev, [userId]: err instanceof ApiError ? err.message : "Une erreur est survenue." }));
+    } finally {
+      setRowSaving((prev) => ({ ...prev, [userId]: false }));
+    }
+  }
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -45,7 +88,7 @@ export default function UsersPage() {
       });
       setLastCreated(created);
       setForm(initialForm);
-      void users.list(currentSchoolId).then(setItems);
+      reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
@@ -59,6 +102,8 @@ export default function UsersPage() {
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-slate-900">Utilisateurs</h1>
 
+      {listError && <p className="text-sm text-red-700">{listError}</p>}
+
       <div className="overflow-x-auto rounded border border-slate-200">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50">
@@ -66,31 +111,102 @@ export default function UsersPage() {
               <th className="px-3 py-2 text-left font-medium text-slate-600">Nom</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Email</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Rôles</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-600">Statut</th>
+              {canManage && <th className="px-3 py-2 text-left font-medium text-slate-600">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {items === null ? (
               <tr>
-                <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
                   Chargement...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
                   Aucun utilisateur.
                 </td>
               </tr>
             ) : (
-              items.map((u) => (
-                <tr key={u.user.id}>
-                  <td className="px-3 py-2">{u.user.full_name}</td>
-                  <td className="px-3 py-2">{u.user.email}</td>
-                  <td className="px-3 py-2">
-                    {u.roles.map((r) => ROLE_LABELS[r.role_code] ?? r.role_code).join(", ")}
-                  </td>
-                </tr>
-              ))
+              items.map((u) => {
+                const schoolScopedRoles = u.roles.filter((r) => r.school_id === currentSchoolId);
+                const isSelf = currentUser?.id === u.user.id;
+                const saving = rowSaving[u.user.id] === true;
+                return (
+                  <tr key={u.user.id}>
+                    <td className="px-3 py-2">{u.user.full_name}</td>
+                    <td className="px-3 py-2">{u.user.email}</td>
+                    <td className="px-3 py-2">
+                      {u.roles.map((r) => ROLE_LABELS[r.role_code] ?? r.role_code).join(", ")}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={u.user.is_active ? "text-emerald-700" : "text-slate-400"}>
+                        {u.user.is_active ? "Actif" : "Inactif"}
+                      </span>
+                    </td>
+                    {canManage && (
+                      <td className="px-3 py-2">
+                        {isSelf ? (
+                          <span className="text-xs text-slate-400">Votre compte</span>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              {schoolScopedRoles.length === 1 ? (
+                                <select
+                                  value={schoolScopedRoles[0].role_code}
+                                  disabled={saving}
+                                  onChange={(e) => handleRoleChange(u.user.id, e.target.value as RoleCode)}
+                                  className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-50"
+                                >
+                                  {ASSIGNABLE_ROLES.map((r) => (
+                                    <option key={r.value} value={r.value}>
+                                      {r.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="text-xs text-slate-400">Rôle non modifiable ici</span>
+                              )}
+
+                              {pendingToggleUserId === u.user.id ? (
+                                <span className="flex items-center gap-1 text-xs">
+                                  Confirmer ?
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => handleToggleActive(u.user.id, !u.user.is_active)}
+                                    className="rounded bg-slate-900 px-2 py-1 text-white disabled:opacity-50"
+                                  >
+                                    Oui
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingToggleUserId(null)}
+                                    className="rounded border border-slate-300 px-2 py-1"
+                                  >
+                                    Non
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => setPendingToggleUserId(u.user.id)}
+                                  className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-50"
+                                >
+                                  {u.user.is_active ? "Désactiver" : "Activer"}
+                                </button>
+                              )}
+                            </div>
+                            {rowError[u.user.id] && <p className="text-xs text-red-700">{rowError[u.user.id]}</p>}
+                          </div>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

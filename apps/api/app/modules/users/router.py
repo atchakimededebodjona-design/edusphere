@@ -11,6 +11,7 @@ from app.modules.users.schemas import (
     UserCreateRequest,
     UserCreateResponse,
     UserOut,
+    UserUpdateRequest,
     UserWithRolesOut,
 )
 
@@ -47,9 +48,23 @@ async def create_user(payload: UserCreateRequest, db: DbSession, current_user: C
     school = await _get_school_or_404(db, payload.school_id)
     await ensure_permission(db, current_user, "users.manage", organization_id=school.organization_id, school_id=school.id)
 
-    user, roles, dev_reset_token = await service.create_or_attach_user(db, school, payload)
+    user, roles, dev_reset_token = await service.create_or_attach_user(db, school, payload, current_user.id)
     return UserCreateResponse(
         user=UserOut.model_validate(user),
         roles=[RoleAssignmentOut(role_code=r.role_code, organization_id=r.organization_id, school_id=r.school_id) for r in roles],
         dev_reset_token=dev_reset_token,
+    )
+
+
+@router.patch("/{user_id}", response_model=UserWithRolesOut)
+async def update_user(
+    user_id: uuid.UUID, payload: UserUpdateRequest, db: DbSession, current_user: CurrentUser
+) -> UserWithRolesOut:
+    school = await _get_school_or_404(db, payload.school_id)
+    await ensure_permission(db, current_user, "users.manage", organization_id=school.organization_id, school_id=school.id)
+
+    user, roles = await service.update_user_in_school(db, school, user_id, payload, current_user.id)
+    return UserWithRolesOut(
+        user=UserOut.model_validate(user),
+        roles=[RoleAssignmentOut(role_code=r.role_code, organization_id=r.organization_id, school_id=r.school_id) for r in roles],
     )

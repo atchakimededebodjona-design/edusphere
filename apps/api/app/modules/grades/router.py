@@ -59,6 +59,13 @@ async def _get_assessment_or_404(db: AsyncSession, assessment_id: uuid.UUID) -> 
     return assessment
 
 
+async def _get_student_or_404(db: AsyncSession, student_id: uuid.UUID) -> Student:
+    student = await db.get(Student, student_id)
+    if student is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+    return student
+
+
 async def _ensure_can_manage_class_subject_grades(
     db: AsyncSession, current_user: User, class_subject: ClassSubject
 ) -> None:
@@ -169,7 +176,20 @@ async def submit_results(payload: AssessmentResultsBulkCreate, db: DbSession, cu
     class_subject = await _get_class_subject_or_404(db, assessment.class_subject_id)
     await _ensure_can_manage_class_subject_grades(db, current_user, class_subject)
 
-    entries = [(entry.student_id, entry.score, entry.is_absent) for entry in payload.results]
+    entries = []
+    for entry in payload.results:
+        student = await _get_student_or_404(db, entry.student_id)
+        # Vérification explicite École + Classe (pas seulement École) — corrige un IDOR confirmé
+        # en Phase 22 : avant ce contrôle, `grades.manage` sur l'école de l'appelant suffisait à
+        # saisir une note pour un student_id arbitraire, y compris d'un autre tenant, la ligne
+        # étant tamponnée avec l'organization_id/school_id de l'APPELANT (donc invisible à RLS).
+        # Même motif que `attendance/router.py::submit_records`.
+        if class_subject.school_id != student.school_id or not await service.student_in_class_scope(
+            db, student, class_subject.class_id
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found in this class")
+        entries.append((entry.student_id, entry.score, entry.is_absent))
+
     return await service.apply_results_and_recompute(db, assessment, entries)
 
 

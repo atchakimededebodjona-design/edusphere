@@ -24,8 +24,31 @@ def event_loop():
     loop.close()
 
 
+async def _clear_shared_ip_rate_limits() -> None:
+    """Sous httpx `ASGITransport`, toutes les requêtes de toute la suite de tests partagent la
+    même IP factice (127.0.0.1). Les endpoints rate-limités PAR IP (register, reset-password,
+    report-card-verify — voir app/core/rate_limit.py) accumulent donc un compteur unique et
+    partagé entre des dizaines de tests indépendants qui les appellent incidemment (ex.
+    `reset-password` est appelé par la quasi-totalité des helpers de fixtures qui créent un
+    compte). Nettoyé avant CHAQUE test plutôt qu'une seule fois par fichier, pour qu'aucun ordre
+    d'exécution ne fasse dépendre un test du nettoyage effectué par un autre. Tolérant à un Redis
+    injoignable (certains tests le rendent délibérément injoignable via monkeypatch)."""
+    from redis.exceptions import RedisError
+
+    from app.core.rate_limit import _get_client as _get_rate_limit_client
+
+    try:
+        redis_client = _get_rate_limit_client()
+        for pattern in ("register_attempts:*", "reset_password_attempts:*", "report_card_verify_attempts:*"):
+            async for key in redis_client.scan_iter(match=pattern):
+                await redis_client.delete(key)
+    except RedisError:
+        pass
+
+
 @pytest_asyncio.fixture
 async def client():
+    await _clear_shared_ip_rate_limits()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

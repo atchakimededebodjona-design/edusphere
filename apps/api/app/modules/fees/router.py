@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.rate_limit import ensure_payments_not_rate_limited, register_payments_attempt
 from app.core.storage import storage
 from app.modules.academics.models import AcademicYear, EducationLevel, SchoolClass
 from app.modules.fees import service
@@ -226,10 +227,12 @@ async def update_student_fee(student_fee_id: uuid.UUID, payload: StudentFeeUpdat
 # --- Paiements -------------------------------------------------------------------
 @router.post("/payments", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
 async def create_payment(payload: PaymentCreate, db: DbSession, current_user: CurrentUser) -> Payment:
+    await ensure_payments_not_rate_limited(current_user.id)
     student = await _get_student_or_404(db, payload.student_id)
     await ensure_permission(
         db, current_user, "payments.manage", organization_id=student.organization_id, school_id=student.school_id
     )
+    await register_payments_attempt(current_user.id)
     payment, notifications = await service.record_payment(db, student, payload, current_user.id)
     if notifications:
         await service.send_payment_notifications(notifications)
@@ -238,10 +241,12 @@ async def create_payment(payload: PaymentCreate, db: DbSession, current_user: Cu
 
 @router.post("/payments/{payment_id}/cancel", response_model=PaymentOut)
 async def cancel_payment(payment_id: uuid.UUID, payload: PaymentCancelRequest, db: DbSession, current_user: CurrentUser) -> Payment:
+    await ensure_payments_not_rate_limited(current_user.id)
     payment = await _get_payment_or_404(db, payment_id)
     await ensure_permission(
         db, current_user, "payments.manage", organization_id=payment.organization_id, school_id=payment.school_id
     )
+    await register_payments_attempt(current_user.id)
     return await service.cancel_payment(db, payment, current_user.id, payload.reason)
 
 

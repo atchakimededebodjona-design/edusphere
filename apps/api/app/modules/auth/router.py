@@ -8,9 +8,11 @@ from app.core.rate_limit import (
     ensure_forgot_password_not_rate_limited,
     ensure_login_not_rate_limited,
     ensure_register_not_rate_limited,
+    ensure_reset_password_not_rate_limited,
     register_failed_login_attempt,
     register_forgot_password_attempt,
     register_registration_attempt,
+    register_reset_password_attempt,
     reset_login_attempts,
 )
 from app.modules.auth import service
@@ -102,7 +104,10 @@ async def forgot_password(payload: ForgotPasswordRequest, db: DbSession) -> dict
 
 
 @router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
-async def reset_password(payload: ResetPasswordRequest, db: DbSession) -> None:
+async def reset_password(payload: ResetPasswordRequest, request: Request, db: DbSession) -> None:
+    ip = _client_ip(request)
+    await ensure_reset_password_not_rate_limited(ip)
+    await register_reset_password_attempt(ip)
     await service.reset_password(db, payload.token, payload.new_password)
 
 

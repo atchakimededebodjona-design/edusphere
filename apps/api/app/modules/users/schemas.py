@@ -41,3 +41,12 @@ class UserCreateResponse(BaseModel):
     # app/modules/auth/service.py::request_password_reset pour le même mécanisme et la même
     # justification. `None` si l'utilisateur existait déjà (son mot de passe reste inchangé).
     dev_reset_token: str | None
+
+
+class UserUpdateRequest(BaseModel):
+    """Phase 22 — édition d'un compte existant, scopée à une école précise (même convention que
+    UserCreateRequest.school_id) : au moins un des deux champs doit être fourni."""
+
+    school_id: uuid.UUID
+    role_code: str | None = None
+    is_active: bool | None = None

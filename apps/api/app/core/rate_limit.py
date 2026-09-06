@@ -258,3 +258,118 @@ async def register_report_card_verify_attempt(ip: str | None) -> None:
             await client.expire(key, settings.report_card_verify_rate_limit_window_seconds)
     except RedisError:
         logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (report-card verify).")
+
+
+# --- Réinitialisation de mot de passe (Phase 22) ------------------------------------------------
+#
+# Clé IP : `/auth/reset-password` ne reçoit pas d'email dans son payload (seulement le jeton
+# opaque + le nouveau mot de passe), contrairement à forgot-password — voir config.py pour le
+# choix du seuil.
+
+
+def _reset_password_key(ip: str) -> str:
+    return f"reset_password_attempts:{ip}"
+
+
+async def ensure_reset_password_not_rate_limited(ip: str | None) -> None:
+    key = _reset_password_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.reset_password_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            retry_after = max(ttl, 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many password reset attempts. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (reset-password).")
+
+
+async def register_reset_password_attempt(ip: str | None) -> None:
+    key = _reset_password_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.reset_password_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (reset-password).")
+
+
+# --- Mutations financières (Phase 22) -------------------------------------------------------
+#
+# Clé user_id, partagée entre POST /payments et POST /payments/{id}/cancel — même acteur
+# authentifié, même surface d'abus (mutation financière en rafale) — voir config.py pour le choix
+# du seuil.
+
+
+def _payments_key(user_id: uuid.UUID) -> str:
+    return f"payments_attempts:{user_id}"
+
+
+async def ensure_payments_not_rate_limited(user_id: uuid.UUID) -> None:
+    key = _payments_key(user_id)
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.payments_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            retry_after = max(ttl, 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many payment operations. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (payments).")
+
+
+async def register_payments_attempt(user_id: uuid.UUID) -> None:
+    key = _payments_key(user_id)
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.payments_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (payments).")
+
+
+# --- Annonces (Phase 22) ---------------------------------------------------------------------
+#
+# Clé user_id — diffusion de masse, voir config.py pour le choix du seuil.
+
+
+def _announcements_key(user_id: uuid.UUID) -> str:
+    return f"announcements_attempts:{user_id}"
+
+
+async def ensure_announcements_not_rate_limited(user_id: uuid.UUID) -> None:
+    key = _announcements_key(user_id)
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.announcements_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            retry_after = max(ttl, 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many announcements. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (announcements).")
+
+
+async def register_announcements_attempt(user_id: uuid.UUID) -> None:
+    key = _announcements_key(user_id)
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.announcements_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (announcements).")

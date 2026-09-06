@@ -193,6 +193,66 @@ async def create_announcement(
     return count
 
 
+async def list_school_announcements(
+    db: AsyncSession, school_id: uuid.UUID, organization_id: uuid.UUID, before: datetime | None, limit: int
+) -> tuple[list[dict], datetime | None]:
+    """Phase 22 — historique en lecture seule des annonces déjà envoyées pour une école, à
+    l'usage de SCHOOL_ADMIN/DIRECTOR (même permission `announcements.manage` que l'envoi).
+
+    `notifications` est restreinte par la policy RLS `recipient_user_id` (migration 0011) : un
+    administrateur n'est pas forcément destinataire de ses propres annonces ciblées CLASS (seuls
+    les tuteurs le sont, voir `resolve_class_guardian_user_ids`) — une lecture sous son contexte
+    tenant normal ne verrait donc jamais ces envois-là. Bypass RLS explicite et délibéré via
+    `set_platform_wide_context`, même motif que `create_notifications` : la tenant-sûreté est
+    garantie ici par le filtre `school_id`/`organization_id` explicite ci-dessous, pas par la
+    policy. Ne renvoie JAMAIS `recipient_user_id`/`read_at` (pas d'accusé de lecture par
+    destinataire — hors périmètre, voir PHASE_21_IMPLEMENTATION.md §21) : uniquement un agrégat
+    (titre/corps/type/date/nombre de destinataires), déjà connu de l'auteur au moment de l'envoi
+    (`recipient_count` était déjà retourné par `POST /announcements`). Les lignes d'une même
+    annonce partagent exactement le même `created_at` (une seule transaction, un seul `flush` —
+    `now()` PostgreSQL est stable pour toute la transaction), d'où le regroupement par
+    (title, body, type, created_at) sans nouvelle colonne "announcement_id"."""
+    await set_platform_wide_context(db)
+
+    page_size = min(max(limit, 1), MAX_PAGE_SIZE)
+    stmt = (
+        select(
+            Notification.title,
+            Notification.body,
+            Notification.type,
+            Notification.created_at,
+            func.count().label("recipient_count"),
+        )
+        .where(
+            Notification.school_id == school_id,
+            Notification.organization_id == organization_id,
+            Notification.type == "ANNOUNCEMENT",
+        )
+        .group_by(Notification.title, Notification.body, Notification.type, Notification.created_at)
+    )
+    if before is not None:
+        stmt = stmt.where(Notification.created_at < before)
+    stmt = stmt.order_by(Notification.created_at.desc()).limit(page_size + 1)
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    has_more = len(rows) > page_size
+    items = rows[:page_size]
+    next_before = items[-1].created_at if has_more else None
+    entries = [
+        {
+            "title": row.title,
+            "body": row.body,
+            "type": row.type,
+            "created_at": row.created_at,
+            "recipient_count": row.recipient_count,
+        }
+        for row in items
+    ]
+    return entries, next_before
+
+
 # --- Lecture / non-lue ---------------------------------------------------------------------------
 
 

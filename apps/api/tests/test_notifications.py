@@ -657,6 +657,81 @@ async def test_admin_a_cannot_publish_announcement_for_school_b(client: AsyncCli
     assert response.status_code in (403, 404)  # RLS rend l'école B invisible sous le contexte de A
 
 
+# --- Phase 22 : historique des annonces (lecture seule, SCHOOL_ADMIN/DIRECTOR) ------------------
+async def test_announcement_history_lists_past_sends_most_recent_first(client: AsyncClient) -> None:
+    ctx = await _setup_school(client, "annhist")
+    class_1 = await _create_class(client, ctx, "hist1")
+    student_1 = await _create_student_in_class(client, ctx, class_1, "hist1")
+    await _link_parent(client, ctx, student_1, "parent.annhist")
+
+    first = await client.post(
+        "/api/v1/announcements",
+        json={"school_id": ctx["school"]["id"], "title": "Première annonce", "body": "A", "target_type": "SCHOOL"},
+        headers=ctx["admin_headers"],
+    )
+    assert first.status_code == 201
+    second = await client.post(
+        "/api/v1/announcements",
+        json={
+            "school_id": ctx["school"]["id"],
+            "title": "Deuxième annonce (classe)",
+            "body": "B",
+            "target_type": "CLASS",
+            "class_ids": [class_1["id"]],
+        },
+        headers=ctx["admin_headers"],
+    )
+    assert second.status_code == 201
+
+    history = await client.get(f"/api/v1/announcements?school_id={ctx['school']['id']}", headers=ctx["admin_headers"])
+    assert history.status_code == 200, history.text
+    items = history.json()["items"]
+    assert len(items) == 2
+    # Plus récent en premier — l'annonce ciblée classe a été envoyée en second.
+    assert items[0]["title"] == "Deuxième annonce (classe)"
+    assert items[0]["type"] == "ANNOUNCEMENT"
+    assert items[0]["recipient_count"] == second.json()["recipient_count"]
+    assert items[1]["title"] == "Première annonce"
+    assert items[1]["recipient_count"] == first.json()["recipient_count"]
+
+
+async def test_announcement_history_isolated_between_schools(client: AsyncClient) -> None:
+    ctx_a = await _setup_school(client, "annhistisoa")
+    ctx_b = await _setup_school(client, "annhistisob")
+
+    await client.post(
+        "/api/v1/announcements",
+        json={"school_id": ctx_b["school"]["id"], "title": "Annonce B", "body": "x", "target_type": "SCHOOL"},
+        headers=ctx_b["admin_headers"],
+    )
+
+    history_a = await client.get(
+        f"/api/v1/announcements?school_id={ctx_a['school']['id']}", headers=ctx_a["admin_headers"]
+    )
+    assert history_a.status_code == 200
+    assert history_a.json()["items"] == []
+
+
+async def test_announcement_history_cross_school_returns_404(client: AsyncClient) -> None:
+    ctx_a = await _setup_school(client, "annhistcrossa")
+    ctx_b = await _setup_school(client, "annhistcrossb")
+
+    response = await client.get(
+        f"/api/v1/announcements?school_id={ctx_b['school']['id']}", headers=ctx_a["admin_headers"]
+    )
+    assert response.status_code in (403, 404)
+
+
+async def test_announcement_history_requires_announcements_manage_permission(client: AsyncClient) -> None:
+    ctx = await _setup_school(client, "annhistrbac")
+    teacher = await _create_user_with_role(client, ctx["admin_headers"], ctx["school"]["id"], "TEACHER", "teacher.annhistrbac")
+
+    response = await client.get(
+        f"/api/v1/announcements?school_id={ctx['school']['id']}", headers=teacher["headers"]
+    )
+    assert response.status_code == 403
+
+
 async def test_row_level_security_hides_notification_row_even_bypassing_app_check(client: AsyncClient) -> None:
     """Preuve RLS brute (session directe), même motif que test_tenant_isolation.py — la policy
     `notifications_recipient_isolation` doit masquer la ligne d'un AUTRE utilisateur même à un

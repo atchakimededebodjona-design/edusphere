@@ -45,3 +45,20 @@ class AnnouncementCreate(BaseModel):
 
 class AnnouncementResult(BaseModel):
     recipient_count: int
+
+
+class AnnouncementHistoryEntry(BaseModel):
+    """Phase 22 — une ligne = une annonce déjà envoyée (regroupement de ses `Notification`
+    destinataires). La cible (SCHOOL/CLASS) n'est pas persistée par le modèle `Notification`
+    (voir service.py::create_announcement) : volontairement absente ici plutôt qu'inventée."""
+
+    title: str
+    body: str
+    type: NotificationType
+    created_at: datetime
+    recipient_count: int
+
+
+class AnnouncementHistoryOut(BaseModel):
+    items: list[AnnouncementHistoryEntry]
+    next_before: datetime | None

@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { schoolClasses, type SchoolClass } from "@/lib/academics/client";
 import { useAuth } from "@/lib/auth/useAuth";
-import { announcements, type AnnouncementTargetType } from "@/lib/notifications/client";
+import { announcements, type AnnouncementHistoryEntry, type AnnouncementTargetType } from "@/lib/notifications/client";
+
+const TYPE_LABELS: Record<string, string> = {
+  ANNOUNCEMENT: "Annonce",
+  REPORT_CARD_PUBLISHED: "Bulletin",
+  PAYMENT_RECORDED: "Paiement",
+};
 
 export default function AnnouncementsPage() {
   const { currentSchoolId } = useAuth();
@@ -17,9 +23,44 @@ export default function AnnouncementsPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<number | null>(null);
 
+  const [history, setHistory] = useState<AnnouncementHistoryEntry[] | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyNextBefore, setHistoryNextBefore] = useState<string | null>(null);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+
   useEffect(() => {
     if (currentSchoolId) void schoolClasses.list(currentSchoolId).then(setClasses);
   }, [currentSchoolId]);
+
+  const loadHistory = useCallback(async () => {
+    if (!currentSchoolId) return;
+    setHistoryError(null);
+    try {
+      const page = await announcements.history(currentSchoolId, { limit: 20 });
+      setHistory(page.items);
+      setHistoryNextBefore(page.next_before);
+    } catch (err) {
+      setHistoryError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    }
+  }, [currentSchoolId]);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
+  async function handleLoadMoreHistory() {
+    if (!currentSchoolId || !historyNextBefore) return;
+    setLoadingMoreHistory(true);
+    try {
+      const page = await announcements.history(currentSchoolId, { limit: 20, before: historyNextBefore });
+      setHistory((prev) => [...(prev ?? []), ...page.items]);
+      setHistoryNextBefore(page.next_before);
+    } catch (err) {
+      setHistoryError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }
 
   function toggleClass(classId: string) {
     setSelectedClassIds((prev) => (prev.includes(classId) ? prev.filter((id) => id !== classId) : [...prev, classId]));
@@ -44,6 +85,7 @@ export default function AnnouncementsPage() {
       setBody("");
       setSelectedClassIds([]);
       setStatus("idle");
+      void loadHistory();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");
@@ -113,6 +155,40 @@ export default function AnnouncementsPage() {
         {result !== null && <p className="text-sm text-green-700">Annonce publiée — {result} destinataire(s) notifié(s).</p>}
         {error && <p className="text-sm text-red-700">{error}</p>}
       </form>
+
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">Historique</h2>
+        {historyError && <p className="text-sm text-red-700">{historyError}</p>}
+        {history === null ? (
+          <p className="text-sm text-slate-500">Chargement...</p>
+        ) : (
+          <div className="flex flex-col divide-y divide-slate-100 rounded border border-slate-200">
+            {history.map((entry, index) => (
+              <div key={`${entry.created_at}-${index}`} className="flex flex-col gap-1 px-4 py-3">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  {TYPE_LABELS[entry.type] ?? entry.type}
+                </span>
+                <span className="text-sm font-semibold text-slate-900">{entry.title}</span>
+                <span className="text-sm text-slate-600">{entry.body}</span>
+                <span className="text-xs text-slate-400">
+                  {new Date(entry.created_at).toLocaleString()} — {entry.recipient_count} destinataire(s)
+                </span>
+              </div>
+            ))}
+            {history.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Aucune annonce envoyée.</p>}
+          </div>
+        )}
+        {historyNextBefore && (
+          <button
+            type="button"
+            onClick={() => void handleLoadMoreHistory()}
+            disabled={loadingMoreHistory}
+            className="w-fit rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          >
+            {loadingMoreHistory ? "Chargement..." : "Charger plus"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

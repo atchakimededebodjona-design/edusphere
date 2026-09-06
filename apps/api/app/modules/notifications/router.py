@@ -4,9 +4,12 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.rate_limit import ensure_announcements_not_rate_limited, register_announcements_attempt
 from app.modules.notifications import service
 from app.modules.notifications.schemas import (
     AnnouncementCreate,
+    AnnouncementHistoryEntry,
+    AnnouncementHistoryOut,
     AnnouncementResult,
     NotificationListOut,
     NotificationOut,
@@ -58,10 +61,12 @@ async def mark_notification_read(notification_id: uuid.UUID, db: DbSession, curr
 # --- Annonces (SCHOOL_ADMIN/DIRECTOR uniquement) ------------------------------------------------
 @router.post("/announcements", response_model=AnnouncementResult, status_code=status.HTTP_201_CREATED)
 async def create_announcement(payload: AnnouncementCreate, db: DbSession, current_user: CurrentUser) -> AnnouncementResult:
+    await ensure_announcements_not_rate_limited(current_user.id)
     school = await _get_school_or_404(db, payload.school_id)
     await ensure_permission(
         db, current_user, "announcements.manage", organization_id=school.organization_id, school_id=school.id
     )
+    await register_announcements_attempt(current_user.id)
 
     count = await service.create_announcement(
         db,
@@ -73,3 +78,22 @@ async def create_announcement(payload: AnnouncementCreate, db: DbSession, curren
         class_ids=payload.class_ids,
     )
     return AnnouncementResult(recipient_count=count)
+
+
+@router.get("/announcements", response_model=AnnouncementHistoryOut)
+async def list_announcements(
+    db: DbSession,
+    current_user: CurrentUser,
+    school_id: uuid.UUID = Query(...),
+    before: datetime | None = Query(None),
+    limit: int = Query(service.DEFAULT_PAGE_SIZE, ge=1, le=service.MAX_PAGE_SIZE),
+) -> AnnouncementHistoryOut:
+    school = await _get_school_or_404(db, school_id)
+    await ensure_permission(
+        db, current_user, "announcements.manage", organization_id=school.organization_id, school_id=school.id
+    )
+
+    items, next_before = await service.list_school_announcements(db, school.id, school.organization_id, before, limit)
+    return AnnouncementHistoryOut(
+        items=[AnnouncementHistoryEntry(**entry) for entry in items], next_before=next_before
+    )

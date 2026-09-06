@@ -63,6 +63,31 @@ class Settings(BaseSettings):
     report_card_verify_rate_limit_max_attempts: int = 30
     report_card_verify_rate_limit_window_seconds: int = 60
 
+    # Rate limiting reset-password (Phase 22 — gap identifié en Discovery : seul endpoint
+    # d'authentification pré-connexion sans aucune limite, contrairement à login/forgot-password/
+    # register/refresh). Clé IP (endpoint non authentifié, pas d'email dans le payload) — même
+    # motif que register/report-card-verify. Le jeton lui-même a 384 bits d'entropie
+    # (generate_opaque_token) donc le brute-force reste infaisable indépendamment de cette limite ;
+    # son rôle est de borner un abus/DoS applicatif sur cet endpoint. Seuil plus généreux que
+    # forgot-password (3/900s) puisqu'aucun email n'est envoyé ici (coût nettement plus faible).
+    reset_password_rate_limit_max_attempts: int = 10
+    reset_password_rate_limit_window_seconds: int = 900
+
+    # Rate limiting des mutations financières (Phase 22 — POST /payments et /payments/{id}/cancel,
+    # même compteur partagé : même surface d'abus, même acteur authentifié). Clé user_id (comme
+    # refresh) — protégé avant tout par RBAC (payments.manage), cette limite est une défense en
+    # profondeur contre un compte compromis/un script buggy mutant des paiements en rafale, pas
+    # une contrainte sur l'usage normal (un comptable saisissant plusieurs dizaines de paiements
+    # lors d'une journée d'inscription reste largement sous ce seuil).
+    payments_rate_limit_max_attempts: int = 60
+    payments_rate_limit_window_seconds: int = 60
+
+    # Rate limiting des annonces (Phase 22 — POST /announcements, diffusion de masse). Clé
+    # user_id. 10/heure reste largement au-dessus de l'usage réel d'une école (quelques annonces
+    # par jour au plus) tout en bornant un abus par un compte admin compromis.
+    announcements_rate_limit_max_attempts: int = 10
+    announcements_rate_limit_window_seconds: int = 3600
+
     jwt_secret_key: str = "replace_with_a_long_random_secret"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 15
@@ -96,4 +121,39 @@ class Settings(BaseSettings):
     public_web_base_url: str = "http://localhost:3000"
 
 
+class ProductionConfigError(RuntimeError):
+    """Levée au démarrage si `environment=production` avec un secret par défaut de
+    développement encore en place — voir `validate_production_config`."""
+
+
+# Phase 22 — gap identifié en Discovery : rien n'empêchait jusqu'ici un déploiement "production"
+# de démarrer avec ces identifiants de développement, publics (présents dans ce fichier
+# versionné). Recherche par SOUS-CHAÎNE (le mot de passe connu), pas par égalité de l'URL
+# complète : un déploiement peut légitimement changer l'hôte (ex. `db` au lieu de `localhost`
+# sous docker-compose) tout en oubliant de changer le mot de passe — une égalité stricte sur
+# l'URL entière manquerait exactement ce cas. Jamais la valeur réelle n'est journalisée ou
+# incluse dans un message d'erreur, seule la présence/absence du marqueur est signalée.
+_DANGEROUS_MARKERS: dict[str, str] = {
+    "jwt_secret_key": "replace_with_a_long_random_secret",
+    "database_url": "changeme_local_only",
+    "app_database_url": "changeme_app_role_local_only",
+}
+
+
+def validate_production_config(config: "Settings") -> None:
+    """Échoue vite et explicitement si `config.environment == "production"` et qu'un des champs
+    listés ci-dessus contient encore son marqueur de développement. Ne s'applique à aucun autre
+    environnement (development/test), donc sans impact sur le développement local ni la CI."""
+    if config.environment != "production":
+        return
+    unsafe_fields = sorted(name for name, marker in _DANGEROUS_MARKERS.items() if marker in getattr(config, name))
+    if unsafe_fields:
+        raise ProductionConfigError(
+            "Configuration de production invalide : les variables suivantes utilisent encore leur "
+            "valeur par défaut de développement et doivent être définies explicitement avant le "
+            f"démarrage : {', '.join(unsafe_fields)}."
+        )
+
+
 settings = Settings()
+validate_production_config(settings)

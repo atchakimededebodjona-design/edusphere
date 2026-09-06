@@ -53,6 +53,12 @@ export type UserCreateResponse = {
   dev_reset_token: string | null;
 };
 
+export type UserUpdateRequest = {
+  school_id: string;
+  role_code?: RoleCode;
+  is_active?: boolean;
+};
+
 export const users = {
   list: (schoolId: string) => {
     return apiFetch(`/api/v1/users?school_id=${schoolId}`).then((r) => r.json() as Promise<UserWithRoles[]>);
@@ -63,5 +69,12 @@ export const users = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }).then((r) => r.json() as Promise<UserCreateResponse>);
+  },
+  update: (userId: string, payload: UserUpdateRequest) => {
+    return apiFetch(`/api/v1/users/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((r) => r.json() as Promise<UserWithRoles>);
   },
 };

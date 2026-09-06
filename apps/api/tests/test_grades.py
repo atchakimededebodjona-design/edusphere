@@ -389,3 +389,177 @@ async def test_grades_tenant_isolation(client: AsyncClient) -> None:
         f"/api/v1/assessments?class_subject_id={ctx_b['math_cs']['id']}", headers=headers_a
     )
     assert response.status_code == 404
+
+
+# --- Phase 22 : correction IDOR confirmée en Discovery (student_id non validé contre l'école/
+# la classe de l'évaluation — voir PHASE_22_DISCOVERY.md, apps/api/app/modules/grades/router.py
+# avant correction) --------------------------------------------------------------------------
+async def test_grades_submit_rejects_cross_tenant_student(client: AsyncClient) -> None:
+    """Un enseignant/admin de School A ne doit jamais pouvoir créer un résultat pour un
+    student_id appartenant à School B, même avec une permission grades.manage valide sur A."""
+    school_a = await register_school(client, "gradesidora")
+    school_b = await register_school(client, "gradesidorb")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+    headers_b = {"Authorization": f"Bearer {await _login(client, school_b['user']['email'])}"}
+
+    ctx_a = await _setup_class_with_two_subjects(client, headers_a, school_a["school"]["id"])
+    ctx_b = await _setup_class_with_two_subjects(client, headers_b, school_b["school"]["id"])
+    foreign_student = ctx_b["students"][0]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx_a["math_cs"]["id"],
+                "academic_term_id": ctx_a["term"]["id"],
+                "assessment_type_id": ctx_a["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers_a,
+        )
+    ).json()
+
+    response = await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": foreign_student["id"], "score": 15}]},
+        headers=headers_a,
+    )
+    assert response.status_code == 404
+
+    # Aucune donnée académique n'a été créée pour l'élève étranger (pas de recalcul déclenché).
+    averages = (
+        await client.get(
+            f"/api/v1/students/{foreign_student['id']}/averages?academic_term_id={ctx_b['term']['id']}",
+            headers=headers_b,
+        )
+    ).json()
+    assert averages["subject_averages"] == []
+    assert averages["term_averages"] == []
+
+
+async def test_grades_submit_rejects_student_from_wrong_class_same_school(client: AsyncClient) -> None:
+    """Même école, mais élève inscrit dans une AUTRE classe que celle de l'évaluation — doit
+    aussi être rejeté (pas seulement le contrôle école, comme le fait déjà `attendance`)."""
+    data = await register_school(client, "gradeswrongclass")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+
+    other_class = (
+        await client.post(
+            "/api/v1/classes",
+            json={"academic_year_id": ctx["year"]["id"], "education_level_id": ctx["level"]["id"], "name": "B"},
+            headers=headers,
+        )
+    ).json()
+    other_student = (
+        await client.post(
+            "/api/v1/students",
+            json={
+                "school_id": school_id,
+                "matricule": "S999",
+                "first_name": "Hors",
+                "last_name": "Classe",
+                "date_of_birth": str(date(2015, 1, 1)),
+                "sex": "M",
+            },
+            headers=headers,
+        )
+    ).json()
+    await client.post(
+        f"/api/v1/students/{other_student['id']}/enrollments",
+        json={"class_id": other_class["id"], "enrollment_date": str(date(2026, 9, 1))},
+        headers=headers,
+    )
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+
+    response = await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": other_student["id"], "score": 12}]},
+        headers=headers,
+    )
+    assert response.status_code == 404
+
+
+async def test_grades_submit_accepts_legitimate_student_in_class(client: AsyncClient) -> None:
+    """Chemin légitime : l'élève est bien inscrit dans la classe de l'évaluation — doit
+    continuer à fonctionner après le durcissement Phase 22."""
+    data = await register_school(client, "gradeslegit")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student_a = ctx["students"][0]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+
+    response = await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 17}]},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+
+
+async def test_grades_update_result_ignores_injected_student_id(client: AsyncClient) -> None:
+    """PATCH /results/{id} ne réattribue jamais un résultat existant à un autre élève — le champ
+    n'existe pas dans AssessmentResultUpdate, un student_id injecté dans le payload est ignoré."""
+    data = await register_school(client, "gradesupdateidor")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student_a, student_b = ctx["students"]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+    submit_response = await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 12}]},
+        headers=headers,
+    )
+    result = submit_response.json()[0]
+
+    update_response = await client.patch(
+        f"/api/v1/results/{result['id']}", json={"score": 14, "student_id": student_b["id"]}, headers=headers
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["student_id"] == student_a["id"]

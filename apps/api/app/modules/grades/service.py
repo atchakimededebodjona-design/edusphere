@@ -6,9 +6,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.academics.models import AcademicTerm, ClassSubject
 from app.modules.grades.models import Assessment, AssessmentResult, StudentSubjectAverage, StudentTermAverage
-from app.modules.students.models import StudentEnrollment
+from app.modules.students.models import Student, StudentEnrollment
 
 TARGET_SCALE = Decimal(20)
+
+
+async def student_in_class_scope(db: AsyncSession, student: Student, class_id: uuid.UUID) -> bool:
+    """Vérifie qu'un élève est activement inscrit dans la classe visée — École ET Classe, même
+    contrôle que `attendance/service.py::student_in_class_scope` (Phase 22 — corrige un IDOR
+    confirmé : avant cette phase, `grades` n'exigeait aucune appartenance élève/classe, seulement
+    une permission `grades.manage` sur l'école de l'appelant, permettant de saisir une note pour
+    un `student_id` arbitraire d'un autre tenant — voir PHASE_22_DISCOVERY.md)."""
+    result = await db.execute(
+        select(StudentEnrollment.id).where(
+            StudentEnrollment.student_id == student.id,
+            StudentEnrollment.class_id == class_id,
+            StudentEnrollment.status == "ACTIVE",
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def _get_or_create_subject_average(

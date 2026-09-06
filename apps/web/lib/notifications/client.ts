@@ -30,6 +30,19 @@ export type AnnouncementResult = {
   recipient_count: number;
 };
 
+export type AnnouncementHistoryEntry = {
+  title: string;
+  body: string;
+  type: NotificationType;
+  created_at: string;
+  recipient_count: number;
+};
+
+export type AnnouncementHistoryList = {
+  items: AnnouncementHistoryEntry[];
+  next_before: string | null;
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -59,4 +72,10 @@ export const notifications = {
 
 export const announcements = {
   create: (payload: AnnouncementCreate) => postJson<AnnouncementResult>("/api/v1/announcements", payload),
+  history: (schoolId: string, params: { limit?: number; before?: string } = {}) => {
+    const search = new URLSearchParams({ school_id: schoolId });
+    if (params.limit) search.set("limit", String(params.limit));
+    if (params.before) search.set("before", params.before);
+    return getJson<AnnouncementHistoryList>(`/api/v1/announcements?${search.toString()}`);
+  },
 };

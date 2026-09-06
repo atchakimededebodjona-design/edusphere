@@ -137,6 +137,14 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User:
 async def _issue_tokens(
     db: AsyncSession, user: User, device_id: str | None, ip: str | None, user_agent: str | None
 ) -> TokenPair:
+    # Phase 22 — `user_sessions` a désormais une policy RLS restreinte à `user_id =
+    # app.current_user_id` (voir migration 0012). Ce point d'appel (login/register/refresh) crée
+    # toujours la ligne dans une transaction qui vient de démarrer après un commit précédent (le
+    # SET LOCAL d'un contexte tenant antérieur, s'il existait, a déjà expiré) : bypass explicite
+    # et légitime, même motif que `register()`/`get_report_card_by_verification_code` — `user`
+    # est déjà authentifié à ce stade (mot de passe vérifié ou refresh token valide résolu),
+    # créer sa propre session ne peut exposer aucune donnée d'un autre utilisateur.
+    await set_platform_wide_context(db)
     refresh_token = generate_opaque_token()
     session = UserSession(
         id=uuid.uuid4(),
@@ -162,6 +170,11 @@ async def login(
 
 
 async def _get_active_session(db: AsyncSession, refresh_token: str) -> UserSession:
+    # Appelée uniquement par refresh()/logout(), avant toute authentification (le refresh token
+    # opaque EST l'autorisation, comme le code de vérification de bulletin) — aucun contexte
+    # tenant n'a jamais été appliqué à ce stade. Bypass RLS explicite, même motif que
+    # `get_report_card_by_verification_code` (Phase 22 — voir migration 0012).
+    await set_platform_wide_context(db)
     token_hash = hash_opaque_token(refresh_token)
     result = await db.execute(select(UserSession).where(UserSession.refresh_token_hash == token_hash))
     session = result.scalar_one_or_none()
@@ -242,6 +255,11 @@ async def request_password_reset(db: AsyncSession, email: str) -> str | None:
         return None  # ne pas révéler si l'email existe
 
     raw_token = generate_opaque_token()
+    # Unauthenticated (identifié seulement par email) — bypass RLS explicite pour cet INSERT :
+    # un INSERT ORM déclenche un RETURNING implicite (colonnes à valeur par défaut serveur,
+    # `created_at`) qui exige que la ligne soit aussi visible via la policy de SELECT, pas
+    # seulement autorisée en écriture (Phase 22 — voir migration 0012).
+    await set_platform_wide_context(db)
     reset_token = PasswordResetToken(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -263,6 +281,9 @@ async def request_password_reset(db: AsyncSession, email: str) -> str | None:
 
 
 async def reset_password(db: AsyncSession, token: str, new_password: str) -> None:
+    # Unauthenticated (le token opaque EST l'autorisation) — bypass RLS explicite pour pouvoir
+    # lire/marquer utilisé ce PasswordResetToken (Phase 22 — voir migration 0012).
+    await set_platform_wide_context(db)
     token_hash = hash_opaque_token(token)
     result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash))
     reset_token = result.scalar_one_or_none()
