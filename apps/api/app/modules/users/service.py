@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -186,10 +186,23 @@ async def update_user_in_school(
 
 
 async def list_users_for_school(db: AsyncSession, school: School) -> list[tuple[User, list[RoleData]]]:
+    """Phase 24 — corrige une fuite confirmée en Discovery : la condition précédente
+    (`school_id == school.id OR organization_id == school.organization_id`) incluait à tort tout
+    utilisateur ayant un rôle scopé à une AUTRE école de la même organisation (`school_id` d'une
+    école B, `organization_id` de l'organisation partagée) — un admin de l'école A voyait alors le
+    personnel de l'école B dans sa propre liste. Aligné sur le motif déjà correct et testé de
+    `notifications/service.py::resolve_school_member_user_ids` : un rôle organisation ne compte
+    que s'il n'est PAS scopé à une école précise (`school_id IS NULL`, ex. le SCHOOL_ADMIN créé à
+    l'inscription — `auth/service.py::register`)."""
     result = await db.execute(
         select(UserRole, Role.code)
         .join(Role, Role.id == UserRole.role_id)
-        .where((UserRole.school_id == school.id) | (UserRole.organization_id == school.organization_id))
+        .where(
+            or_(
+                UserRole.school_id == school.id,
+                and_(UserRole.organization_id == school.organization_id, UserRole.school_id.is_(None)),
+            )
+        )
     )
     rows = result.all()
     user_ids = {ur.user_id for ur, _ in rows}

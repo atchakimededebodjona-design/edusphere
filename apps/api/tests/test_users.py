@@ -269,6 +269,73 @@ async def test_update_user_cross_school_isolation(client: AsyncClient) -> None:
     assert response.status_code == 404
 
 
+# --- Phase 24 : isolation cross-école au sein d'une même organisation --------------------------
+async def test_list_users_excludes_staff_exclusively_assigned_to_sibling_school(client: AsyncClient) -> None:
+    """Reproduit puis corrige la fuite confirmée en Discovery Phase 24 : `list_users_for_school`
+    acceptait tout rôle scopé à l'ORGANISATION, y compris un rôle scopé explicitement à une AUTRE
+    école de cette même organisation.
+
+    Organization O
+    ├── School A (admin org-scoped, créé par register_school)
+    └── School B (créée ensuite dans la même organisation)
+
+    Un enseignant affecté EXCLUSIVEMENT à School B ne doit jamais apparaître dans la liste des
+    utilisateurs de School A — seul l'admin (rôle organisation, school_id NULL, cas 3) et
+    l'enseignant explicitement affecté à School A (cas 1) doivent y figurer."""
+    data = await register_school(client, "twoschoolsa")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    organization_id = data["organization"]["id"]
+    school_a_id = data["school"]["id"]
+    admin_id = data["user"]["id"]
+
+    # Deuxième école de la MÊME organisation — l'admin org-scoped a déjà schools.manage sans
+    # school_id (voir auth/service.py::register : rôle SCHOOL_ADMIN créé avec school_id=None).
+    school_b_response = await client.post(
+        "/api/v1/schools",
+        json={"organization_id": organization_id, "name": "École B", "slug": "ecole-b-twoschoolsa"},
+        headers=headers,
+    )
+    assert school_b_response.status_code == 201, school_b_response.text
+    school_b_id = school_b_response.json()["id"]
+
+    # Cas 1 : enseignant affecté EXCLUSIVEMENT à School A.
+    teacher_a = await _create_teacher(client, headers, school_a_id, "twoschoolsa-teachera")
+
+    # Cas 2 (le bug) : enseignant affecté EXCLUSIVEMENT à School B.
+    teacher_b = await _create_teacher(client, headers, school_b_id, "twoschoolsa-teacherb")
+
+    list_response = await client.get(f"/api/v1/users?school_id={school_a_id}", headers=headers)
+    assert list_response.status_code == 200, list_response.text
+    listed_ids = {u["user"]["id"] for u in list_response.json()}
+
+    # Cas 1 : présent.
+    assert teacher_a["id"] in listed_ids
+    # Cas 3 : l'admin (rôle organisation, school_id NULL) reste visible.
+    assert admin_id in listed_ids
+    # Cas 2 : ABSENT — c'est la correction de cette phase.
+    assert teacher_b["id"] not in listed_ids, (
+        "Un utilisateur affecté exclusivement à une autre école de la même organisation ne doit "
+        "jamais apparaître dans cette liste (fuite de métadonnées cross-école, Discovery Phase 24)."
+    )
+
+    # Cas 5 : l'admin garde la capacité normale de lister les utilisateurs de School A.
+    assert len(listed_ids) >= 2
+
+
+async def test_list_users_never_includes_a_different_organizations_staff(client: AsyncClient) -> None:
+    """Cas 4 — organisation différente : déjà garanti par RLS sur `user_roles`
+    (`app.tenant_org_ids`), indépendamment de la condition applicative corrigée ci-dessus, mais
+    vérifié explicitement pour ne jamais régresser avec le correctif Phase 24."""
+    data = await register_school(client, "twoschoolsisoa")
+    other_org_data = await register_school(client, "twoschoolsisob")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+
+    list_response = await client.get(f"/api/v1/users?school_id={data['school']['id']}", headers=headers)
+    assert list_response.status_code == 200
+    listed_ids = {u["user"]["id"] for u in list_response.json()}
+    assert other_org_data["user"]["id"] not in listed_ids
+
+
 async def test_teacher_cannot_update_users(client: AsyncClient) -> None:
     data = await register_school(client, "userseditteacher")
     school_id = data["school"]["id"]

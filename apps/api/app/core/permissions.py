@@ -60,12 +60,24 @@ async def get_scoped_permission_codes(
     """Permissions effectives de `user` pour la portée demandée.
 
     Une attribution de rôle plateforme (organization_id ET school_id NULL) s'applique partout.
-    Une attribution scopée organisation s'applique si elle correspond à `organization_id`.
-    Une attribution scopée école s'applique si elle correspond à `school_id`.
+    Une attribution scopée organisation s'applique si elle correspond à `organization_id` — mais
+    UNIQUEMENT si cette attribution est elle-même org-wide (`school_id IS NULL`, ex. le
+    SCHOOL_ADMIN créé à l'inscription — `auth/service.py::register`). Une attribution scopée à
+    une école précise s'applique si elle correspond exactement à `school_id`.
+
+    Phase 24 — corrige un bug confirmé (Discovery Phase 24, en marge du problème initialement
+    signalé sur `list_users_for_school`, mais de même nature et de portée bien plus large) :
+    avant ce correctif, `UserRole.organization_id == organization_id` matchait aussi une
+    attribution scopée à une AUTRE école de la même organisation (`school_id` non nul), ce qui
+    accordait à tort les permissions de cette autre école — vérifié empiriquement : un TEACHER
+    affecté exclusivement à l'école B pouvait lister/lire les élèves de l'école A (même
+    organisation) via `GET /students?school_id=<école A>`. RLS ne bloque pas ce cas non plus
+    (la policy générique `{table}_tenant_isolation` est basée sur l'organisation, pas l'école) —
+    ce contrôle applicatif est donc la seule ligne de défense réelle ici.
     """
     conditions = [and_(UserRole.organization_id.is_(None), UserRole.school_id.is_(None))]
     if organization_id is not None:
-        conditions.append(UserRole.organization_id == organization_id)
+        conditions.append(and_(UserRole.organization_id == organization_id, UserRole.school_id.is_(None)))
     if school_id is not None:
         conditions.append(UserRole.school_id == school_id)
 
@@ -108,14 +120,22 @@ def require_permission(code: str):
 async def is_teacher_only(db: AsyncSession, user: User, organization_id: uuid.UUID, school_id: uuid.UUID) -> bool:
     """True si, pour cette école, le seul rôle de l'utilisateur est TEACHER — cas où la règle
     métier « un enseignant ne voit que ses classes/matières » (cahier des charges §10)
-    s'applique. Un DIRECTOR/STAFF/SCHOOL_ADMIN voit toujours tout."""
+    s'applique. Un DIRECTOR/STAFF/SCHOOL_ADMIN voit toujours tout.
+
+    Phase 24 — même correctif que `get_scoped_permission_codes` : un rôle scopé à une AUTRE école
+    de la même organisation (`school_id` non nul) ne doit compter que si `school_id IS NULL`
+    (rôle réellement org-wide). Sans ce garde-fou, un utilisateur tenant par ailleurs un second
+    rôle (ex. STAFF) dans une autre école de l'organisation ferait basculer `role_codes` hors de
+    `{"TEACHER"}` pour CETTE école, désactivant à tort la restriction stricte
+    « affectation TeacherAssignment requise » alors même que son seul rôle légitime ici reste
+    TEACHER."""
     result = await db.execute(
         select(Role.code)
         .join(UserRole, UserRole.role_id == Role.id)
         .where(
             UserRole.user_id == user.id,
             (UserRole.school_id == school_id)
-            | (UserRole.organization_id == organization_id)
+            | (and_(UserRole.organization_id == organization_id, UserRole.school_id.is_(None)))
             | (UserRole.organization_id.is_(None) & UserRole.school_id.is_(None)),
         )
     )
