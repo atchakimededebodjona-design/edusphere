@@ -21,6 +21,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/report-cards", label: "Bulletins", permission: "report_cards.read" },
   { href: "/fees", label: "Frais scolaires", permission: "fees.read" },
   { href: "/payments", label: "Paiements", permission: "payments.read" },
+  { href: "/notifications", label: "Notifications" },
+  { href: "/announcements", label: "Annonces", permission: "announcements.manage" },
   { href: "/users", label: "Utilisateurs", permission: "users.read" },
 ];
 

@@ -10,6 +10,7 @@ from app.core.permissions import CurrentUser, DbSession, ensure_permission
 from app.core.rate_limit import ensure_report_card_verify_not_rate_limited, register_report_card_verify_attempt
 from app.core.storage import storage
 from app.modules.academics.models import AcademicTerm, SchoolClass
+from app.modules.notifications import service as notifications_service
 from app.modules.report_cards import service
 from app.modules.report_cards.models import ReportCard, ReportCardTemplate
 from app.modules.report_cards.schemas import (
@@ -186,6 +187,11 @@ async def publish_report_card(report_card_id: uuid.UUID, db: DbSession, current_
     notifications: list[tuple[str, str, str]] = []
     if not was_already_published:
         notifications = await service.prepare_report_card_published_notifications(db, report_card)
+        # Phase 21 — notification in-app, en plus de l'email ci-dessus, créée dans la même
+        # transaction (voir notifications/service.py::create_notifications pour la justification
+        # du contexte plateforme). Hérite gratuitement de la même garde `was_already_published`
+        # (pas de double notification sur republication d'un bulletin déjà publié).
+        await notifications_service.notify_report_card_published(db, report_card)
 
     await db.commit()
 

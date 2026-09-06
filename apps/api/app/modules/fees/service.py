@@ -12,6 +12,7 @@ from app.core.email import send_email_best_effort
 from app.core.payment import payment_provider
 from app.core.storage import storage
 from app.modules.academics.models import SchoolClass
+from app.modules.notifications import service as notifications_service
 from app.modules.fees.models import FeeSchedule, Payment, PaymentAllocation, StudentFee
 from app.modules.fees.schemas import (
     FeeScheduleGenerateResult,
@@ -296,6 +297,10 @@ async def record_payment(
     # Lecture des destinataires AVANT le commit — le contexte RLS (SET LOCAL) est lié à la
     # transaction courante, comme documenté dans report_cards/service.py.
     notifications = await _prepare_payment_notifications(db, student, payment)
+    # Phase 21 — notification in-app, même transaction. Appelée en DERNIER avant le refresh/commit
+    # (voir notifications/service.py::create_notifications — élargit le contexte tenant jusqu'au
+    # commit, aucune lecture sensible ne doit suivre dans cette même transaction).
+    await notifications_service.notify_payment_recorded(db, student, payment)
 
     await db.refresh(payment)
     await db.commit()

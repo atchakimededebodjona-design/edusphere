@@ -144,3 +144,19 @@ PHASE19_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "DIRECTOR": ["fees.read", "fees.manage", "payments.read", "payments.manage"],
     "ACCOUNTANT": ["fees.read", "payments.read", "payments.manage"],
 }
+
+# --- Phase 21 (communications / annonces) ---------------------------------------
+# Décision produit validée : seuls SCHOOL_ADMIN/DIRECTOR publient des annonces. ACCOUNTANT/
+# TEACHER/STAFF ne publient pas mais reçoivent normalement leurs propres notifications (aucune
+# permission requise pour lire SES notifications — auto-scopé par recipient_user_id, même motif
+# que /auth/me — voir PHASE_21_DISCOVERY.md §10). Pas de permission `notifications.*` : rien à
+# gérer côté RBAC pour la simple lecture de ses propres notifications.
+PHASE21_PERMISSIONS: dict[str, str] = {
+    "announcements.manage": "Publier une annonce scolaire (toute l'école ou une/plusieurs classes)",
+}
+
+PHASE21_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["announcements.manage"],
+    "SCHOOL_ADMIN": ["announcements.manage"],
+    "DIRECTOR": ["announcements.manage"],
+}
