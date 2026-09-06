@@ -7,6 +7,13 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.health import router as health_router
 from app.core.config import settings
+from app.core.log_context import (
+    generate_request_id,
+    is_acceptable_request_id,
+    organization_id_var,
+    request_id_var,
+    school_id_var,
+)
 from app.core.logging_config import configure_logging
 from app.modules.academics.router import router as academics_router
 from app.modules.attendance.router import router as attendance_router
@@ -45,6 +52,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Phase 23 — corrélation des requêtes. Réutilise un `X-Request-Id` entrant s'il a une forme
+    raisonnable (voir `log_context.is_acceptable_request_id`), en génère un nouveau sinon — jamais
+    prévisible (`secrets`, pas `uuid4` "à la main" ni un compteur). Posé dans des ContextVar
+    (jamais en base, jamais dans une nouvelle table) pour que `RequestContextFilter`
+    (logging_config.py) l'attache automatiquement à chaque ligne de log émise pendant cette
+    requête, sans toucher aux appelants existants (rate_limit.py, email.py, exception handler...).
+
+    `school_id`/`organization_id` sont extraits, au mieux-effort, des paramètres de requête déjà
+    nommés ainsi (ex. `GET /students?school_id=...`) — aucun endpoit métier n'a besoin d'être
+    modifié pour ça. Quand ce n'est pas présent en query string (ex. un ID de ressource dans le
+    chemin), le champ reste simplement absent du log plutôt que deviné : voir
+    `permissions.py::get_current_user` pour `user_id`, seul champ garanti dès qu'une requête est
+    authentifiée."""
+    incoming = request.headers.get("x-request-id")
+    request_id = incoming if incoming and is_acceptable_request_id(incoming) else generate_request_id()
+
+    request_id_token = request_id_var.set(request_id)
+    school_token = school_id_var.set(request.query_params.get("school_id"))
+    organization_token = organization_id_var.set(request.query_params.get("organization_id"))
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_var.reset(request_id_token)
+        school_id_var.reset(school_token)
+        organization_id_var.reset(organization_token)
+
+    response.headers["X-Request-Id"] = request_id
+    return response
 
 
 @app.middleware("http")

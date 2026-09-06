@@ -168,7 +168,7 @@ déconseillé ici par écrit, puisqu'aucune donnée sensible (cookie) n'y transi
 projet — voir section HTTPS) : le risque réel de mal configurer cette variable reste donc plus
 faible qu'il ne le serait avec des cookies de session.
 
-## Health / Readiness / Observabilité (Phase 16)
+## Health / Readiness / Observabilité (Phase 16, étendu Phase 23)
 
 - `GET /api/v1/health` — liveness, aucune dépendance vérifiée, utilisé par le `HEALTHCHECK`
   Docker du service `api` (`docker-compose.yml`).
@@ -176,11 +176,65 @@ faible qu'il ne le serait avec des cookies de session.
   stockage fichiers (écriture réelle via `StorageProvider`). `200` si tout est `"ok"`, `503`
   sinon, avec le détail par dépendance (`{"database": "ok"|"error", ...}`) — jamais de chaîne de
   connexion ni de message d'exception dans la réponse.
-- Logs : `LOG_LEVEL` (déjà présent depuis la Phase 0) est désormais réellement appliqué
-  (`app/core/logging_config.py`) — une ligne de démarrage, et une ligne d'erreur (sans secret)
-  pour chaque échec de vérification `/ready` ou exception HTTP non gérée.
-- Testé réellement en Phase 16 (arrêt/redémarrage contrôlé de `db`/`redis`, voir
-  [Phase 16](../phases/PHASE_16_IMPLEMENTATION.md)) — pas seulement écrit.
+- Logs : `LOG_LEVEL` (déjà présent depuis la Phase 0) est réellement appliqué
+  (`app/core/logging_config.py`), désormais en **JSON structuré** (Phase 23) — une ligne par
+  évènement, champs `timestamp`/`level`/`logger`/`message`, plus `request_id`/`user_id`/
+  `organization_id`/`school_id` quand disponibles. Compatible `docker compose logs` tel quel
+  (chaque ligne est un objet JSON complet). Toujours aucune plateforme externe (pas d'ELK/
+  Grafana/Prometheus/OpenTelemetry) — seul le format a changé, pas l'infrastructure.
+- **Request-id (Phase 23)** : chaque requête reçoit un identifiant de corrélation
+  (`app/core/log_context.py`), réutilisé depuis l'en-tête `X-Request-Id` entrant s'il a une forme
+  raisonnable (alphanumérique/tiret/underscore, ≤100 caractères), sinon généré via `secrets`
+  (jamais prévisible). Renvoyé dans **toute** réponse, y compris les erreurs 401/403/404/422/500,
+  via l'en-tête `X-Request-Id`. Ce même identifiant apparaît automatiquement dans chaque ligne de
+  log émise pendant le traitement de cette requête — voir
+  [`docs/support/RUNBOOK.md`](../support/RUNBOOK.md) pour l'utiliser concrètement face à un
+  incident signalé par une école ("Request ID : ABC123").
+- Testé réellement en Phase 16 (arrêt/redémarrage contrôlé de `db`/`redis`) et Phase 23 (format
+  JSON vérifié par parsing réel, corrélation request-id vérifiée de bout en bout, y compris deux
+  requêtes concurrentes ne mélangeant jamais leurs identifiants).
+
+## Validation automatique de la configuration en production (Phase 22, étendue Phase 23)
+
+`validate_production_config` (`apps/api/app/core/config.py`) s'exécute **au démarrage du
+processus** (import de `config.py`, avant que l'API ne serve la moindre requête) quand
+`ENVIRONMENT=production`. Ne s'applique à aucun autre environnement — sans impact sur le
+développement local, les tests, ou la CI.
+
+**Refuse le démarrage (`ProductionConfigError`, processus arrêté)** si l'une de ces variables
+contient encore sa valeur de développement :
+
+| Variable | Marqueur recherché | Introduit |
+|---|---|---|
+| `JWT_SECRET_KEY` | `replace_with_a_long_random_secret` | Phase 22 |
+| `DATABASE_URL` | `changeme_local_only` | Phase 22 |
+| `APP_DATABASE_URL` | `changeme_app_role_local_only` | Phase 22 |
+| `CORS_ALLOWED_ORIGINS` | `localhost`, `127.0.0.1`, ou `0.0.0.0` | Phase 23 |
+| `PUBLIC_BASE_URL` | `localhost`, `127.0.0.1`, ou `0.0.0.0` | Phase 23 |
+| `PUBLIC_WEB_BASE_URL` | `localhost`, `127.0.0.1`, ou `0.0.0.0` | Phase 23 |
+
+Recherche par **sous-chaîne**, jamais par égalité stricte sur la valeur entière — un déploiement
+qui changerait l'hôte (ex. `db` au lieu de `localhost`) tout en oubliant de changer le mot de
+passe, ou qui laisserait une seule origine `http://localhost:3000` au milieu d'une liste CORS par
+ailleurs correcte, reste détecté. `127.0.0.1` (boucle locale) et `0.0.0.0` (écoute toutes
+interfaces) sont traités comme `localhost` pour les trois URLs publiques : aucun des trois n'est
+une adresse qu'on peut légitimement communiquer à un navigateur, un parent, ou un QR code. Le
+message d'erreur ne cite jamais que le **nom** de la variable, jamais sa valeur.
+
+**Produit un avertissement dans les logs, sans refuser le démarrage**, pour la configuration
+SMTP — sévérité volontairement différente des six vérifications ci-dessus :
+
+| Condition | Log produit |
+|---|---|
+| `EMAIL_PROVIDER=smtp` et `SMTP_USERNAME`/`SMTP_PASSWORD` vides | `CRITICAL` — l'envoi d'email échouera silencieusement |
+| `EMAIL_PROVIDER=local` | `WARNING` — rappel qu'aucun email réel n'est envoyé (voir section Email ci-dessus) |
+| `EMAIL_PROVIDER=smtp` avec identifiants renseignés | Aucun log — configuration jugée saine |
+
+Ce choix (avertir plutôt que refuser) est délibéré : contrairement à un secret JWT ou une URL
+localhost, `EMAIL_PROVIDER=local` reste un choix de déploiement valide pour un tout premier
+pilote très restreint où l'équipe surveille elle-même les emails écrits sur disque — imposer un
+crash forcerait une intégration SMTP avant même de pouvoir démarrer l'API. Ne jamais journaliser
+la valeur d'un identifiant SMTP — seule sa présence/absence est signalée.
 
 ## Checklist de configuration production
 
@@ -213,6 +267,12 @@ une case sur la base d'une intention ou d'une documentation seule.
       lors d'un test de panne contrôlée d'au moins une dépendance)
 - [ ] Docker healthchecks vérifiés (`docker compose ps` affichant `(healthy)` pour `api`/`db`/`redis`)
 - [ ] Logs vérifiés (ligne de démarrage visible, aucun secret dans `docker compose logs`)
+- [x] Logs structurés JSON + corrélation par `request_id` — **PASS**, réellement testés (Phase 23,
+      voir section "Health / Readiness / Observabilité" ci-dessus et
+      [`docs/support/RUNBOOK.md`](../support/RUNBOOK.md))
+- [x] Validation automatique au démarrage (`JWT_SECRET_KEY`/`DATABASE_URL`/`APP_DATABASE_URL`/
+      `CORS_ALLOWED_ORIGINS`/`PUBLIC_BASE_URL`/`PUBLIC_WEB_BASE_URL`) — **PASS**, réellement testée
+      (Phases 22 et 23, voir section "Validation automatique de la configuration" ci-dessus)
 - [ ] Aucun secret dans Git — non applicable tant qu'aucun dépôt Git n'existe (voir Git/CI
       ci-dessous) ; à revérifier explicitement au moment de l'initialisation du dépôt
 - [ ] HTTPS / reverse proxy prévu — **non traité par ce projet à ce stade** (aucune configuration

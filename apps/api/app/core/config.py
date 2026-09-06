@@ -1,3 +1,5 @@
+import logging
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -133,25 +135,65 @@ class ProductionConfigError(RuntimeError):
 # sous docker-compose) tout en oubliant de changer le mot de passe — une égalité stricte sur
 # l'URL entière manquerait exactement ce cas. Jamais la valeur réelle n'est journalisée ou
 # incluse dans un message d'erreur, seule la présence/absence du marqueur est signalée.
-_DANGEROUS_MARKERS: dict[str, str] = {
+_DANGEROUS_SECRET_MARKERS: dict[str, str] = {
     "jwt_secret_key": "replace_with_a_long_random_secret",
     "database_url": "changeme_local_only",
     "app_database_url": "changeme_app_role_local_only",
 }
 
+# Phase 23 — gap identifié en Discovery Phase 23 : `validate_production_config` ne couvrait que
+# les 3 secrets ci-dessus. Une URL PUBLIQUE (celle qu'on donne à un navigateur/QR code/CORS) qui
+# contiendrait encore une adresse locale en production serait un échec silencieux (pas de crash,
+# juste une app inutilisable depuis un vrai domaine, ou des liens de bulletin cassés envoyés aux
+# parents) — donc traitée avec la même sévérité (refus au démarrage), pas seulement un
+# avertissement. Trois marqueurs, pas un seul : `localhost` et `127.0.0.1` sont des adresses de
+# boucle locale, `0.0.0.0` est une adresse de écoute "toutes interfaces" jamais valide comme URL
+# qu'on communique à un tiers — les trois sont donc concernés par cette même règle. Vérification
+# par sous-chaîne, comme pour les secrets ci-dessus (`cors_allowed_origins` est une liste
+# séparée par virgules, pas une URL unique — un `in` simple couvre les deux cas sans sur-analyser
+# la valeur).
+_LOCAL_URL_MARKERS: tuple[str, ...] = ("localhost", "127.0.0.1", "0.0.0.0")
+_PUBLIC_URL_FIELDS: tuple[str, ...] = ("cors_allowed_origins", "public_base_url", "public_web_base_url")
+
 
 def validate_production_config(config: "Settings") -> None:
     """Échoue vite et explicitement si `config.environment == "production"` et qu'un des champs
-    listés ci-dessus contient encore son marqueur de développement. Ne s'applique à aucun autre
-    environnement (development/test), donc sans impact sur le développement local ni la CI."""
+    ci-dessus contient encore son marqueur de développement (secret) ou une adresse locale (URL
+    publique). Ne s'applique à aucun autre environnement (development/test), donc sans impact sur
+    le développement local ni la CI.
+
+    Vérifie aussi la configuration SMTP en production, mais avec une sévérité différente et
+    volontairement documentée : `email_provider=smtp` avec des identifiants vides produit un
+    `logger.critical` (l'envoi d'email échouera silencieusement sinon) sans jamais faire échouer
+    le démarrage — contrairement aux deux vérifications ci-dessus. `email_provider=local` reste un
+    choix de déploiement valide (ce projet n'impose aucun fournisseur SMTP) : seulement un
+    `logger.warning` rappelant qu'aucun email réel ne sera envoyé, jamais un refus."""
     if config.environment != "production":
         return
-    unsafe_fields = sorted(name for name, marker in _DANGEROUS_MARKERS.items() if marker in getattr(config, name))
+
+    unsafe_fields = sorted(
+        name for name, marker in _DANGEROUS_SECRET_MARKERS.items() if marker in getattr(config, name)
+    )
+    unsafe_fields += sorted(
+        name for name in _PUBLIC_URL_FIELDS if any(marker in getattr(config, name) for marker in _LOCAL_URL_MARKERS)
+    )
     if unsafe_fields:
         raise ProductionConfigError(
             "Configuration de production invalide : les variables suivantes utilisent encore leur "
-            "valeur par défaut de développement et doivent être définies explicitement avant le "
-            f"démarrage : {', '.join(unsafe_fields)}."
+            "valeur par défaut de développement ou une adresse locale, et doivent être définies "
+            f"explicitement avant le démarrage : {', '.join(sorted(set(unsafe_fields)))}."
+        )
+
+    logger = logging.getLogger(__name__)
+    if config.email_provider == "smtp" and (not config.smtp_username or not config.smtp_password):
+        logger.critical(
+            "Configuration de production : EMAIL_PROVIDER=smtp mais SMTP_USERNAME/SMTP_PASSWORD "
+            "sont vides — l'envoi d'email échouera silencieusement tant que ce n'est pas corrigé."
+        )
+    elif config.email_provider == "local":
+        logger.warning(
+            "Configuration de production : EMAIL_PROVIDER=local — aucun email réel ne sera envoyé "
+            "(choix de déploiement valide, mais à confirmer intentionnellement)."
         )
 
 

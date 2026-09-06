@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.log_context import user_id_var
 from app.core.security import decode_access_token
 from app.core.tenancy import apply_tenant_context
 from app.db.session import get_db
@@ -38,6 +39,10 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise CREDENTIALS_ERROR
 
+    # Phase 23 — dès qu'une requête est authentifiée, user_id devient disponible pour la
+    # corrélation de logs (voir app/core/log_context.py) : point d'entrée unique, déjà traversé
+    # par la quasi-totalité des endpoints métier, pas de nouveau paramètre à ajouter ailleurs.
+    user_id_var.set(str(user.id))
     await apply_tenant_context(db, user.id)
     return user
 

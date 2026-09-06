@@ -16,6 +16,13 @@ Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 > d'évaluation depuis mobile restent hors périmètre pour l'instant.
 >
 > Voir [docs/architecture/overview.md](docs/architecture/overview.md).
+>
+> **Ce statut est celui des premières phases** — le projet a continué depuis (présences, frais/
+> paiements, communications/notifications, durcissement sécurité). Pour l'état réel courant,
+> voir [docs/phases/](docs/phases/) (un rapport par phase) et surtout, avant tout déploiement
+> pilote, [docs/deployment/](docs/deployment/) (configuration production, sauvegardes, reprise
+> après sinistre) et [docs/support/RUNBOOK.md](docs/support/RUNBOOK.md) (premiers réflexes face à
+> un incident signalé par une école).
 
 ## Structure du monorepo
 
