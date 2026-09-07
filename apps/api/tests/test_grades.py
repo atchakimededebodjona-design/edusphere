@@ -2,7 +2,9 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import event
 
+from app.db.session import engine
 from tests.conftest import assign_role, register_school
 
 
@@ -10,6 +12,27 @@ async def _login(client: AsyncClient, email: str, password: str = "SuperSecret12
     response = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200
     return response.json()["access_token"]
+
+
+class _QueryCounter:
+    """Compte les requêtes SQL exécutées sur `engine` pendant sa durée de vie — Phase 25, pour
+    démontrer empiriquement l'absence de croissance N+1 plutôt que de le supposer."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def __call__(self, conn, cursor, statement, parameters, context, executemany) -> None:  # noqa: ANN001
+        self.count += 1
+
+
+async def _count_queries(coro):  # noqa: ANN001
+    counter = _QueryCounter()
+    event.listen(engine.sync_engine, "before_cursor_execute", counter)
+    try:
+        response = await coro
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", counter)
+    return response, counter.count
 
 
 async def _setup_class_with_two_subjects(client: AsyncClient, headers: dict, school_id: str) -> dict:
@@ -563,3 +586,117 @@ async def test_grades_update_result_ignores_injected_student_id(client: AsyncCli
     )
     assert update_response.status_code == 200
     assert update_response.json()["student_id"] == student_a["id"]
+
+
+# --- Phase 25 : correction du N+1 confirmé en Discovery (apply_results_and_recompute) ----------
+async def _enroll_extra_students(
+    client: AsyncClient, headers: dict, school_id: str, class_id: str, count: int, matricule_prefix: str
+) -> list[str]:
+    """Ajoute `count` élèves supplémentaires, déjà inscrits dans `class_id` — pour faire varier
+    la taille de la classe sans dupliquer tout `_setup_class_with_two_subjects`."""
+    student_ids = []
+    for i in range(count):
+        student = (
+            await client.post(
+                "/api/v1/students",
+                json={
+                    "school_id": school_id,
+                    "matricule": f"{matricule_prefix}{i:03d}",
+                    "first_name": f"Extra{i}",
+                    "last_name": "Test",
+                    "date_of_birth": str(date(2015, 1, 1)),
+                    "sex": "M" if i % 2 == 0 else "F",
+                },
+                headers=headers,
+            )
+        ).json()
+        await client.post(
+            f"/api/v1/students/{student['id']}/enrollments",
+            json={"class_id": class_id, "enrollment_date": str(date(2026, 9, 1))},
+            headers=headers,
+        )
+        student_ids.append(student["id"])
+    return student_ids
+
+
+async def test_bulk_grade_submission_query_count_does_not_scale_with_student_count(client: AsyncClient) -> None:
+    """Preuve empirique du correctif Phase 25 : avant, `apply_results_and_recompute` exécutait
+    plusieurs requêtes SQL PAR ÉLÈVE (`recompute_subject_average`/`recompute_term_average` en
+    boucle Python) — soumettre des notes pour une classe plus grande coûtait un nombre de
+    requêtes proportionnel au nombre d'élèves. Compare une soumission à 2 élèves et une
+    soumission à 8 élèves (même classe, même matière) : le nombre de requêtes ne doit PAS croître
+    proportionnellement — seule une poignée de requêtes supplémentaires est attendue (IN(...) sur
+    une liste plus longue, et la vérification école/classe par élève du routeur, restée
+    inchangée et volontairement hors du périmètre Phase 25 — voir PHASE_22_DISCOVERY.md)."""
+    data = await register_school(client, "gradesqcount")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    base_student_ids = [s["id"] for s in ctx["students"]]  # 2 élèves déjà inscrits
+    extra_student_ids = await _enroll_extra_students(
+        client, headers, school_id, ctx["class"]["id"], count=6, matricule_prefix="X"
+    )
+    all_student_ids = base_student_ids + extra_student_ids  # 8 élèves au total
+
+    assessment_small = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir petit groupe",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+    assessment_large = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir grand groupe",
+                "assessment_date": str(date(2026, 10, 2)),
+            },
+            headers=headers,
+        )
+    ).json()
+
+    small_response, count_small = await _count_queries(
+        client.post(
+            "/api/v1/results",
+            json={
+                "assessment_id": assessment_small["id"],
+                "results": [{"student_id": sid, "score": 12} for sid in base_student_ids],
+            },
+            headers=headers,
+        )
+    )
+    assert small_response.status_code == 201, small_response.text
+
+    large_response, count_large = await _count_queries(
+        client.post(
+            "/api/v1/results",
+            json={
+                "assessment_id": assessment_large["id"],
+                "results": [{"student_id": sid, "score": 12} for sid in all_student_ids],
+            },
+            headers=headers,
+        )
+    )
+    assert large_response.status_code == 201, large_response.text
+
+    # 4x plus d'élèves (2 -> 8) ne doit jamais coûter un nombre de requêtes proportionnel — un
+    # facteur linéaire aurait ajouté plusieurs dizaines de requêtes (voir service.py avant Phase
+    # 25 : ~2-3 requêtes/élève pour la moyenne matière + ~4-5 requêtes/élève pour la moyenne
+    # générale). Le reliquat autorisé ici ne couvre que la vérification élève/classe du routeur
+    # (2 requêtes/élève, Phase 22, hors périmètre) et quelques IN(...) plus larges.
+    growth = count_large - count_small
+    assert growth <= 20, (
+        f"Le nombre de requêtes SQL croît avec le nombre d'élèves ({count_small} pour 2 élèves, "
+        f"{count_large} pour 8 élèves, écart {growth}) — le correctif N+1 Phase 25 semble régressé."
+    )

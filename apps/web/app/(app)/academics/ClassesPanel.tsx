@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import {
   classSubjects,
@@ -128,15 +129,30 @@ export function ClassSubjectsEditor({
   const [subjectId, setSubjectId] = useState("");
   const [coefficient, setCoefficient] = useState("1");
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
   const [teachers, setTeachers] = useState<UserWithRoles[]>([]);
 
-  useEffect(() => {
-    void classSubjects.list(schoolClass.id).then(setAttached);
-    void teacherAssignments.list(schoolClass.id).then(setAssignments);
-    void usersClient.list(schoolId).then((all) => setTeachers(all.filter((u) => u.roles.some((r) => r.role_code === "TEACHER"))));
+  const loadClassSubjects = useCallback(() => {
+    setAttached(null);
+    setLoadError(null);
+    Promise.all([
+      classSubjects.list(schoolClass.id),
+      teacherAssignments.list(schoolClass.id),
+      usersClient.list(schoolId),
+    ])
+      .then(([attachedResult, assignmentsResult, allUsers]) => {
+        setAttached(attachedResult);
+        setAssignments(assignmentsResult);
+        setTeachers(allUsers.filter((u) => u.roles.some((r) => r.role_code === "TEACHER")));
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [schoolClass.id, schoolId]);
+
+  useEffect(() => {
+    loadClassSubjects();
+  }, [loadClassSubjects]);
 
   const available = useMemo(
     () => subjects.filter((s) => !attached?.some((a) => a.subject_id === s.id)),
@@ -173,6 +189,7 @@ export function ClassSubjectsEditor({
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadClassSubjects} />;
   if (attached === null) return <p className="text-sm text-slate-400">Chargement des matières...</p>;
 
   return (
@@ -255,22 +272,30 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", education_level_id: "", capacity: "" });
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    void Promise.all([
+  const loadAll = useCallback(() => {
+    setLoadError(null);
+    Promise.all([
       academicYears.list(schoolId),
       educationLevels.list(schoolId),
       subjectsClient.list(schoolId),
       schoolClasses.list(schoolId),
-    ]).then(([y, l, s, c]) => {
-      setYears(y);
-      setLevels(l);
-      setSubjects(s);
-      setClasses(c);
-      setSelectedYearId(y.find((year) => year.is_current)?.id ?? y[0]?.id ?? "");
-    });
+    ])
+      .then(([y, l, s, c]) => {
+        setYears(y);
+        setLevels(l);
+        setSubjects(s);
+        setClasses(c);
+        setSelectedYearId(y.find((year) => year.is_current)?.id ?? y[0]?.id ?? "");
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [schoolId]);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
 
   const classesForYear = useMemo(
     () => (classes ?? []).filter((c) => c.academic_year_id === selectedYearId),
@@ -299,6 +324,7 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
   if (years === null || levels === null || subjects === null || classes === null) {
     return <p className="text-sm text-slate-400">Chargement...</p>;
   }

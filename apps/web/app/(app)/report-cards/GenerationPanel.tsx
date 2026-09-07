@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, schoolClasses, type AcademicTerm, type SchoolClass } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { reportCards, templates as templatesClient, type ReportCard, type ReportCardTemplate } from "@/lib/report-cards/client";
 import { students as studentsClient, type Student } from "@/lib/students/client";
 
@@ -23,27 +24,50 @@ export function GenerationPanel({ schoolId, canManage }: { schoolId: string; can
   const [generating, setGenerating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadClassesAndTemplates = useCallback(() => {
+    setLoadError(null);
+    Promise.all([schoolClasses.list(schoolId), templatesClient.list(schoolId)])
+      .then(([c, t]) => {
+        setClasses(c);
+        setTemplates(t);
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }, [schoolId]);
 
   useEffect(() => {
-    void schoolClasses.list(schoolId).then(setClasses);
-    void templatesClient.list(schoolId).then(setTemplates);
-  }, [schoolId]);
+    loadClassesAndTemplates();
+  }, [loadClassesAndTemplates]);
 
   useEffect(() => {
     setSelectedTermId("");
     setTerms(null);
     setRoster(null);
     setCards(null);
+    setError(null);
     if (!selectedClassId) return;
     const schoolClass = classes?.find((c) => c.id === selectedClassId);
-    if (schoolClass) void academicTerms.list(schoolClass.academic_year_id).then(setTerms);
-    void studentsClient.list(schoolId, { classId: selectedClassId }).then(setRoster);
+    if (schoolClass) {
+      void academicTerms
+        .list(schoolClass.academic_year_id)
+        .then(setTerms)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+    }
+    void studentsClient
+      .list(schoolId, { classId: selectedClassId })
+      .then(setRoster)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedClassId, classes, schoolId]);
 
   useEffect(() => {
     setCards(null);
+    setError(null);
     if (!selectedClassId || !selectedTermId) return;
-    void reportCards.list(selectedClassId, selectedTermId).then(setCards);
+    void reportCards
+      .list(selectedClassId, selectedTermId)
+      .then(setCards)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedClassId, selectedTermId]);
 
   const rows = useMemo(() => {
@@ -82,6 +106,7 @@ export function GenerationPanel({ schoolId, canManage }: { schoolId: string; can
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadClassesAndTemplates} />;
   if (classes === null || templates === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (

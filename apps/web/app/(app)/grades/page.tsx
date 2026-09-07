@@ -1,30 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
-import { assessmentTypes, type AssessmentType } from "@/lib/grades/client";
+import { useAsyncData } from "@/lib/api/useAsyncData";
+import { assessmentTypes } from "@/lib/grades/client";
 import { useAuth } from "@/lib/auth/useAuth";
 import { GradeBookPanel } from "@/app/(app)/grades/GradeBookPanel";
 import { ClassPerformancePanel } from "@/app/(app)/grades/ClassPerformancePanel";
 
 function AssessmentTypesPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
-  const [items, setItems] = useState<AssessmentType[] | null>(null);
+  const list = useAsyncData(() => assessmentTypes.list(schoolId), [schoolId]);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void assessmentTypes.list(schoolId).then(setItems);
-  }, [schoolId]);
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     setCreating(true);
     setError(null);
     try {
-      const created = await assessmentTypes.create({ school_id: schoolId, name });
-      setItems((prev) => [...(prev ?? []), created]);
+      await assessmentTypes.create({ school_id: schoolId, name });
       setName("");
+      list.retry();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
@@ -32,11 +30,14 @@ function AssessmentTypesPanel({ schoolId, canManage }: { schoolId: string; canMa
     }
   }
 
-  if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
+  const items = list.data;
 
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold text-slate-900">Types d&apos;évaluation</h2>
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
       <ul className="flex flex-col gap-1">
         {items.map((t) => (
           <li key={t.id} className="rounded border border-slate-200 px-3 py-1.5 text-sm">

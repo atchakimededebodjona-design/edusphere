@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import { getSchool, getSchoolDashboard, type School, type SchoolDashboard } from "@/lib/schools/client";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -23,16 +24,23 @@ function formatRate(rate: number | null): string {
 export default function DashboardPage() {
   const { currentSchoolId, permissions } = useAuth();
   const [school, setSchool] = useState<School | null>(null);
+  const [schoolError, setSchoolError] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<SchoolDashboard | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (currentSchoolId) {
-      void getSchool(currentSchoolId).then(setSchool);
-    }
+  const loadSchool = useCallback(() => {
+    if (!currentSchoolId) return;
+    setSchoolError(null);
+    getSchool(currentSchoolId)
+      .then(setSchool)
+      .catch((err) => setSchoolError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [currentSchoolId]);
 
   useEffect(() => {
+    loadSchool();
+  }, [loadSchool]);
+
+  const loadDashboard = useCallback(() => {
     if (!currentSchoolId) return;
     setDashboard(null);
     setDashboardError(null);
@@ -41,10 +49,16 @@ export default function DashboardPage() {
       .catch((err) => setDashboardError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [currentSchoolId]);
 
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold text-slate-900">Tableau de bord</h1>
-      {school ? (
+      {schoolError ? (
+        <ErrorRetry message={schoolError} onRetry={loadSchool} />
+      ) : school ? (
         <p className="text-slate-600">
           Bienvenue sur l&apos;espace de <strong>{school.name}</strong>.
         </p>
@@ -52,11 +66,7 @@ export default function DashboardPage() {
         <p className="text-slate-500">Chargement de l&apos;école...</p>
       )}
 
-      {dashboardError && (
-        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {dashboardError}
-        </p>
-      )}
+      {dashboardError && <ErrorRetry message={dashboardError} onRetry={loadDashboard} />}
       {!dashboardError && dashboard === null && (
         <p className="text-sm text-slate-400">Chargement des indicateurs...</p>
       )}

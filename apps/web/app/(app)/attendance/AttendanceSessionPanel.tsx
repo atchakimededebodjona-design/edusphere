@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, schoolClasses, type AcademicTerm, type SchoolClass } from "@/lib/academics/client";
 import {
   attendanceRecords,
@@ -10,6 +10,7 @@ import {
   type AttendanceStatusValue,
 } from "@/lib/attendance/client";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { students as studentsClient, type Student } from "@/lib/students/client";
 
 const STATUS_LABELS: Record<AttendanceStatusValue, string> = {
@@ -41,51 +42,75 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
   const [saving, setSaving] = useState(false);
   const [togglingLock, setTogglingLock] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    void schoolClasses.list(schoolId).then(setClasses);
+  const loadClasses = useCallback(() => {
+    setLoadError(null);
+    schoolClasses
+      .list(schoolId)
+      .then(setClasses)
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [schoolId]);
+
+  useEffect(() => {
+    loadClasses();
+  }, [loadClasses]);
 
   useEffect(() => {
     setSelectedTermId("");
     setTerms(null);
     setRoster(null);
+    setError(null);
     if (!selectedClassId) return;
-    void studentsClient.list(schoolId, { classId: selectedClassId }).then(setRoster);
+    void studentsClient
+      .list(schoolId, { classId: selectedClassId })
+      .then(setRoster)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
     const schoolClass = classes?.find((c) => c.id === selectedClassId);
-    if (schoolClass) void academicTerms.list(schoolClass.academic_year_id).then(setTerms);
+    if (schoolClass) {
+      void academicTerms
+        .list(schoolClass.academic_year_id)
+        .then(setTerms)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+    }
   }, [selectedClassId, schoolId, classes]);
 
   useEffect(() => {
     setSessionsForDay(null);
     setSelectedSessionId("");
+    setError(null);
     if (!selectedClassId || !selectedTermId || !sessionDate) return;
     void attendanceSessions
       .list(selectedClassId, { academicTermId: selectedTermId, dateFrom: sessionDate, dateTo: sessionDate })
       .then((rows) => {
         setSessionsForDay(rows);
         if (rows.length === 1) setSelectedSessionId(rows[0].id);
-      });
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedClassId, selectedTermId, sessionDate]);
 
   useEffect(() => {
     setExistingRecords(null);
     setSaved(false);
+    setError(null);
     if (!selectedSessionId || !roster) return;
-    void attendanceRecords.list(selectedSessionId).then((rows) => {
-      setExistingRecords(rows);
-      const initial: Record<string, RowValue> = {};
-      for (const student of roster) {
-        const row = rows.find((r) => r.student_id === student.id);
-        initial[student.id] = {
-          status: row?.status ?? "PRESENT",
-          justified: row?.justified ?? false,
-          reason: row?.reason ?? "",
-        };
-      }
-      setValues(initial);
-    });
+    void attendanceRecords
+      .list(selectedSessionId)
+      .then((rows) => {
+        setExistingRecords(rows);
+        const initial: Record<string, RowValue> = {};
+        for (const student of roster) {
+          const row = rows.find((r) => r.student_id === student.id);
+          initial[student.id] = {
+            status: row?.status ?? "PRESENT",
+            justified: row?.justified ?? false,
+            reason: row?.reason ?? "",
+          };
+        }
+        setValues(initial);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedSessionId, roster]);
 
   const sortedRoster = useMemo(() => (roster ?? []).slice().sort((a, b) => a.last_name.localeCompare(b.last_name)), [roster]);
@@ -152,6 +177,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadClasses} />;
   if (classes === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (

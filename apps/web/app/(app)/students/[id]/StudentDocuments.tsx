@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { documents, type StudentDocument } from "@/lib/students/client";
 
 export function StudentDocuments({ studentId, canManage }: { studentId: string; canManage: boolean }) {
@@ -10,10 +11,19 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadDocuments = useCallback(() => {
+    setLoadError(null);
+    documents
+      .list(studentId)
+      .then(setItems)
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }, [studentId]);
 
   useEffect(() => {
-    void documents.list(studentId).then(setItems);
-  }, [studentId]);
+    loadDocuments();
+  }, [loadDocuments]);
 
   async function handleUpload(event: React.FormEvent) {
     event.preventDefault();
@@ -45,6 +55,7 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadDocuments} />;
   if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (

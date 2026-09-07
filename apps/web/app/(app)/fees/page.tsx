@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ResourceCrudPanel, type FieldSpec } from "@/components/crud/ResourceCrudPanel";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
+import { useAsyncData } from "@/lib/api/useAsyncData";
 import { academicYears, educationLevels, schoolClasses, type AcademicYear, type EducationLevel, type SchoolClass } from "@/lib/academics/client";
 import { useAuth } from "@/lib/auth/useAuth";
 import {
@@ -16,33 +18,47 @@ import {
 const CATEGORY_FIELDS: FieldSpec<FeeCategory>[] = [{ key: "name", label: "Nom", type: "text", required: true }];
 
 function CategoriesPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
-  const [items, setItems] = useState<FeeCategory[] | null>(null);
-  useEffect(() => {
-    void feeCategories.list(schoolId).then(setItems);
-  }, [schoolId]);
-  if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  const list = useAsyncData(() => feeCategories.list(schoolId), [schoolId]);
+  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   return (
-    <ResourceCrudPanel<FeeCategory>
-      title="Catégories de frais"
-      items={items}
-      fields={CATEGORY_FIELDS}
-      canManage={canManage}
-      onCreate={(values) => feeCategories.create({ school_id: schoolId, name: values.name as string })}
-      onUpdate={() => {
-        throw new Error("La modification d'une catégorie n'est pas prise en charge.");
-      }}
-      onItemCreated={(item) => setItems((prev) => [...(prev ?? []), item])}
-      onItemUpdated={() => {}}
-    />
+    <div className="flex flex-col gap-3">
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
+      <ResourceCrudPanel<FeeCategory>
+        title="Catégories de frais"
+        items={list.data}
+        fields={CATEGORY_FIELDS}
+        canManage={canManage}
+        onCreate={(values) => feeCategories.create({ school_id: schoolId, name: values.name as string })}
+        onUpdate={() => {
+          throw new Error("La modification d'une catégorie n'est pas prise en charge.");
+        }}
+        onItemCreated={() => list.retry()}
+        onItemUpdated={() => {}}
+      />
+    </div>
   );
 }
 
+type SchedulesData = {
+  schedules: FeeSchedule[];
+  categories: FeeCategory[];
+  years: AcademicYear[];
+  levels: EducationLevel[];
+  classes: SchoolClass[];
+};
+
 function SchedulesPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
-  const [schedules, setSchedules] = useState<FeeSchedule[] | null>(null);
-  const [categories, setCategories] = useState<FeeCategory[] | null>(null);
-  const [years, setYears] = useState<AcademicYear[] | null>(null);
-  const [levels, setLevels] = useState<EducationLevel[] | null>(null);
-  const [classes, setClasses] = useState<SchoolClass[] | null>(null);
+  const list = useAsyncData<SchedulesData>(async () => {
+    const [schedules, categories, years, levels, classes] = await Promise.all([
+      feeSchedules.list(schoolId),
+      feeCategories.list(schoolId),
+      academicYears.list(schoolId),
+      educationLevels.list(schoolId),
+      schoolClasses.list(schoolId),
+    ]);
+    return { schedules, categories, years, levels, classes };
+  }, [schoolId]);
   const [error, setError] = useState<string | null>(null);
   const [generateResult, setGenerateResult] = useState<Record<string, string>>({});
 
@@ -58,27 +74,11 @@ function SchedulesPanel({ schoolId, canManage }: { schoolId: string; canManage: 
     due_date: "",
   });
 
-  useEffect(() => {
-    void Promise.all([
-      feeSchedules.list(schoolId),
-      feeCategories.list(schoolId),
-      academicYears.list(schoolId),
-      educationLevels.list(schoolId),
-      schoolClasses.list(schoolId),
-    ]).then(([s, c, y, l, cl]) => {
-      setSchedules(s);
-      setCategories(c);
-      setYears(y);
-      setLevels(l);
-      setClasses(cl);
-    });
-  }, [schoolId]);
-
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     try {
-      const created = await feeSchedules.create({
+      await feeSchedules.create({
         school_id: schoolId,
         fee_category_id: form.fee_category_id,
         academic_year_id: form.academic_year_id,
@@ -90,8 +90,8 @@ function SchedulesPanel({ schoolId, canManage }: { schoolId: string; canManage: 
         is_optional: form.is_optional,
         due_date: form.due_date || null,
       });
-      setSchedules((prev) => [...(prev ?? []), created]);
       setForm((prev) => ({ ...prev, name: "", amount: "", due_date: "" }));
+      list.retry();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     }
@@ -112,15 +112,16 @@ function SchedulesPanel({ schoolId, canManage }: { schoolId: string; canManage: 
     }
   }
 
-  if (schedules === null || categories === null || years === null || levels === null || classes === null) {
-    return <p className="text-sm text-slate-400">Chargement...</p>;
-  }
+  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
+  const { schedules, categories, years, levels, classes } = list.data;
 
   const categoryName = (id: string) => categories.find((c) => c.id === id)?.name ?? "—";
   const yearName = (id: string) => years.find((y) => y.id === id)?.name ?? "—";
 
   return (
     <div className="flex flex-col gap-4">
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
       <div className="overflow-x-auto rounded border border-slate-200">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50">

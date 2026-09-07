@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import { schoolClasses, type SchoolClass } from "@/lib/academics/client";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -23,14 +24,25 @@ export default function AnnouncementsPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<number | null>(null);
 
+  const [classesError, setClassesError] = useState<string | null>(null);
+
   const [history, setHistory] = useState<AnnouncementHistoryEntry[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyNextBefore, setHistoryNextBefore] = useState<string | null>(null);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
 
-  useEffect(() => {
-    if (currentSchoolId) void schoolClasses.list(currentSchoolId).then(setClasses);
+  const loadClasses = useCallback(() => {
+    if (!currentSchoolId) return;
+    setClassesError(null);
+    schoolClasses
+      .list(currentSchoolId)
+      .then(setClasses)
+      .catch((err) => setClassesError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [currentSchoolId]);
+
+  useEffect(() => {
+    loadClasses();
+  }, [loadClasses]);
 
   const loadHistory = useCallback(async () => {
     if (!currentSchoolId) return;
@@ -92,7 +104,9 @@ export default function AnnouncementsPage() {
     }
   }
 
-  if (!currentSchoolId || classes === null) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (!currentSchoolId) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (classesError) return <ErrorRetry message={classesError} onRetry={loadClasses} />;
+  if (classes === null) return <p className="text-sm text-slate-500">Chargement...</p>;
 
   return (
     <div className="flex max-w-xl flex-col gap-6">
@@ -158,8 +172,9 @@ export default function AnnouncementsPage() {
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold text-slate-900">Historique</h2>
-        {historyError && <p className="text-sm text-red-700">{historyError}</p>}
-        {history === null ? (
+        {historyError && history === null ? (
+          <ErrorRetry message={historyError} onRetry={() => void loadHistory()} />
+        ) : history === null ? (
           <p className="text-sm text-slate-500">Chargement...</p>
         ) : (
           <div className="flex flex-col divide-y divide-slate-100 rounded border border-slate-200">
@@ -178,6 +193,7 @@ export default function AnnouncementsPage() {
             {history.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Aucune annonce envoyée.</p>}
           </div>
         )}
+        {historyError && history !== null && <p className="text-sm text-red-700">{historyError}</p>}
         {historyNextBefore && (
           <button
             type="button"

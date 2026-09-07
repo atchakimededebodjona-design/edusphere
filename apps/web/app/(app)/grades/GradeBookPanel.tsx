@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, classSubjects, schoolClasses, subjects as subjectsClient, type AcademicTerm, type ClassSubject, type SchoolClass, type Subject } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import {
   assessmentTypes,
   assessments as assessmentsClient,
@@ -67,14 +68,24 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
   const [form, setForm] = useState({ name: "", assessment_type_id: "", max_score: "20", weight: "1", assessment_date: "" });
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [averages, setAverages] = useState<Record<string, StudentSubjectAverage | undefined> | null>(null);
 
-  useEffect(() => {
-    void schoolClasses.list(schoolId).then(setClasses);
-    void subjectsClient.list(schoolId).then(setSubjects);
-    void assessmentTypes.list(schoolId).then(setTypes);
+  const loadClassesSubjectsTypes = useCallback(() => {
+    setLoadError(null);
+    Promise.all([schoolClasses.list(schoolId), subjectsClient.list(schoolId), assessmentTypes.list(schoolId)])
+      .then(([c, s, t]) => {
+        setClasses(c);
+        setSubjects(s);
+        setTypes(t);
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [schoolId]);
+
+  useEffect(() => {
+    loadClassesSubjectsTypes();
+  }, [loadClassesSubjectsTypes]);
 
   useEffect(() => {
     setSelectedClassSubjectId("");
@@ -82,30 +93,48 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
     setClassSubjectOptions(null);
     setTerms(null);
     setRoster(null);
+    setError(null);
     if (!selectedClassId) return;
-    void classSubjects.list(selectedClassId).then(setClassSubjectOptions);
-    void studentsClient.list(schoolId, { classId: selectedClassId }).then(setRoster);
+    void classSubjects
+      .list(selectedClassId)
+      .then(setClassSubjectOptions)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+    void studentsClient
+      .list(schoolId, { classId: selectedClassId })
+      .then(setRoster)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
     const schoolClass = classes?.find((c) => c.id === selectedClassId);
-    if (schoolClass) void academicTerms.list(schoolClass.academic_year_id).then(setTerms);
+    if (schoolClass) {
+      void academicTerms
+        .list(schoolClass.academic_year_id)
+        .then(setTerms)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+    }
   }, [selectedClassId, schoolId, classes]);
 
   useEffect(() => {
     setAssessmentList(null);
     setExpandedAssessmentId(null);
+    setError(null);
     if (!selectedClassSubjectId || !selectedTermId) return;
-    void assessmentsClient.list(selectedClassSubjectId, selectedTermId).then(setAssessmentList);
+    void assessmentsClient
+      .list(selectedClassSubjectId, selectedTermId)
+      .then(setAssessmentList)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedClassSubjectId, selectedTermId]);
 
   useEffect(() => {
     setAverages(null);
     if (!selectedClassSubjectId || !selectedTermId || !roster) return;
-    void Promise.all(roster.map((s) => studentAverages.get(s.id, selectedTermId))).then((results) => {
-      const map: Record<string, StudentSubjectAverage | undefined> = {};
-      roster.forEach((s, i) => {
-        map[s.id] = results[i].subject_averages.find((a) => a.class_subject_id === selectedClassSubjectId);
-      });
-      setAverages(map);
-    });
+    void Promise.all(roster.map((s) => studentAverages.get(s.id, selectedTermId)))
+      .then((results) => {
+        const map: Record<string, StudentSubjectAverage | undefined> = {};
+        roster.forEach((s, i) => {
+          map[s.id] = results[i].subject_averages.find((a) => a.class_subject_id === selectedClassSubjectId);
+        });
+        setAverages(map);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedClassSubjectId, selectedTermId, roster]);
 
   const sortedRoster = useMemo(() => (roster ?? []).slice().sort((a, b) => a.last_name.localeCompare(b.last_name)), [roster]);
@@ -133,6 +162,7 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadClassesSubjectsTypes} />;
   if (classes === null || subjects === null || types === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (
@@ -182,6 +212,7 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
           </select>
         </label>
       </div>
+      {error && <p className="text-sm text-red-700">{error}</p>}
 
       {selectedClassSubjectId && selectedTermId && (
         <>
@@ -275,7 +306,6 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
                 </button>
               </form>
             )}
-            {error && <p className="text-sm text-red-700">{error}</p>}
           </div>
 
           <div className="flex flex-col gap-3">

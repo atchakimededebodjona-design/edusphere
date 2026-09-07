@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import { notifications as notificationsClient, type Notification } from "@/lib/notifications/client";
 
@@ -54,6 +55,7 @@ export default function NotificationsPage() {
     await loadFirstPage();
   }
 
+  if (error && items === null) return <ErrorRetry message={error} onRetry={loadFirstPage} />;
   if (items === null) return <p className="text-sm text-slate-500">Chargement...</p>;
 
   const hasUnread = items.some((n) => n.read_at === null);

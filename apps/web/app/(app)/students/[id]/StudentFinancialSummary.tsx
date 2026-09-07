@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import {
   financialSummary,
   payments as paymentsClient,
@@ -37,15 +38,20 @@ export function StudentFinancialSummary({
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [status, setStatus] = useState<"idle" | "saving" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  async function reload() {
-    setSummary(await financialSummary.get(studentId));
-  }
+  const reload = useCallback(async () => {
+    setLoadError(null);
+    try {
+      setSummary(await financialSummary.get(studentId));
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    }
+  }, [studentId]);
 
   useEffect(() => {
     void reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [studentId]);
+  }, [reload]);
 
   async function handleRecordPayment(event: React.FormEvent) {
     event.preventDefault();
@@ -93,6 +99,7 @@ export function StudentFinancialSummary({
     setHistoryKey((k) => k + 1);
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={() => void reload()} />;
   if (summary === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (
@@ -255,11 +262,21 @@ function PaymentHistory({
   onCancel: (paymentId: string) => void;
 }) {
   const [items, setItems] = useState<Payment[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadHistory = useCallback(() => {
+    setLoadError(null);
+    paymentsClient
+      .list(schoolId, { studentId })
+      .then(setItems)
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }, [schoolId, studentId]);
 
   useEffect(() => {
-    void paymentsClient.list(schoolId, { studentId }).then(setItems);
-  }, [schoolId, studentId, refreshKey]);
+    loadHistory();
+  }, [loadHistory, refreshKey]);
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadHistory} />;
   if (items === null) return <p className="text-sm text-slate-400">Chargement de l&apos;historique...</p>;
 
   return (

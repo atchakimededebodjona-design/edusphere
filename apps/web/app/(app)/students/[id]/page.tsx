@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { useAuth } from "@/lib/auth/useAuth";
 import { students, type Sex, type Student, type StudentStatus } from "@/lib/students/client";
 import { StudentPhoto } from "@/app/(app)/students/[id]/StudentPhoto";
@@ -40,23 +41,32 @@ export default function StudentDetailPage() {
   });
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadStudent = useCallback(() => {
+    setLoadError(null);
+    students
+      .get(studentId)
+      .then((s) => {
+        setStudent(s);
+        setForm({
+          first_name: s.first_name,
+          last_name: s.last_name,
+          matricule: s.matricule,
+          date_of_birth: s.date_of_birth,
+          sex: s.sex,
+          place_of_birth: s.place_of_birth ?? "",
+          address: s.address ?? "",
+          status: s.status,
+          status_change_reason: "",
+        });
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }, [studentId]);
 
   useEffect(() => {
-    void students.get(studentId).then((s) => {
-      setStudent(s);
-      setForm({
-        first_name: s.first_name,
-        last_name: s.last_name,
-        matricule: s.matricule,
-        date_of_birth: s.date_of_birth,
-        sex: s.sex,
-        place_of_birth: s.place_of_birth ?? "",
-        address: s.address ?? "",
-        status: s.status,
-        status_change_reason: "",
-      });
-    });
-  }, [studentId]);
+    loadStudent();
+  }, [loadStudent]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -73,6 +83,7 @@ export default function StudentDetailPage() {
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadStudent} />;
   if (!student) return <p className="text-sm text-slate-500">Chargement...</p>;
 
   return (

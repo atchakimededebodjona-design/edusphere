@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import uuid
@@ -45,6 +46,15 @@ def html_to_pdf(html: str) -> bytes:
     if result.err:
         raise RuntimeError("Failed to render report card PDF from template")
     return buffer.getvalue()
+
+
+def _render_report_card_pdf_sync(html_content: str, context: dict) -> bytes:
+    """Rendu Jinja2 + génération PDF (xhtml2pdf, pur CPU/synchrone) — regroupés ici pour être
+    exécutés ensemble dans un thread (Phase 25, voir `generate_report_cards_for_class`). Ne prend
+    en entrée que des données déjà chargées (aucun accès DB ici) : jamais de session SQLAlchemy
+    async partagée entre threads."""
+    html = render_template(html_content, context)
+    return html_to_pdf(html)
 
 
 def _qr_data_uri(data: str) -> str:
@@ -116,7 +126,16 @@ async def generate_report_cards_for_class(
 ) -> list[ReportCard]:
     """Génère (ou régénère) un bulletin PDF pour chaque élève inscrit et actif dans cette
     classe, pour cette période. Une régénération repasse le bulletin en DRAFT (une version déjà
-    publiée doit être revalidée avant republication) et écrase le PDF précédent."""
+    publiée doit être revalidée avant republication) et écrase le PDF précédent.
+
+    Phase 25 — le rendu Jinja2 + la génération PDF (xhtml2pdf), tous deux synchrones et coûteux en
+    CPU, s'exécutaient directement dans la boucle asyncio du worker HTTP : pour une classe de 40
+    élèves, cela bloquait TOUTES les autres requêtes de ce worker pendant toute la durée de la
+    génération (confirmé en Discovery Phase 25). `asyncio.to_thread` déplace ce travail dans un
+    thread séparé par élève, un à la fois (la boucle reste asyncio, seul le calcul CPU change de
+    thread) — le worker reste donc capable de traiter d'autres requêtes pendant ce temps. Le
+    contexte du bulletin (`_build_context`) est entièrement chargé AVANT d'entrer dans le thread :
+    aucune session SQLAlchemy async n'est jamais partagée entre threads."""
     enrollment_result = await db.execute(
         select(StudentEnrollment).where(
             StudentEnrollment.class_id == school_class.id, StudentEnrollment.status == "ACTIVE"
@@ -151,8 +170,7 @@ async def generate_report_cards_for_class(
         context = await _build_context(
             db, school, student, school_class, term, general_average, general_rank, verification_code
         )
-        html = render_template(template.html_content, context)
-        pdf_bytes = html_to_pdf(html)
+        pdf_bytes = await asyncio.to_thread(_render_report_card_pdf_sync, template.html_content, context)
 
         pdf_path = f"report_cards/{student.id}/{term.id}/{uuid.uuid4().hex}.pdf"
         await storage.upload(pdf_path, pdf_bytes)

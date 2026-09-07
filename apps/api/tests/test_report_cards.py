@@ -1,5 +1,8 @@
+import asyncio
+import time
 from datetime import date
 
+import pytest
 from httpx import AsyncClient
 
 from tests.conftest import assign_role, register_school
@@ -255,3 +258,140 @@ async def test_report_cards_tenant_isolation(client: AsyncClient) -> None:
 
     pdf_response = await client.get(f"/api/v1/report-cards/{report_card_b['id']}/pdf", headers=headers_a)
     assert pdf_response.status_code == 404
+
+
+# --- Phase 25 : la génération PDF (xhtml2pdf, CPU/synchrone) ne doit plus bloquer le worker HTTP
+# pendant son exécution — voir service.py::generate_report_cards_for_class (asyncio.to_thread) --
+async def test_report_card_generation_does_not_block_other_requests(client: AsyncClient, monkeypatch) -> None:
+    """Preuve empirique (pas une hypothèse) : ralentit artificiellement le rendu PDF d'un
+    bulletin (monkeypatch, 1s) et vérifie qu'une requête /health concurrente répond presque
+    immédiatement pendant ce temps. Avant Phase 25, le rendu s'exécutait en ligne dans la boucle
+    asyncio du worker : la requête concurrente aurait dû attendre la fin des ~1s. Après
+    `asyncio.to_thread`, la boucle reste libre pendant que le rendu tourne dans un thread séparé."""
+    import app.modules.report_cards.service as report_cards_service
+
+    original_render = report_cards_service._render_report_card_pdf_sync
+
+    def _slow_render(html_content: str, context: dict) -> bytes:
+        time.sleep(1.0)
+        return original_render(html_content, context)
+
+    monkeypatch.setattr(report_cards_service, "_render_report_card_pdf_sync", _slow_render)
+
+    data = await register_school(client, "rcconcurrent")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_graded_class(client, headers, school_id)
+
+    async def _generate():
+        return await client.post(
+            "/api/v1/report-cards/generate",
+            json={"class_id": ctx["class"]["id"], "academic_term_id": ctx["term"]["id"], "template_id": ctx["template"]["id"]},
+            headers=headers,
+        )
+
+    async def _health_check_during():
+        await asyncio.sleep(0.2)  # laisse la génération démarrer et entrer dans le rendu ralenti
+        start = time.monotonic()
+        response = await client.get("/api/v1/health")
+        return response, time.monotonic() - start
+
+    generate_response, (health_response, health_elapsed) = await asyncio.gather(_generate(), _health_check_during())
+
+    assert generate_response.status_code == 200, generate_response.text
+    assert health_response.status_code == 200
+    # Si le rendu bloquait encore la boucle asyncio, /health aurait attendu la fin des ~1s de
+    # sleep artificiel avant de pouvoir s'exécuter. Marge large (0.5s) pour éviter un test fragile
+    # sous charge CI, tout en restant très en-deçà du délai artificiel d'1s.
+    assert health_elapsed < 0.5, (
+        f"/health a mis {health_elapsed:.2f}s à répondre pendant une génération de bulletin — "
+        "le worker semble à nouveau bloqué par le rendu PDF (régression Phase 25)."
+    )
+
+
+async def test_generate_report_cards_for_empty_class_returns_empty_list(client: AsyncClient) -> None:
+    """Aucun élève activement inscrit dans la classe -> aucune erreur, liste vide (pas de bulletin
+    à générer) — cas limite pour le chemin batché de la Phase 25."""
+    data = await register_school(client, "rcempty")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    year = (
+        await client.post(
+            "/api/v1/academic-years",
+            json={
+                "school_id": school_id,
+                "name": "2026-2027",
+                "start_date": str(date(2026, 9, 1)),
+                "end_date": str(date(2027, 6, 30)),
+            },
+            headers=headers,
+        )
+    ).json()
+    term = (
+        await client.post(
+            "/api/v1/academic-terms",
+            json={
+                "academic_year_id": year["id"],
+                "name": "Trimestre 1",
+                "start_date": str(date(2026, 9, 1)),
+                "end_date": str(date(2026, 12, 20)),
+            },
+            headers=headers,
+        )
+    ).json()
+    level = (await client.post("/api/v1/education-levels", json={"school_id": school_id, "name": "CE1"}, headers=headers)).json()
+    school_class = (
+        await client.post(
+            "/api/v1/classes",
+            json={"academic_year_id": year["id"], "education_level_id": level["id"], "name": "Vide"},
+            headers=headers,
+        )
+    ).json()
+    template = (
+        await client.post(
+            "/api/v1/report-card-templates",
+            json={"school_id": school_id, "name": "Standard", "html_content": MINIMAL_TEMPLATE},
+            headers=headers,
+        )
+    ).json()
+
+    generate_response = await client.post(
+        "/api/v1/report-cards/generate",
+        json={"class_id": school_class["id"], "academic_term_id": term["id"], "template_id": template["id"]},
+        headers=headers,
+    )
+    assert generate_response.status_code == 200, generate_response.text
+    assert generate_response.json() == []
+
+
+async def test_pdf_generation_failure_does_not_leave_partial_report_card(client: AsyncClient, monkeypatch) -> None:
+    """Si le rendu PDF échoue (ex. template invalide), aucun ReportCard partiel/corrompu ne doit
+    être créé — la transaction n'est commitée qu'après succès de la génération dans le thread."""
+    import app.modules.report_cards.service as report_cards_service
+
+    def _failing_render(html_content: str, context: dict) -> bytes:
+        raise RuntimeError("Failed to render report card PDF from template")
+
+    monkeypatch.setattr(report_cards_service, "_render_report_card_pdf_sync", _failing_render)
+
+    data = await register_school(client, "rcfailure")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_graded_class(client, headers, school_id)
+
+    # Sous ASGITransport (voir conftest.py::client), une exception non gérée par la route se
+    # propage telle quelle au test plutôt que d'être convertie en réponse HTTP 500 — même
+    # convention déjà utilisée dans test_report_cards_security.py pour les échecs de rendu.
+    with pytest.raises(RuntimeError):
+        await client.post(
+            "/api/v1/report-cards/generate",
+            json={"class_id": ctx["class"]["id"], "academic_term_id": ctx["term"]["id"], "template_id": ctx["template"]["id"]},
+            headers=headers,
+        )
+
+    list_response = await client.get(
+        f"/api/v1/report-cards?class_id={ctx['class']['id']}&academic_term_id={ctx['term']['id']}", headers=headers
+    )
+    assert list_response.status_code == 200
+    assert list_response.json() == []

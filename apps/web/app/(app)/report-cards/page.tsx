@@ -1,34 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
-import { templates as templatesClient, type ReportCardTemplate } from "@/lib/report-cards/client";
+import { useAsyncData } from "@/lib/api/useAsyncData";
+import { templates as templatesClient } from "@/lib/report-cards/client";
 import { useAuth } from "@/lib/auth/useAuth";
 import { GenerationPanel } from "@/app/(app)/report-cards/GenerationPanel";
 import { STARTER_TEMPLATE } from "@/app/(app)/report-cards/starterTemplate";
 
 function TemplatesPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
-  const [items, setItems] = useState<ReportCardTemplate[] | null>(null);
+  const list = useAsyncData(() => templatesClient.list(schoolId), [schoolId]);
   const [name, setName] = useState("");
   const [htmlContent, setHtmlContent] = useState("");
   const [isDefault, setIsDefault] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void templatesClient.list(schoolId).then(setItems);
-  }, [schoolId]);
-
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     setCreating(true);
     setError(null);
     try {
-      const created = await templatesClient.create({ school_id: schoolId, name, html_content: htmlContent, is_default: isDefault });
-      setItems((prev) => [...(prev ?? []), created]);
+      await templatesClient.create({ school_id: schoolId, name, html_content: htmlContent, is_default: isDefault });
       setName("");
       setHtmlContent("");
       setIsDefault(false);
+      list.retry();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
@@ -36,10 +34,13 @@ function TemplatesPanel({ schoolId, canManage }: { schoolId: string; canManage: 
     }
   }
 
-  if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
+  const items = list.data;
 
   return (
     <div className="flex flex-col gap-4">
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
       <ul className="flex flex-col gap-1">
         {items.map((t) => (
           <li key={t.id} className="rounded border border-slate-200 px-3 py-1.5 text-sm">

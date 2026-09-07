@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import {
   getSchool,
   getSchoolLogoBlobUrl,
@@ -19,26 +20,34 @@ export default function SchoolSettingsPage() {
   const canManage = permissions.includes("schools.manage");
 
   const [school, setSchool] = useState<School | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<SchoolUpdate>({});
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadSchool = useCallback(() => {
     if (!currentSchoolId) return;
-    void getSchool(currentSchoolId).then((result) => {
-      setSchool(result);
-      setForm({
-        name: result.name,
-        address: result.address ?? "",
-        phone: result.phone ?? "",
-        email: result.email ?? "",
-        timezone: result.timezone,
-        currency: result.currency,
-      });
-    });
+    setLoadError(null);
+    getSchool(currentSchoolId)
+      .then((result) => {
+        setSchool(result);
+        setForm({
+          name: result.name,
+          address: result.address ?? "",
+          phone: result.phone ?? "",
+          email: result.email ?? "",
+          timezone: result.timezone,
+          currency: result.currency,
+        });
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
     void getSchoolLogoBlobUrl(currentSchoolId).then(setLogoUrl);
   }, [currentSchoolId]);
+
+  useEffect(() => {
+    loadSchool();
+  }, [loadSchool]);
 
   function update(field: keyof SchoolUpdate) {
     return (event: React.ChangeEvent<HTMLInputElement>) =>
@@ -72,6 +81,7 @@ export default function SchoolSettingsPage() {
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadSchool} />;
   if (!school) return <p className="text-slate-500">Chargement...</p>;
 
   return (

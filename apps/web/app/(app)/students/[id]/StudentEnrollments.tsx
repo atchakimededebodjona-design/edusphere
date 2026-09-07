@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { schoolClasses, type SchoolClass } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { enrollments, type EnrollmentStatus, type StudentEnrollment } from "@/lib/students/client";
 
 const STATUS_LABELS: Record<EnrollmentStatus, string> = {
@@ -19,11 +20,21 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
   const [enrollmentDate, setEnrollmentDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadAll = useCallback(() => {
+    setLoadError(null);
+    Promise.all([schoolClasses.list(schoolId), enrollments.list(studentId)])
+      .then(([classesResult, itemsResult]) => {
+        setClasses(classesResult);
+        setItems(itemsResult);
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }, [schoolId, studentId]);
 
   useEffect(() => {
-    void schoolClasses.list(schoolId).then(setClasses);
-    void enrollments.list(studentId).then(setItems);
-  }, [schoolId, studentId]);
+    loadAll();
+  }, [loadAll]);
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -55,6 +66,7 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
   if (classes === null || items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (

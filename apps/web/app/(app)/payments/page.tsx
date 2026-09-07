@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { toErrorMessage } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
 import { feesSummary, payments as paymentsClient, type FeesSummary, type Payment, type PaymentStatus } from "@/lib/fees/client";
 
@@ -10,14 +12,20 @@ export default function PaymentsPage() {
   const [items, setItems] = useState<Payment[] | null>(null);
   const [summary, setSummary] = useState<FeesSummary | null>(null);
   const [statusFilter, setStatusFilter] = useState<PaymentStatus | "">("");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function reload(schoolId: string) {
-    const [list, agg] = await Promise.all([
-      paymentsClient.list(schoolId, statusFilter ? { status: statusFilter } : {}),
-      feesSummary.get(schoolId),
-    ]);
-    setItems(list);
-    setSummary(agg);
+    setLoadError(null);
+    try {
+      const [list, agg] = await Promise.all([
+        paymentsClient.list(schoolId, statusFilter ? { status: statusFilter } : {}),
+        feesSummary.get(schoolId),
+      ]);
+      setItems(list);
+      setSummary(agg);
+    } catch (err) {
+      setLoadError(toErrorMessage(err));
+    }
   }
 
   useEffect(() => {
@@ -36,6 +44,10 @@ export default function PaymentsPage() {
     if (!reason) return;
     await paymentsClient.cancel(paymentId, reason);
     await reload(currentSchoolId);
+  }
+
+  if (loadError) {
+    return <ErrorRetry message={loadError} onRetry={() => currentSchoolId && void reload(currentSchoolId)} />;
   }
 
   if (!currentSchoolId || items === null || summary === null) {

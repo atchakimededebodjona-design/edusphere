@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ResourceCrudPanel, type FieldSpec } from "@/components/crud/ResourceCrudPanel";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { educationLevels, rooms, subjects, type EducationLevel, type Room, type Subject } from "@/lib/academics/client";
+import { useAsyncData } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
 import { AcademicYearsPanel } from "@/app/(app)/academics/AcademicYearsPanel";
 import { ClassesPanel } from "@/app/(app)/academics/ClassesPanel";
@@ -23,15 +25,15 @@ const ROOM_FIELDS: FieldSpec<Room>[] = [
 ];
 
 function EducationLevelsPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
-  const [items, setItems] = useState<EducationLevel[] | null>(null);
-  useEffect(() => {
-    void educationLevels.list(schoolId).then(setItems);
-  }, [schoolId]);
-  if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  const list = useAsyncData(() => educationLevels.list(schoolId), [schoolId]);
+  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   return (
-    <ResourceCrudPanel<EducationLevel>
+    <div className="flex flex-col gap-3">
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
+      <ResourceCrudPanel<EducationLevel>
       title="Niveaux"
-      items={items}
+      items={list.data}
       fields={LEVEL_FIELDS}
       canManage={canManage}
       onCreate={(values) =>
@@ -47,42 +49,44 @@ function EducationLevelsPanel({ schoolId, canManage }: { schoolId: string; canMa
           order_index: values.order_index === "" ? undefined : Number(values.order_index),
         })
       }
-      onItemCreated={(item) => setItems((prev) => [...(prev ?? []), item])}
-      onItemUpdated={(item) => setItems((prev) => (prev ?? []).map((i) => (i.id === item.id ? item : i)))}
-    />
+      onItemCreated={() => list.retry()}
+      onItemUpdated={() => list.retry()}
+      />
+    </div>
   );
 }
 
 function SubjectsPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
-  const [items, setItems] = useState<Subject[] | null>(null);
-  useEffect(() => {
-    void subjects.list(schoolId).then(setItems);
-  }, [schoolId]);
-  if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  const list = useAsyncData(() => subjects.list(schoolId), [schoolId]);
+  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   return (
-    <ResourceCrudPanel<Subject>
+    <div className="flex flex-col gap-3">
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
+      <ResourceCrudPanel<Subject>
       title="Matières"
-      items={items}
+      items={list.data}
       fields={SUBJECT_FIELDS}
       canManage={canManage}
       onCreate={(values) => subjects.create({ school_id: schoolId, name: values.name as string, code: (values.code as string) || null })}
       onUpdate={(id, values) => subjects.update(id, { name: values.name as string, code: (values.code as string) || null })}
-      onItemCreated={(item) => setItems((prev) => [...(prev ?? []), item])}
-      onItemUpdated={(item) => setItems((prev) => (prev ?? []).map((i) => (i.id === item.id ? item : i)))}
-    />
+      onItemCreated={() => list.retry()}
+      onItemUpdated={() => list.retry()}
+      />
+    </div>
   );
 }
 
 function RoomsPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
-  const [items, setItems] = useState<Room[] | null>(null);
-  useEffect(() => {
-    void rooms.list(schoolId).then(setItems);
-  }, [schoolId]);
-  if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  const list = useAsyncData(() => rooms.list(schoolId), [schoolId]);
+  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   return (
-    <ResourceCrudPanel<Room>
+    <div className="flex flex-col gap-3">
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
+      <ResourceCrudPanel<Room>
       title="Salles"
-      items={items}
+      items={list.data}
       fields={ROOM_FIELDS}
       canManage={canManage}
       onCreate={(values) =>
@@ -91,9 +95,10 @@ function RoomsPanel({ schoolId, canManage }: { schoolId: string; canManage: bool
       onUpdate={(id, values) =>
         rooms.update(id, { name: values.name as string, capacity: values.capacity === "" ? undefined : Number(values.capacity) })
       }
-      onItemCreated={(item) => setItems((prev) => [...(prev ?? []), item])}
-      onItemUpdated={(item) => setItems((prev) => (prev ?? []).map((i) => (i.id === item.id ? item : i)))}
-    />
+      onItemCreated={() => list.retry()}
+      onItemUpdated={() => list.retry()}
+      />
+    </div>
   );
 }
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import {
   guardians as guardiansClient,
   studentGuardians,
@@ -40,11 +41,21 @@ export function StudentGuardians({
   const [newGuardian, setNewGuardian] = useState(newGuardianInitial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadAll = useCallback(() => {
+    setLoadError(null);
+    Promise.all([guardiansClient.list(schoolId), studentGuardians.list(studentId)])
+      .then(([directoryResult, linksResult]) => {
+        setDirectory(directoryResult);
+        setLinks(linksResult);
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }, [schoolId, studentId]);
 
   useEffect(() => {
-    void guardiansClient.list(schoolId).then(setDirectory);
-    void studentGuardians.list(studentId).then(setLinks);
-  }, [schoolId, studentId]);
+    loadAll();
+  }, [loadAll]);
 
   const available = useMemo(
     () => (directory ?? []).filter((g) => !links?.some((l) => l.guardian_id === g.id)),
@@ -104,6 +115,7 @@ export function StudentGuardians({
     }
   }
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
   if (directory === null || links === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (

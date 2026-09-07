@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, schoolClasses, type AcademicTerm, type SchoolClass } from "@/lib/academics/client";
+import { ApiError } from "@/lib/api/client";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { classPerformance, type ClassPerformance } from "@/lib/grades/client";
 import { students as studentsClient, type Student } from "@/lib/students/client";
 
@@ -12,26 +14,49 @@ export function ClassPerformancePanel({ schoolId }: { schoolId: string }) {
   const [selectedTermId, setSelectedTermId] = useState("");
   const [roster, setRoster] = useState<Student[] | null>(null);
   const [performance, setPerformance] = useState<ClassPerformance | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadClasses = useCallback(() => {
+    setLoadError(null);
+    schoolClasses
+      .list(schoolId)
+      .then(setClasses)
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+  }, [schoolId]);
 
   useEffect(() => {
-    void schoolClasses.list(schoolId).then(setClasses);
-  }, [schoolId]);
+    loadClasses();
+  }, [loadClasses]);
 
   useEffect(() => {
     setSelectedTermId("");
     setTerms(null);
     setRoster(null);
     setPerformance(null);
+    setError(null);
     if (!selectedClassId) return;
     const schoolClass = classes?.find((c) => c.id === selectedClassId);
-    if (schoolClass) void academicTerms.list(schoolClass.academic_year_id).then(setTerms);
-    void studentsClient.list(schoolId, { classId: selectedClassId }).then(setRoster);
+    if (schoolClass) {
+      void academicTerms
+        .list(schoolClass.academic_year_id)
+        .then(setTerms)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
+    }
+    void studentsClient
+      .list(schoolId, { classId: selectedClassId })
+      .then(setRoster)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedClassId, classes, schoolId]);
 
   useEffect(() => {
     setPerformance(null);
+    setError(null);
     if (!selectedClassId || !selectedTermId) return;
-    void classPerformance.get(selectedClassId, selectedTermId).then(setPerformance);
+    void classPerformance
+      .get(selectedClassId, selectedTermId)
+      .then(setPerformance)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [selectedClassId, selectedTermId]);
 
   const rows = useMemo(() => {
@@ -41,6 +66,7 @@ export function ClassPerformancePanel({ schoolId }: { schoolId: string }) {
       .sort((a, b) => (a.entry.rank ?? Infinity) - (b.entry.rank ?? Infinity));
   }, [performance, roster]);
 
+  if (loadError) return <ErrorRetry message={loadError} onRetry={loadClasses} />;
   if (classes === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
   return (
@@ -74,6 +100,7 @@ export function ClassPerformancePanel({ schoolId }: { schoolId: string }) {
           </select>
         </label>
       </div>
+      {error && <p className="text-sm text-red-700">{error}</p>}
 
       {selectedClassId && selectedTermId && (
         <div className="overflow-x-auto rounded border border-slate-200">

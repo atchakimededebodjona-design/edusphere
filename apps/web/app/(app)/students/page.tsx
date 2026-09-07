@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
+import { useAsyncData } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
 import { students, type Sex, type Student, type StudentStatus } from "@/lib/students/client";
 import { StudentImportForm } from "@/app/(app)/students/StudentImportForm";
@@ -29,22 +31,17 @@ export default function StudentsPage() {
   const { currentSchoolId, permissions } = useAuth();
   const canManage = permissions.includes("students.manage");
 
-  const [items, setItems] = useState<Student[] | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatus | "">("");
   const [form, setForm] = useState(initialForm);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!currentSchoolId) return;
-    void students.list(currentSchoolId, { search: search || undefined, status: statusFilter || undefined }).then(setItems);
-  }, [currentSchoolId, search, statusFilter]);
-
-  function refreshList() {
-    if (!currentSchoolId) return;
-    void students.list(currentSchoolId, { search: search || undefined, status: statusFilter || undefined }).then(setItems);
-  }
+  const list = useAsyncData(
+    () => students.list(currentSchoolId ?? "", { search: search || undefined, status: statusFilter || undefined }),
+    [currentSchoolId, search, statusFilter],
+    { enabled: Boolean(currentSchoolId) },
+  );
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -52,9 +49,9 @@ export default function StudentsPage() {
     setCreating(true);
     setError(null);
     try {
-      const created = await students.create({ school_id: currentSchoolId, ...form });
-      setItems((prev) => [...(prev ?? []), created]);
+      await students.create({ school_id: currentSchoolId, ...form });
       setForm(initialForm);
+      list.retry();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
@@ -62,11 +59,15 @@ export default function StudentsPage() {
     }
   }
 
-  if (!currentSchoolId) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (!currentSchoolId || list.isLoading) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
+  const items = list.data;
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-slate-900">Élèves</h1>
+
+      {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
 
       <div className="flex flex-wrap gap-3">
         <input
@@ -99,13 +100,7 @@ export default function StudentsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {items === null ? (
-              <tr>
-                <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
-                  Chargement...
-                </td>
-              </tr>
-            ) : items.length === 0 ? (
+            {items.length === 0 ? (
               <tr>
                 <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
                   Aucun élève.
@@ -130,7 +125,7 @@ export default function StudentsPage() {
         </table>
       </div>
 
-      {canManage && currentSchoolId && <StudentImportForm schoolId={currentSchoolId} onImported={refreshList} />}
+      {canManage && currentSchoolId && <StudentImportForm schoolId={currentSchoolId} onImported={() => list.retry()} />}
 
       {canManage && (
         <form onSubmit={handleCreate} className="flex flex-col gap-3 rounded border border-dashed border-slate-300 p-4">
