@@ -58,4 +58,16 @@ if ! docker compose exec -T "$SERVICE" pg_restore --list < "$OUT_FILE" > /dev/nu
 fi
 
 SIZE="$(du -h "$OUT_FILE" | cut -f1)"
-echo "Backup OK: $OUT_FILE ($SIZE) — intégrité vérifiée (pg_restore --list)."
+echo "Backup OK: $OUT_FILE ($SIZE) — intégrité vérifiée (pg_restore --list)." >&2
+
+# Empreinte SHA-256 à côté du dump — même pattern que scripts/storage-backup.sh, pour détecter
+# une corruption ultérieure et vérifier l'intégrité après un transfert (ex. vers Backblaze B2).
+if command -v sha256sum > /dev/null 2>&1; then
+  sha256sum "$OUT_FILE" > "${OUT_FILE}.sha256"
+fi
+
+# Chemin du dump produit par CETTE exécution, seul sur sa ligne de stdout (le message
+# descriptif ci-dessus est sur stderr) — permet à un appelant (scripts/backup-all.sh) de le
+# capturer de façon fiable via une substitution de commande, sans dépendre de `ls -t` (ambigu
+# si plusieurs backups existent déjà dans le répertoire).
+echo "$OUT_FILE"

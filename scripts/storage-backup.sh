@@ -55,4 +55,10 @@ if command -v sha256sum > /dev/null 2>&1; then
 fi
 
 SIZE="$(du -h "$OUT_FILE" | cut -f1)"
-echo "Backup OK: $OUT_FILE ($SIZE) — $ARCHIVE_FILE_COUNT fichiers, intégrité vérifiée (comptage + listing tar)."
+echo "Backup OK: $OUT_FILE ($SIZE) — $ARCHIVE_FILE_COUNT fichiers, intégrité vérifiée (comptage + listing tar)." >&2
+
+# Chemin de l'archive produite par CETTE exécution, seul sur sa ligne de stdout (le message
+# descriptif ci-dessus est sur stderr) — permet à un appelant (scripts/backup-all.sh) de le
+# capturer de façon fiable via une substitution de commande, sans dépendre de `ls -t` (ambigu
+# si plusieurs backups existent déjà dans le répertoire).
+echo "$OUT_FILE"
