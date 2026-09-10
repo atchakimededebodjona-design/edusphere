@@ -43,7 +43,22 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="EduSphere API", version="0.0.0", lifespan=lifespan)
+# Phase 26.2 — durcissement pré-pilote : la documentation interactive (Swagger/ReDoc) et le
+# schéma OpenAPI n'ont aucune raison d'être exposés publiquement en production (surface de
+# reconnaissance inutile pour un attaquant : liste exhaustive des routes, schémas de payload...).
+# Aucun composant de ce dépôt (frontend, scripts, tests) n'en dépend — voir grep sur
+# `openapi_url`/`/docs`/`/redoc` avant ce changement. Désactivé uniquement quand
+# `environment == "production"` : le comportement en développement/test/CI est inchangé.
+_docs_enabled = settings.environment != "production"
+
+app = FastAPI(
+    title="EduSphere API",
+    version="0.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
