@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-edusphere}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_local_only}
       POSTGRES_DB: ${POSTGRES_DB:-edusphere}
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +17,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -41,7 +37,7 @@ services:
       APP_DATABASE_URL: postgresql+asyncpg://edusphere_app:${APP_DB_PASSWORD:-changeme_app_role_local_only}@db:5432/${POSTGRES_DB:-edusphere}
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       # Phase 14 — StorageProvider (app/core/storage.py) écrit sous STORAGE_LOCAL_PATH (./storage,
       # résolu en /app/storage dans le conteneur : WORKDIR /app). Sans ce bind mount, chaque photo
@@ -76,11 +72,13 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
 

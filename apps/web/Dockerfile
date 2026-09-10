@@ -13,11 +13,16 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app ./
 COPY . .
+
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN pnpm --filter @edusphere/web build
 
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN corepack enable
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
