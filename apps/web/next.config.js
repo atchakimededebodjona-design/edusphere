@@ -36,6 +36,27 @@ const nextConfig = {
             key: "Content-Security-Policy-Report-Only",
             value: csp,
           },
+          // Phase 26.2 (suite) — headers de sécurité de base, déjà présents côté API (voir
+          // app/main.py::security_headers_middleware) mais absents côté Web jusqu'ici. Aucune
+          // fonctionnalité de l'app n'utilise géolocalisation/caméra/micro/Payment Request API
+          // (vérifié par grep avant ce changement) : la politique Permissions-Policy ci-dessous
+          // ne restreint donc rien d'actuellement utilisé.
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
+            key: "X-Frame-Options",
+            value: "DENY",
+          },
+          {
+            key: "Referrer-Policy",
+            value: "strict-origin-when-cross-origin",
+          },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), payment=()",
+          },
         ],
       },
     ];
