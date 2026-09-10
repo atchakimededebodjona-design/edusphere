@@ -256,7 +256,7 @@ une case sur la base d'une intention ou d'une documentation seule.
       COCHÉ**, volontairement : aucun hôte de production n'est encore choisi. Le **mécanisme**
       (copie automatique + revérification SHA-256 après copie + restauration réelle depuis la
       copie externe) a été prouvé de bout en bout en Phase 17, mais **sur la machine de
-      développement**, vers un disque physique distinct (`D:\EduSphere-Backups`) appartenant à
+      développement**, vers un disque physique distinct (`D:\EduLinkage-Backups`) appartenant à
       une autre personne (usage exceptionnel, accordé explicitement, non reproductible tel quel
       en production) — voir `docs/database/STORAGE_BACKUP_RESTORE.md`, section "Stockage
       indépendant — RÉSOLU sur cet hôte". Ne cocher cette case qu'après avoir répété la même

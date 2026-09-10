@@ -6,7 +6,7 @@ RUN corepack enable
 COPY package.json pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages ./packages
-RUN pnpm install --filter @edusphere/web... --frozen-lockfile=false
+RUN pnpm install --filter @edulinkage/web... --frozen-lockfile=false
 
 FROM base AS builder
 WORKDIR /app
@@ -17,7 +17,7 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-RUN pnpm --filter @edusphere/web build
+RUN pnpm --filter @edulinkage/web build
 
 FROM base AS runner
 WORKDIR /app

@@ -1,5 +1,5 @@
 {
-  "name": "edusphere",
+  "name": "edulinkage",
   "private": true,
   "version": "0.0.0",
   "engines": {
@@ -14,8 +14,8 @@
     }
   },
   "scripts": {
-    "dev:web": "pnpm --filter @edusphere/web dev",
-    "dev:mobile": "pnpm --filter @edusphere/mobile start",
+    "dev:web": "pnpm --filter @edulinkage/web dev",
+    "dev:mobile": "pnpm --filter @edulinkage/mobile start",
     "lint": "pnpm -r --filter=./apps/web --filter=./packages/** lint",
     "type-check": "pnpm -r --filter=./apps/web --filter=./packages/** type-check",
     "build": "pnpm -r --filter=./apps/web --filter=./packages/** build"

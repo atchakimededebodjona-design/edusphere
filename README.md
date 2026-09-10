@@ -1,4 +1,4 @@
-# EduSphere
+# EduLinkage
 
 Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 
@@ -27,7 +27,7 @@ Plateforme SaaS scolaire multi-tenant pour l'Afrique — monorepo.
 ## Structure du monorepo
 
 ```
-edusphere/
+edulinkage/
 ├── apps/
 │   ├── web/          # Next.js (TypeScript, Tailwind)
 │   ├── api/           # FastAPI (Pydantic, SQLAlchemy, Alembic)
@@ -79,7 +79,7 @@ client, rien à installer) :
 
 ```bash
 pnpm install
-pnpm --filter @edusphere/web dev
+pnpm --filter @edulinkage/web dev
 ```
 
 ### API
@@ -103,7 +103,7 @@ alembic upgrade head
 
 ```bash
 pnpm install
-pnpm --filter @edusphere/mobile start
+pnpm --filter @edulinkage/mobile start
 ```
 
 ## Tests
@@ -113,9 +113,9 @@ pnpm --filter @edusphere/mobile start
 cd apps/api && pytest
 
 # Web
-pnpm --filter @edusphere/web lint
-pnpm --filter @edusphere/web type-check
-pnpm --filter @edusphere/web build
+pnpm --filter @edulinkage/web lint
+pnpm --filter @edulinkage/web type-check
+pnpm --filter @edulinkage/web build
 ```
 
 ## Variables d'environnement

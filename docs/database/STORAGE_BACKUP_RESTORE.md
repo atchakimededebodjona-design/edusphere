@@ -11,7 +11,7 @@ les fichiers écrits par `LocalStorageProvider` (`apps/api/app/core/storage.py`)
 élèves, documents élèves, logos d'école, PDF de bulletins. Avant la Phase 14, ces fichiers
 vivaient uniquement dans la couche writable du conteneur `api` — un simple
 `docker compose up --build` les effaçait définitivement, sans lien avec l'état de la sauvegarde
-PostgreSQL. **Ne jamais présenter le backup PostgreSQL comme un backup complet d'EduSphere.**
+PostgreSQL. **Ne jamais présenter le backup PostgreSQL comme un backup complet d'EduLinkage.**
 
 ## Emplacement (depuis Phase 14)
 
@@ -53,7 +53,7 @@ backup (même principe déjà énoncé pour `pgdata` dans `BACKUP_RESTORE.md`).
   `LastTaskResult=0`).
 - **Sur un vrai hôte de déploiement (Linux, futur)** : utiliser directement
   `scripts/backup-all.sh` via une entrée crontab standard, par exemple
-  `0 2 * * * cd /path/to/edusphere && scripts/backup-all.sh >> /var/log/edusphere-backup.log 2>&1`.
+  `0 2 * * * cd /path/to/edulinkage && scripts/backup-all.sh >> /var/log/edulinkage-backup.log 2>&1`.
 
 Aucun secret n'est contenu dans ces archives — uniquement des fichiers utilisateur (images,
 PDF, documents), jamais de mot de passe, token ou clé (le stockage applicatif ne sert qu'à cet
@@ -100,7 +100,7 @@ Reconfirmé en Phase 17 : un second disque **physiquement distinct** (`D:`, num�
 contre `0` pour `C:` — vérifié via `Get-Partition`/`Get-PhysicalDisk`, pas seulement une seconde
 lettre de lecteur sur le même disque) est disponible sur cette machine — **avec l'accord explicite
 de l'utilisateur**, ce disque appartenant visiblement à une autre personne (étiquette de volume
-"Evelyne G."). Un sous-dossier dédié et isolé, `D:\EduSphere-Backups\`, est utilisé — jamais le
+"Evelyne G."). Un sous-dossier dédié et isolé, `D:\EduLinkage-Backups\`, est utilisé — jamais le
 disque entier — pour ne jamais interférer avec son contenu existant.
 
 `scripts/windows/backup-all.ps1` copie désormais automatiquement chaque backup (dump PostgreSQL +
@@ -121,7 +121,7 @@ totale de la machine principale.
 hôte Linux de production) accepte la même logique via `EXTERNAL_BACKUP_DIR`, mais **aucun
 support externe n'a été identifié ni testé pour un hôte de production réel** — seulement pour
 cet hôte de développement précis. Ne pas supposer que ce point reste résolu après un changement
-de machine hébergeant EduSphere sans revérifier.
+de machine hébergeant EduLinkage sans revérifier.
 
 ```bash
 # Équivalent portable (hôte Linux, EXTERNAL_BACKUP_DIR à définir selon le support réel) :
@@ -136,7 +136,7 @@ EXTERNAL_BACKUP_DIR=/mnt/backup-externe scripts/backup-all.sh
 | Backup | **Automatisé** (`scripts/backup-all.sh` / tâche planifiée Windows `EduSphere-DailyBackup`), quotidien | Planifié de la même façon, sur l'hôte de production retenu |
 | Rétention | 7 jours (rotation automatique) | À réévaluer selon le volume réel |
 | Intégrité | Comptage de fichiers + listing `tar` + empreinte SHA-256 | Idem |
-| Stockage indépendant de la source | **Résolu sur cet hôte** (`D:\EduSphere-Backups`, disque physique distinct) | À établir sur l'hôte de production réel une fois choisi |
+| Stockage indépendant de la source | **Résolu sur cet hôte** (`D:\EduLinkage-Backups`, disque physique distinct) | À établir sur l'hôte de production réel une fois choisi |
 | Chiffrement | Aucun | À évaluer selon l'hébergeur retenu |
 
 ## Limites actuelles
@@ -150,7 +150,7 @@ EXTERNAL_BACKUP_DIR=/mnt/backup-externe scripts/backup-all.sh
 - La rétention (7 jours) n'a pas encore été observée sur une durée réelle de 7 jours — seul le
   mécanisme de suppression a été vérifié par lecture de code et par un run réel qui n'avait rien
   à supprimer. Aucune rétention n'est appliquée sur la copie externe elle-même (elle s'accumule
-  indéfiniment sur `D:\EduSphere-Backups` tant que personne ne la nettoie manuellement).
+  indéfiniment sur `D:\EduLinkage-Backups` tant que personne ne la nettoie manuellement).
 - La copie externe dépend de la disponibilité continue d'un disque appartenant à une autre
   personne sur cette machine de développement — pas une solution pérenne pour un vrai pilote,
   seulement une démonstration réelle que le mécanisme fonctionne de bout en bout.

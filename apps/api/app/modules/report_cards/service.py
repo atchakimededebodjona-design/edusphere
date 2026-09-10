@@ -253,8 +253,8 @@ async def prepare_report_card_published_notifications(db: AsyncSession, report_c
             f"Bonjour {full_name},\n\n"
             f"Le bulletin de {student.first_name} {student.last_name} pour la période "
             f"{term.name} vient d'être publié.\n\n"
-            "Connectez-vous à l'application mobile EduSphere pour le consulter.\n\n"
-            "— EduSphere",
+            "Connectez-vous à l'application mobile EduLinkage pour le consulter.\n\n"
+            "— EduLinkage",
         )
         for full_name, email in result.all()
         if email is not None

@@ -1,4 +1,4 @@
-const STORAGE_KEY = "edusphere.session";
+const STORAGE_KEY = "edulinkage.session";
 
 export type StoredTokens = {
   access_token: string;

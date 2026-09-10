@@ -1,5 +1,5 @@
 {
-  "name": "@edusphere/types",
+  "name": "@edulinkage/types",
   "private": true,
   "version": "0.0.0",
   "main": "src/index.ts",

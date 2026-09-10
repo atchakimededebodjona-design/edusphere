@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
-const STORAGE_KEY = "edusphere.session";
+const STORAGE_KEY = "edulinkage.session";
 
 export type StoredTokens = {
   access_token: string;

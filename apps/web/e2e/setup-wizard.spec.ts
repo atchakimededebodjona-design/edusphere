@@ -226,7 +226,7 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     // l'erreur 401 d'origine, exactement le chemin réel emprunté par une vraie expiration.
     await page.evaluate(() => {
       window.localStorage.setItem(
-        "edusphere.session",
+        "edulinkage.session",
         JSON.stringify({ access_token: "invalid.token.value", refresh_token: "invalid.refresh.value" }),
       );
     });

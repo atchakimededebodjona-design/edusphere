@@ -398,9 +398,9 @@ async def _prepare_payment_notifications(db: AsyncSession, student: Student, pay
             f"Bonjour {full_name},\n\n"
             f"Un paiement de {payment.amount} a été enregistré pour {student.first_name} "
             f"{student.last_name} (reçu n° {payment.receipt_number}).\n\n"
-            "Connectez-vous à l'application mobile EduSphere pour consulter le reçu et le solde "
+            "Connectez-vous à l'application mobile EduLinkage pour consulter le reçu et le solde "
             "à jour.\n\n"
-            "— EduSphere",
+            "— EduLinkage",
         )
         for full_name, email in result.all()
         if email is not None

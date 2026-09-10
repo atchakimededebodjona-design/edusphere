@@ -21,8 +21,8 @@ set -euo pipefail
 SERVICE="${1:-db}"
 BACKUP_DIR="${BACKUP_DIR:-backups}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT_FILE="${BACKUP_DIR}/edusphere_${TIMESTAMP}.dump"
-CONTAINER_TMP="/tmp/edusphere_backup_${TIMESTAMP}.dump"
+OUT_FILE="${BACKUP_DIR}/edulinkage_${TIMESTAMP}.dump"
+CONTAINER_TMP="/tmp/edulinkage_backup_${TIMESTAMP}.dump"
 
 mkdir -p "$BACKUP_DIR"
 

@@ -27,7 +27,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>EduSphere</Text>
+      <Text style={styles.title}>EduLinkage</Text>
       <Text style={styles.subtitle}>Espace enseignant</Text>
 
       <TextInput

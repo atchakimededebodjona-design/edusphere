@@ -87,7 +87,12 @@ while IFS= read -r -d '' old_file; do
   rm -f "$old_file"
   DELETED_COUNT=$((DELETED_COUNT + 1))
   echo "Supprimé (rétention dépassée): $old_file"
-done < <(find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'edusphere_*.dump' -o -name 'storage_*.tar.gz' -o -name '*.sha256' \) -mtime "+${RETENTION_DAYS}" -print0)
+# 'edusphere_*.dump' conservé en plus du nouveau préfixe 'edulinkage_*.dump' — normalisation de
+# marque (voir PHASE A naming audit) : les anciens fichiers locaux déjà produits avant ce
+# changement doivent continuer à être soumis à la rétention (jamais renommés ni supprimés
+# rétroactivement de Backblaze, mais bien nettoyés localement une fois hors fenêtre de rétention,
+# exactement comme avant ce changement).
+done < <(find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'edusphere_*.dump' -o -name 'edulinkage_*.dump' -o -name 'storage_*.tar.gz' -o -name '*.sha256' \) -mtime "+${RETENTION_DAYS}" -print0)
 echo "Rétention locale appliquée : $DELETED_COUNT fichier(s) obsolète(s) supprimé(s), les backups des ${RETENTION_DAYS} derniers jours conservés. (La conservation distante sur Backblaze est indépendante — ce script n'y supprime jamais rien.)"
 
 if [ -n "$EXTERNAL_BACKUP_DIR" ]; then

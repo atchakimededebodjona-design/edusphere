@@ -23,13 +23,13 @@ jobs:
       - run: pnpm install --frozen-lockfile=false
 
       - name: Lint
-        run: pnpm --filter @edusphere/web lint
+        run: pnpm --filter @edulinkage/web lint
 
       - name: Type-check
-        run: pnpm --filter @edusphere/web type-check
+        run: pnpm --filter @edulinkage/web type-check
 
       - name: Build
-        run: pnpm --filter @edusphere/web build
+        run: pnpm --filter @edulinkage/web build
 
   mobile:
     name: mobile (lint, type-check)
@@ -47,7 +47,7 @@ jobs:
       - run: pnpm install --frozen-lockfile=false
 
       - name: Type-check
-        run: pnpm --filter @edusphere/mobile type-check
+        run: pnpm --filter @edulinkage/mobile type-check
 
   api:
     name: api (lint, type-check, test)

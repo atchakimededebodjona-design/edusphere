@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     # rate_limit.py) dépendaient du comportement par défaut non configuré de la bibliothèque
     # standard.
     configure_logging()
-    logger.info("EduSphere API démarrée (environment=%s)", settings.environment)
+    logger.info("EduLinkage API démarrée (environment=%s)", settings.environment)
     yield
 
 
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
 _docs_enabled = settings.environment != "production"
 
 app = FastAPI(
-    title="EduSphere API",
+    title="EduLinkage API",
     version="0.0.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_enabled else None,

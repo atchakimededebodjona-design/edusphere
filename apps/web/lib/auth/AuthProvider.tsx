@@ -16,7 +16,7 @@ export type AuthStatus = "loading" | "authenticated" | "anonymous";
 // créé via la page Utilisateurs) reste prioritaire et inchangé.
 export type SchoolContextStatus = "loading" | "resolved" | "selection-needed" | "empty" | "error";
 
-const SELECTED_SCHOOL_STORAGE_KEY = "edusphere.selected_school_id";
+const SELECTED_SCHOOL_STORAGE_KEY = "edulinkage.selected_school_id";
 
 export type AuthContextValue = {
   status: AuthStatus;

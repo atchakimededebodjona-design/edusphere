@@ -77,8 +77,8 @@ async def create_or_attach_user(
         await apply_tenant_context(db, current_user_id)
         await send_email_best_effort(
             user.email,
-            "Bienvenue sur EduSphere — activez votre compte",
-            f"Un compte a été créé pour vous sur EduSphere. Pour définir votre mot de passe, "
+            "Bienvenue sur EduLinkage — activez votre compte",
+            f"Un compte a été créé pour vous sur EduLinkage. Pour définir votre mot de passe, "
             f"ouvrez ce lien (valable {PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes) :\n"
             f"{settings.public_web_base_url}/reset-password?token={raw_token}",
         )

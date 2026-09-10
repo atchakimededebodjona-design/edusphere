@@ -1,8 +1,8 @@
-# EduSphere — Vue d'ensemble architecture (Phase 0)
+# EduLinkage — Vue d'ensemble architecture (Phase 0)
 
 ## Contexte
 
-EduSphere est une plateforme SaaS scolaire **multi-tenant** destinée au
+EduLinkage est une plateforme SaaS scolaire **multi-tenant** destinée au
 marché africain. Ce document reprend les principes structurants fixés par le
 cahier des charges et le document d'architecture technique, tels
 qu'appliqués au bootstrap technique (Phase 0).

@@ -1,12 +1,12 @@
 # PostgreSQL — Backup & Restore
 
 Phase 7.3 (backup & pilot readiness). Décrit la stratégie minimale de sauvegarde/restauration
-de la base PostgreSQL d'EduSphere, testée réellement (voir rapport Phase 7.3).
+de la base PostgreSQL d'EduLinkage, testée réellement (voir rapport Phase 7.3).
 
 **Important (Phase 14)** : ce document ne couvre QUE PostgreSQL. Les fichiers écrits par
 `StorageProvider` (photos élèves, documents, logos, PDF de bulletins) sont sauvegardés
 séparément — voir [`docs/database/STORAGE_BACKUP_RESTORE.md`](STORAGE_BACKUP_RESTORE.md). Ne
-jamais présenter une sauvegarde de cette base comme une sauvegarde complète d'EduSphere.
+jamais présenter une sauvegarde de cette base comme une sauvegarde complète d'EduLinkage.
 
 ## Principe
 
@@ -103,7 +103,7 @@ Rétention : 7 backups quotidiens conservés par défaut, rotation automatique p
 | | Développement (actuel, depuis Phase 15) | Production (future, à mettre en place) |
 |---|---|---|
 | Déclenchement | **Automatique** — tâche planifiée Windows sur cet hôte ; `crontab` sur un hôte Linux | Planifié, même mécanisme, sur l'hôte de production retenu |
-| Stockage | `backups/` local + copie automatique vers `D:\EduSphere-Backups` (disque physique distinct, Phase 17) | Stockage externe durable sur l'hôte de production réel — à établir séparément, voir `STORAGE_BACKUP_RESTORE.md` |
+| Stockage | `backups/` local + copie automatique vers `D:\EduLinkage-Backups` (disque physique distinct, Phase 17) | Stockage externe durable sur l'hôte de production réel — à établir séparément, voir `STORAGE_BACKUP_RESTORE.md` |
 | Fréquence | Quotidienne | Quotidienne minimum |
 | Rétention | 7 jours, rotation automatique | Politique de rétention à réévaluer selon le volume réel |
 | Intégrité | `pg_restore --list` + empreinte SHA-256 (Phase 15) | Idem |
@@ -112,7 +112,7 @@ Rétention : 7 backups quotidiens conservés par défaut, rotation automatique p
 ## Copie externe (Phase 17)
 
 Depuis la Phase 17, `scripts/windows/backup-all.ps1` copie automatiquement chaque dump vers
-`D:\EduSphere-Backups\` (disque physique distinct de celui hébergeant Docker sur cet hôte,
+`D:\EduLinkage-Backups\` (disque physique distinct de celui hébergeant Docker sur cet hôte,
 confirmé via `Get-Partition`/`Get-PhysicalDisk`, avec l'accord explicite de l'utilisateur — voir
 `STORAGE_BACKUP_RESTORE.md` pour le détail complet et l'avertissement sur la portée de cette
 résolution). SHA-256 revérifié après copie. Restauration **depuis cette copie externe**
@@ -124,12 +124,12 @@ complète de perte de la machine principale — voir
 
 - La copie externe (Phase 17) est **résolue sur cette machine de développement précise**, pas
   par principe pour un futur hôte de production différent — à revérifier explicitement à chaque
-  changement de machine hébergeant EduSphere.
+  changement de machine hébergeant EduLinkage.
 - Aucun chiffrement des dumps au repos, y compris sur la copie externe.
 - Le test de restauration démontre la restauration d'un dump complet ; il ne couvre pas un
   scénario de restauration partielle (point-in-time recovery), hors périmètre de cette phase.
 - La rétention 7 jours s'applique à `backups/` local ; aucune rétention n'est appliquée sur la
-  copie externe (`D:\EduSphere-Backups`), qui s'accumule tant que personne ne la nettoie
+  copie externe (`D:\EduLinkage-Backups`), qui s'accumule tant que personne ne la nettoie
   manuellement.
 - **Reconstituer une base de données entièrement neuve à partir du seul dump ne suffit pas** :
   `pg_dump` ne capture pas les rôles PostgreSQL au niveau du cluster (`edusphere`, créé par

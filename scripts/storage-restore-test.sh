@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ARCHIVE_FILE="${1:?Usage: scripts/storage-restore-test.sh <archive.tar.gz>}"
-RESTORE_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/edusphere_storage_restore_test.XXXXXX")"
+RESTORE_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/edulinkage_storage_restore_test.XXXXXX")"
 
 if [ ! -s "$ARCHIVE_FILE" ]; then
   echo "ERREUR: archive introuvable ou vide: $ARCHIVE_FILE" >&2

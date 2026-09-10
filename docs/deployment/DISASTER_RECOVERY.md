@@ -1,7 +1,7 @@
 # Disaster Recovery
 
 Phase 17 (Pilot Infrastructure & External Services Readiness). Procédure de reprise après
-sinistre pour EduSphere, couvrant chaque niveau de perte — du conteneur isolé à la machine
+sinistre pour EduLinkage, couvrant chaque niveau de perte — du conteneur isolé à la machine
 entière — et l'ordre exact des opérations pour reconstituer un état fonctionnel.
 
 **Principe directeur, affirmé explicitement (règle de vérité)** : ce document distingue
@@ -27,9 +27,10 @@ entière — et l'ordre exact des opérations pour reconstituer un état fonctio
 
 Procédure, dans l'ordre exact :
 
-1. Identifier le dernier backup valide : local (`backups/edusphere_<horodatage>.dump`) ou externe
-   (`D:\EduSphere-Backups\edusphere_<horodatage>.dump`, Phase 17 — préférer l'externe si la
-   machine/le disque principal est en cause).
+1. Identifier le dernier backup valide : local (`backups/edulinkage_<horodatage>.dump`, ou
+   l'ancien préfixe `edusphere_<horodatage>.dump` pour un backup produit avant la normalisation de
+   marque) ou externe (`D:\EduLinkage-Backups\edulinkage_<horodatage>.dump`, Phase 17 — préférer
+   l'externe si la machine/le disque principal est en cause).
 2. Recréer le conteneur `db` si nécessaire (`docker compose up -d db`) — l'image
    `postgres:16-alpine` avec `POSTGRES_USER=edusphere`/`POSTGRES_PASSWORD`/`POSTGRES_DB=edusphere`
    (déjà dans `docker-compose.yml`) recrée automatiquement le rôle `edusphere` (bootstrap de
@@ -64,7 +65,7 @@ Procédure, dans l'ordre exact :
 6. Redémarrer/reconnecter l'API (`docker compose restart api`), vérifier `GET /api/v1/ready`
    (`checks.database == "ok"`).
 
-**Preuve réelle (Phase 17)** : restauration depuis `D:\EduSphere-Backups\` (pas la copie locale)
+**Preuve réelle (Phase 17)** : restauration depuis `D:\EduLinkage-Backups\` (pas la copie locale)
 vers une base de test dédiée, comptages identiques à la source sur 7 tables.
 
 ## Scénario 3 — Stockage fichiers perdu (`apps/api/storage/`)
@@ -72,7 +73,7 @@ vers une base de test dédiée, comptages identiques à la source sur 7 tables.
 **Statut : PROUVÉ RÉELLEMENT, y compris depuis la copie externe** (Phase 15 et 17).
 
 1. Identifier la dernière archive valide : locale (`backups/storage_<horodatage>.tar.gz`) ou
-   externe (`D:\EduSphere-Backups\storage_<horodatage>.tar.gz`).
+   externe (`D:\EduLinkage-Backups\storage_<horodatage>.tar.gz`).
 2. Recréer le répertoire si nécessaire : `mkdir -p apps/api/storage`.
 3. Extraire l'archive **directement** dans `apps/api/storage/` (contrairement aux tests de
    restauration, qui extraient toujours vers un répertoire temporaire par précaution) :
@@ -83,7 +84,7 @@ vers une base de test dédiée, comptages identiques à la source sur 7 tables.
    étant déjà monté, un simple accès suffit généralement, mais un redémarrage garantit un état
    propre) : `docker compose restart api`.
 
-**Preuve réelle (Phase 17)** : extraction depuis `D:\EduSphere-Backups\storage_....tar.gz` (pas
+**Preuve réelle (Phase 17)** : extraction depuis `D:\EduLinkage-Backups\storage_....tar.gz` (pas
 la copie locale) vers un répertoire temporaire, 85 fichiers extraits, correspondant exactement au
 nombre annoncé à la production du backup.
 
@@ -103,7 +104,7 @@ Simulation réellement exécutée en Phase 17, sans jamais toucher à l'environn
    `docker compose` — aucun lien avec la pile existante), avec `POSTGRES_USER=edusphere` pour
    recréer le rôle bootstrap.
 2. Rôle `edusphere_app` recréé manuellement (SQL exact ci-dessus, scénario 2 étape 3).
-3. Dump **externe uniquement** (`D:\EduSphere-Backups\...`) restauré — succès, 0 erreur.
+3. Dump **externe uniquement** (`D:\EduLinkage-Backups\...`) restauré — succès, 0 erreur.
 4. Comptages vérifiés identiques à la source sur 4 tables représentatives
    (`students=2588, organizations=3644, users=4207, report_cards=412`).
 5. RLS vérifiée active et forcée sur les tables restaurées (`relrowsecurity=t,
@@ -114,7 +115,7 @@ Simulation réellement exécutée en Phase 17, sans jamais toucher à l'environn
    revérifiés `200` tout au long de cette simulation — preuve que rien n'a été perturbé.
 
 **Ce qui N'A PAS été démontré, affirmé explicitement** : faire pointer une instance réelle de
-l'API EduSphere (nouveau conteneur `api`, nouvelle pile `docker-compose`) vers ces ressources
+l'API EduLinkage (nouveau conteneur `api`, nouvelle pile `docker-compose`) vers ces ressources
 reconstituées, pour observer `/health`/`/ready` **de cette nouvelle pile** passer au vert. Cela
 nécessiterait de dupliquer l'ensemble de la pile applicative (une nouvelle architecture parallèle,
 explicitement hors périmètre de cette phase) plutôt que de risquer une interruption de

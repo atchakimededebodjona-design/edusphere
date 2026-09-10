@@ -1,7 +1,7 @@
 [project]
-name = "edusphere-api"
+name = "edulinkage-api"
 version = "0.0.0"
-description = "EduSphere API — FastAPI backend"
+description = "EduLinkage API — FastAPI backend"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.111.0",

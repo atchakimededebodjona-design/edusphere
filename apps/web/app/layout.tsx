@@ -3,7 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 
 export const metadata: Metadata = {
-  title: "EduSphere",
+  title: "EduLinkage",
   description: "Plateforme SaaS scolaire multi-tenant pour l'Afrique",
 };
 

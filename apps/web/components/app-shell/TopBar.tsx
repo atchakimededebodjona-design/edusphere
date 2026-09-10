@@ -49,7 +49,7 @@ export function TopBar() {
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6">
-      <span className="text-lg font-bold text-slate-900">EduSphere</span>
+      <span className="text-lg font-bold text-slate-900">EduLinkage</span>
       <div className="flex items-center gap-4">
         {user && (
           <Link href="/notifications" className="relative text-slate-600 hover:text-slate-900" aria-label="Notifications">

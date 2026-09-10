@@ -9,8 +9,8 @@ passé. Voir [`docs/deployment/GIT_AND_CI.md`](GIT_AND_CI.md) pour la procédure
 - [ ] `pytest -q` OK (backend)
 - [ ] `ruff check .` OK
 - [ ] `mypy app` OK
-- [ ] Web lint OK (`pnpm --filter @edusphere/web lint`)
-- [ ] Web build OK (`pnpm --filter @edusphere/web build`)
+- [ ] Web lint OK (`pnpm --filter @edulinkage/web lint`)
+- [ ] Web build OK (`pnpm --filter @edulinkage/web build`)
 - [ ] Mobile type-check OK (`tsc --noEmit` dans `apps/mobile`)
 - [ ] Migrations vérifiées — `alembic current` = `alembic heads`, aucune migration orpheline
 - [ ] Docker build OK — `docker compose build` (API + Web) sans erreur

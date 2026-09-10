@@ -70,7 +70,7 @@ Ces deux affirmations sont distinctes et doivent le rester :
 2. Développer, en respectant le périmètre de la tâche.
 3. Lancer les tests localement AVANT de committer :
    `pytest -q` / `ruff check .` / `mypy app` (API) ;
-   `pnpm --filter @edusphere/web lint/type-check/build` (Web) ;
+   `pnpm --filter @edulinkage/web lint/type-check/build` (Web) ;
    `tsc --noEmit` (Mobile, via `apps/mobile`).
 4. `git add` puis vérifier `git status`/`git diff --cached --name-only` — aucun secret, aucun
    fichier runtime (`.env`, `backups/`, `apps/api/storage/`).

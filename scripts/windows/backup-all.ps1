@@ -23,7 +23,7 @@
 
 .PARAMETER ExternalDestination
     Repertoire sur un support physiquement distinct du disque principal (Phase 17 - copie hors
-    machine). Par defaut D:\EduSphere-Backups (disque physique distinct confirme sur cet hote -
+    machine). Par defaut D:\EduLinkage-Backups (disque physique distinct confirme sur cet hote -
     voir docs/database/BACKUP_RESTORE.md). Si ce chemin n'est pas accessible au moment de
     l'execution, la copie externe echoue explicitement (jamais silencieuse) mais le backup LOCAL
     deja produit reste valide.
@@ -33,7 +33,7 @@
 #>
 param(
     [int]$RetentionDays = 7,
-    [string]$ExternalDestination = "D:\EduSphere-Backups"
+    [string]$ExternalDestination = "D:\EduLinkage-Backups"
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,8 +50,8 @@ function Fail($Message) {
 
 # --- 1. Backup PostgreSQL --------------------------------------------------------------------
 Write-Output "=== Backup PostgreSQL ==="
-$DbOutFile = Join-Path $BackupDir "edusphere_$Timestamp.dump"
-$ContainerTmp = "/tmp/edusphere_backup_$Timestamp.dump"
+$DbOutFile = Join-Path $BackupDir "edulinkage_$Timestamp.dump"
+$ContainerTmp = "/tmp/edulinkage_backup_$Timestamp.dump"
 
 try {
     docker compose exec -T db sh -c "PGPASSWORD=`"`$POSTGRES_PASSWORD`" pg_dump -U `"`$POSTGRES_USER`" -d `"`$POSTGRES_DB`" -Fc -f '$ContainerTmp'"
@@ -113,7 +113,7 @@ Write-Output "Backup storage OK: $StorageOutFile ($StorageSize) - $ArchiveFileCo
 Write-Output "=== Retention ($RetentionDays jours) ==="
 $Cutoff = (Get-Date).AddDays(-$RetentionDays)
 $OldFiles = Get-ChildItem $BackupDir -File | Where-Object {
-    ($_.Name -like "edusphere_*.dump" -or $_.Name -like "storage_*.tar.gz" -or $_.Name -like "*.sha256") -and $_.LastWriteTime -lt $Cutoff
+    ($_.Name -like "edusphere_*.dump" -or $_.Name -like "edulinkage_*.dump" -or $_.Name -like "storage_*.tar.gz" -or $_.Name -like "*.sha256") -and $_.LastWriteTime -lt $Cutoff
 }
 foreach ($f in $OldFiles) {
     Remove-Item $f.FullName -Force

@@ -271,7 +271,7 @@ async def request_password_reset(db: AsyncSession, email: str) -> str | None:
 
     await send_email_best_effort(
         user.email,
-        "Réinitialisation de votre mot de passe EduSphere",
+        "Réinitialisation de votre mot de passe EduLinkage",
         f"Pour définir un nouveau mot de passe, ouvrez ce lien (valable "
         f"{PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes) :\n"
         f"{settings.public_web_base_url}/reset-password?token={raw_token}",

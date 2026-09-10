@@ -1,4 +1,4 @@
-# Runbook support — EduSphere
+# Runbook support — EduLinkage
 
 Phase 23 (Production Observability & Configuration Hardening). Ce document couvre le **premier
 niveau de réponse** face à un incident signalé par une école pilote — pas la reprise après

@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: str = ""
-    smtp_from_address: str = "no-reply@edusphere.local"
+    smtp_from_address: str = "no-reply@edulinkage.local"
     smtp_use_tls: bool = True
     # Phase 16 — configurable pour permettre aux tests de vérifier un dépassement de délai en
     # quelques secondes plutôt que d'attendre la valeur de production ; 10s reste la valeur par
