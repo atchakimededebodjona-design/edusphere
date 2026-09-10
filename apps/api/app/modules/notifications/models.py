@@ -14,7 +14,7 @@ from app.db.base import Base
 # projet pour justifier un tel état — une notification in-app est délivrée au moment où la ligne
 # existe (voir Discovery §19).
 
-NOTIFICATION_TYPES = ("ANNOUNCEMENT", "REPORT_CARD_PUBLISHED", "PAYMENT_RECORDED")
+NOTIFICATION_TYPES = ("ANNOUNCEMENT", "REPORT_CARD_PUBLISHED", "PAYMENT_RECORDED", "STUDENT_ABSENT")
 
 
 class Notification(Base):

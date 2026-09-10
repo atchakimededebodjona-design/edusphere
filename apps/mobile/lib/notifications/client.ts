@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api/client";
 
-export type NotificationType = "ANNOUNCEMENT" | "REPORT_CARD_PUBLISHED" | "PAYMENT_RECORDED";
+export type NotificationType = "ANNOUNCEMENT" | "REPORT_CARD_PUBLISHED" | "PAYMENT_RECORDED" | "STUDENT_ABSENT";
 
 export type Notification = {
   id: string;

@@ -206,12 +206,16 @@ async def update_record(
     school_class = await _get_class_or_404(db, session.class_id)
     await _ensure_can_write_session(db, current_user, session, school_class)
 
+    previous_status = record.status
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(record, field, value)
     record.recorded_by = current_user.id
 
     await db.flush()
     await db.refresh(record)
+    # Même règle anti-spam que la soumission en masse (voir service.maybe_notify_absence) : une
+    # correction PATCH qui ne touche pas `status`, ou qui le laisse à ABSENT, ne notifie pas.
+    await service.maybe_notify_absence(db, record, previous_status)
     await db.commit()
     return record
 

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.academics.models import AcademicTerm, ClassSubject, SchoolClass, TeacherAssignment
 from app.modules.attendance.models import AttendanceRecord, AttendanceSession
+from app.modules.notifications.service import notify_student_absent
 from app.modules.students.models import Student, StudentEnrollment
 
 
@@ -45,6 +46,24 @@ async def student_in_class_scope(db: AsyncSession, student: Student, class_id: u
     return result.scalar_one_or_none() is not None
 
 
+async def maybe_notify_absence(db: AsyncSession, record: AttendanceRecord, previous_status: str | None) -> None:
+    """Phase 27 Sprint 1 — notifie les tuteurs UNIQUEMENT quand le statut DEVIENT ABSENT :
+    - création directe en ABSENT (`previous_status is None`) -> notifie ;
+    - PRESENT/LATE -> ABSENT -> notifie ;
+    - ABSENT -> ABSENT (resoumission idempotente de l'appel, ou correction de `justified`/`reason`
+      seule) -> ne notifie PAS une seconde fois (anti-spam, règle explicite du sprint) ;
+    - ABSENT -> PRESENT/LATE, ou tout statut qui n'est pas ABSENT -> ne notifie jamais.
+    Appelée pour CHAQUE écriture d'un AttendanceRecord (création, resoumission en masse, correction
+    unitaire) — voir les deux points d'appel : `upsert_records` ci-dessous et
+    `attendance/router.py::update_record`."""
+    if record.status != "ABSENT" or previous_status == "ABSENT":
+        return
+    student = await db.get(Student, record.student_id)
+    if student is None:
+        return
+    await notify_student_absent(db, student, record)
+
+
 async def upsert_records(
     db: AsyncSession,
     session: AttendanceSession,
@@ -55,6 +74,7 @@ async def upsert_records(
     état final, sans erreur ni duplication — propriété requise pour un futur mode offline (décision
     validée, PHASE_6_ATTENDANCE_PLAN.md §9)."""
     saved: list[AttendanceRecord] = []
+    previous_statuses: dict[uuid.UUID, str | None] = {}
     for student_id, status, justified, reason in entries:
         result = await db.execute(
             select(AttendanceRecord).where(
@@ -71,6 +91,9 @@ async def upsert_records(
                 student_id=student_id,
             )
             db.add(row)
+            previous_statuses[row.id] = None
+        else:
+            previous_statuses[row.id] = row.status
         row.status = status
         row.justified = justified
         row.reason = reason
@@ -82,6 +105,11 @@ async def upsert_records(
     # temps de la transaction courante (même piège documenté dans grades/service.py).
     for row in saved:
         await db.refresh(row)
+    # Notifications d'absence — APRÈS refresh (état final connu), AVANT commit : même contrainte
+    # que create_notifications (le contexte RLS élargi via set_platform_wide_context doit vivre
+    # dans CETTE transaction, voir notifications/service.py).
+    for row in saved:
+        await maybe_notify_absence(db, row, previous_statuses[row.id])
     await db.commit()
     return saved
 

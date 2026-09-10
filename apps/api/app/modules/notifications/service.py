@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import set_platform_wide_context
 from app.modules.academics.models import SchoolClass
+from app.modules.attendance.models import AttendanceRecord
 from app.modules.fees.models import Payment
 from app.modules.notifications.models import Notification
 from app.modules.notifications.schemas import NotificationType
@@ -107,6 +108,27 @@ async def notify_payment_recorded(db: AsyncSession, student: Student, payment: P
         title="Paiement enregistré",
         # Contenu minimal, aucun montant/détail comptable — voir Discovery §29.
         body=f"Un paiement a été enregistré pour {student.first_name} {student.last_name}.",
+    )
+
+
+async def notify_student_absent(db: AsyncSession, student: Student, record: AttendanceRecord) -> None:
+    """Phase 27 Sprint 1 — même pattern que `notify_payment_recorded`/`notify_report_card_published`
+    ci-dessus : destinataires résolus via `resolve_guardian_user_ids_for_student` (tuteurs avec
+    compte uniquement), contenu minimal (aucune mention de motif/justification — cohérent avec
+    l'absence de détail comptable dans `notify_payment_recorded`). Accord de genre sur
+    "marqué(e) absent(e)" via `Student.sex`, seule donnée déjà disponible pour ça. L'appelant
+    (`attendance/service.py::maybe_notify_absence`) est seul responsable de la règle "uniquement
+    quand le statut DEVIENT ABSENT" — cette fonction ne fait que créer la notification."""
+    gender_suffix = "e" if student.sex == "F" else ""
+    recipient_ids = await resolve_guardian_user_ids_for_student(db, student.id, record.school_id)
+    await create_notifications(
+        db,
+        organization_id=record.organization_id,
+        school_id=record.school_id,
+        recipient_user_ids=recipient_ids,
+        type_="STUDENT_ABSENT",
+        title="Absence signalée",
+        body=f"{student.first_name} {student.last_name} a été marqué{gender_suffix} absent{gender_suffix}.",
     )
 
 
