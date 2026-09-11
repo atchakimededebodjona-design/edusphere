@@ -211,19 +211,25 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     expect(await page.getByText(yearName).count()).toBe(1);
   });
 
-  test("session expirée : message clair et action de reconnexion, pas de plantage", async ({ page, request }) => {
-    await registerSchool(page, request, "wizsession");
+  test("session expirée : redirection propre vers /login, session invalidée, reconnexion possible", async ({
+    page,
+    request,
+  }) => {
+    const { email, password } = await registerSchool(page, request, "wizsession");
     await page.goto("/setup");
 
     // On attend que le chargement initial réussisse (jetons valides) avant de corrompre la
     // session, pour simuler une expiration EN COURS D'UTILISATION plutôt qu'une session déjà
     // morte au chargement (ce second cas est couvert ailleurs par AuthGate : redirection vers
-    // /login, comportement différent et déjà existant, pas testé ici).
+    // /login, comportement déjà existant, pas testé ici).
     await expect(page.getByPlaceholder("2026-2027")).toBeVisible();
 
     // Corrompt les deux jetons stockés : la prochaine requête échoue en 401, le rafraîchissement
-    // silencieux échoue aussi (refresh_token invalide) -> apiFetch nettoie la session et relève
-    // l'erreur 401 d'origine, exactement le chemin réel emprunté par une vraie expiration.
+    // échoue aussi (refresh_token invalide) -> apiFetch nettoie la session ET notifie AuthProvider
+    // (voir onSessionExpired, lib/api/client.ts) -> AuthGate redirige vers /login. Phase 27
+    // Sprint 1.1 : ce comportement (redirection réelle) remplace intentionnellement l'ancien
+    // (message affiché sur place, sans redirection) — voir
+    // docs/phases/PHASE_27_SPRINT_1_1_AUTH_SESSION_DISCOVERY.md, §"Implementation outcome".
     await page.evaluate(() => {
       window.localStorage.setItem(
         "edulinkage.session",
@@ -236,7 +242,23 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     await page.getByLabel("Fin").fill("2027-06-30");
     await page.getByRole("button", { name: "Créer cette année" }).click();
 
-    await expect(page.getByText("Votre session a expiré. Reconnectez-vous pour continuer.", { exact: true })).toBeVisible();
+    // Redirection réellement effective (pas seulement un message affiché sur place).
+    await expect(page).toHaveURL(/\/login$/, { timeout: 10_000 });
+
+    // Session invalidée : plus aucun token sous la clé courante.
+    const remainingSession = await page.evaluate(() => window.localStorage.getItem("edulinkage.session"));
+    expect(remainingSession).toBeNull();
+
+    // Application stable, pas de boucle : la page de login s'affiche normalement et reste stable.
+    await expect(page.getByRole("heading", { name: "Connexion" })).toBeVisible();
+    await page.waitForTimeout(500);
+    await expect(page).toHaveURL(/\/login$/);
+
+    // Reconnexion cohérente après l'expiration : le compte réel reste utilisable normalement.
+    await page.getByPlaceholder("Email").fill(email);
+    await page.getByPlaceholder("Mot de passe").fill(password);
+    await page.getByRole("button", { name: "Se connecter" }).click();
+    await expect(page).toHaveURL("/");
   });
 });
 

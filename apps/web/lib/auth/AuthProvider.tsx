@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, onSessionExpired } from "@/lib/api/client";
 import * as authClient from "@/lib/auth/client";
 import type { Me } from "@/lib/auth/client";
 import { getStoredTokens, setStoredTokens } from "@/lib/auth/session";
@@ -17,6 +17,24 @@ export type AuthStatus = "loading" | "authenticated" | "anonymous";
 export type SchoolContextStatus = "loading" | "resolved" | "selection-needed" | "empty" | "error";
 
 const SELECTED_SCHOOL_STORAGE_KEY = "edulinkage.selected_school_id";
+// Phase 27 Sprint 1.1 — ancienne clé, avant la normalisation de marque (voir
+// docs/phases/PHASE_27_SPRINT_1_1_AUTH_SESSION_DISCOVERY.md §2/§6). Cette valeur n'a jamais été
+// une preuve d'autorisation (voir `stillValid` ci-dessous, qui revalide toujours contre la liste
+// réelle des écoles renvoyée par l'API) — la migrer d'une clé de stockage à une autre ne change
+// rien aux contrôles serveur.
+const LEGACY_SELECTED_SCHOOL_STORAGE_KEY = "edusphere.selected_school_id";
+
+function readSelectedSchoolId(): string | null {
+  const current = window.localStorage.getItem(SELECTED_SCHOOL_STORAGE_KEY);
+  if (current) return current;
+
+  const legacy = window.localStorage.getItem(LEGACY_SELECTED_SCHOOL_STORAGE_KEY);
+  if (legacy) {
+    window.localStorage.setItem(SELECTED_SCHOOL_STORAGE_KEY, legacy);
+    window.localStorage.removeItem(LEGACY_SELECTED_SCHOOL_STORAGE_KEY);
+  }
+  return legacy;
+}
 
 export type AuthContextValue = {
   status: AuthStatus;
@@ -72,6 +90,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setStatus("anonymous");
     }
   }, [loadMe]);
+
+  // Phase 27 Sprint 1.1 — un 401 rencontré n'importe où dans l'app (pas seulement au chargement
+  // initial) peut révéler un refresh token expiré/révoqué. `apiFetch` vit hors de l'arbre React et
+  // ne peut pas modifier cet état directement ; il notifie via `onSessionExpired`, et c'est ici
+  // qu'on repasse réellement en "anonymous" — ce qui fait déclencher la redirection déjà existante
+  // dans AuthGate, sans aucun code de navigation supplémentaire (même pattern que
+  // apps/mobile/lib/auth/AuthProvider.tsx, voir Discovery §7/§15).
+  useEffect(() => {
+    return onSessionExpired(() => {
+      setMe(null);
+      setStatus("anonymous");
+      setSchoolContextStatus("loading");
+      setAvailableSchools([]);
+      setSchoolContextError(null);
+      setSelectedSchoolId(null);
+    });
+  }, []);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -133,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Plusieurs écoles pour cette organisation : jamais de sélection arbitraire. On
           // réutilise un choix déjà fait explicitement sur ce navigateur s'il est toujours
           // valide, sinon on demande une sélection explicite (AuthGate).
-          const remembered = window.localStorage.getItem(SELECTED_SCHOOL_STORAGE_KEY);
+          const remembered = readSelectedSchoolId();
           const stillValid = remembered && schools.some((s) => s.id === remembered);
           if (stillValid) {
             setSelectedSchoolId(remembered);

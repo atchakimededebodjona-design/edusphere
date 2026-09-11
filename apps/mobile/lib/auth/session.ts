@@ -2,6 +2,11 @@ import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 const STORAGE_KEY = "edulinkage.session";
+// Phase 27 Sprint 1.1 — ancienne clé, avant la normalisation de marque (voir
+// docs/phases/PHASE_27_SPRINT_1_1_AUTH_SESSION_DISCOVERY.md §6). Migration triviale et cohérente
+// avec le Web, appliquée par précaution même si l'app n'est pas encore publiée (aucun utilisateur
+// réel concerné aujourd'hui).
+const LEGACY_STORAGE_KEY = "edusphere.session";
 
 export type StoredTokens = {
   access_token: string;
@@ -32,14 +37,38 @@ async function deleteItem(key: string): Promise<void> {
   await SecureStore.deleteItemAsync(key);
 }
 
-export async function getStoredTokens(): Promise<StoredTokens | null> {
-  const raw = await getItem(STORAGE_KEY);
+function isStoredTokens(value: unknown): value is StoredTokens {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as StoredTokens).access_token === "string" &&
+    typeof (value as StoredTokens).refresh_token === "string"
+  );
+}
+
+async function readTokens(key: string): Promise<StoredTokens | null> {
+  const raw = await getItem(key);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as StoredTokens;
+    const parsed = JSON.parse(raw);
+    return isStoredTokens(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+export async function getStoredTokens(): Promise<StoredTokens | null> {
+  const current = await readTokens(STORAGE_KEY);
+  if (current) return current;
+
+  const legacy = await readTokens(LEGACY_STORAGE_KEY);
+  if (legacy) {
+    await setItem(STORAGE_KEY, JSON.stringify(legacy));
+    await deleteItem(LEGACY_STORAGE_KEY);
+    return legacy;
+  }
+
+  return null;
 }
 
 export async function setStoredTokens(tokens: StoredTokens): Promise<void> {
@@ -48,4 +77,5 @@ export async function setStoredTokens(tokens: StoredTokens): Promise<void> {
 
 export async function clearStoredTokens(): Promise<void> {
   await deleteItem(STORAGE_KEY);
+  await deleteItem(LEGACY_STORAGE_KEY);
 }
