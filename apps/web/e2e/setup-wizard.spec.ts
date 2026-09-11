@@ -156,6 +156,119 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     await expect(page.getByRole("heading", { name: "Affectations enseignants" })).toBeVisible();
     await page.getByLabel("Classe").selectOption({ label: "CE1-A" });
     await expect(page.getByText("Mathématiques — coefficient 1")).toBeVisible();
+
+    // Bouton « Terminer la configuration » : visible sur le résumé, redirige vers le tableau de
+    // bord une fois les prérequis (au moins un terme + une classe) satisfaits — ici largement
+    // dépassés par les données créées ci-dessus.
+    await page.getByRole("button", { name: "Continuer" }).click();
+    await expect(page.getByRole("heading", { name: "Résumé et confirmation" })).toBeVisible();
+    const finishButton = page.getByRole("button", { name: "Terminer la configuration" });
+    await expect(finishButton).toBeVisible();
+    await expect(finishButton).toBeEnabled();
+    await finishButton.click();
+    await expect(page).toHaveURL("/");
+    await expect(page.getByText(/Bienvenue sur l'espace de/)).toBeVisible();
+
+    // Données conservées, retour vers /setup toujours possible après la finalisation. Un
+    // rechargement complet de /setup réinitialise `selectedYear` (état React local, comportement
+    // préexistant et inchangé — voir page.tsx) : il faut donc resélectionner l'année existante
+    // avant que les autres étapes ne redeviennent accessibles, exactement comme le ferait un vrai
+    // utilisateur revenant sur cette page.
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Mise en place de l'école" })).toBeVisible();
+    await page.getByRole("radio", { name: new RegExp(yearName) }).check();
+    await page.getByRole("button", { name: "7. Résumé et confirmation" }).click();
+    await expect(page.getByText(`Configuration de l'école — ${yearName}`)).toBeVisible();
+    await expect(page.getByText("Termes : 1")).toBeVisible();
+    await expect(page.getByText("Classes (cette année) : 1")).toBeVisible();
+  });
+
+  test("bouton « Terminer la configuration » : double-clic ne déclenche qu'une seule finalisation", async ({
+    page,
+    request,
+  }) => {
+    await registerSchool(page, request, "wizfinishdbl");
+    await page.goto("/setup");
+
+    const yearName = unique("Annee-");
+    await page.getByPlaceholder("2026-2027").fill(yearName);
+    await page.getByLabel("Début").fill("2026-09-01");
+    await page.getByLabel("Fin").fill("2027-06-30");
+    await page.getByRole("button", { name: "Créer cette année" }).click();
+    await expect(page.getByText(yearName)).toBeVisible();
+    await page.getByRole("button", { name: "Continuer" }).click();
+
+    await page.getByPlaceholder("Trimestre 1").fill("Trimestre 1");
+    await page.locator('input[type="date"]').nth(0).fill("2026-09-01");
+    await page.locator('input[type="date"]').nth(1).fill("2026-12-20");
+    await page.getByRole("button", { name: "Ajouter ce terme" }).click();
+    await expect(page.getByText("Trimestre 1 (2026-09-01")).toBeVisible();
+
+    await page.getByRole("button", { name: "3. Niveaux" }).click();
+    await page.getByPlaceholder("CE1").fill("CE1");
+    await page.getByRole("button", { name: "Ajouter ce niveau" }).click();
+    await expect(page.getByText("CE1", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "5. Classes" }).click();
+    await page.getByPlaceholder("CE1-A").fill("CE1-A");
+    await page.getByLabel("Niveau").selectOption({ label: "CE1" });
+    await page.getByRole("button", { name: "Ajouter cette classe" }).click();
+    await expect(page.getByText("CE1-A — CE1")).toBeVisible();
+
+    await page.getByRole("button", { name: "7. Résumé et confirmation" }).click();
+    // Le libellé du bouton change pendant l'action ("Terminer la configuration" ->
+    // "Finalisation...") — le sélecteur doit couvrir les deux états, sinon il ne retrouve plus
+    // l'élément une fois désactivé (accessible name différent).
+    const finishButton = page.getByRole("button", { name: /Terminer la configuration|Finalisation/ });
+    await expect(finishButton).toBeEnabled();
+
+    // Ralentit délibérément la revérification déclenchée par le clic (une seule des 4 requêtes en
+    // parallèle suffit) — ajouté seulement maintenant, une fois le résumé déjà chargé une première
+    // fois normalement, pour ne retarder QUE l'appel provoqué par le clic ci-dessous. Sans ce délai
+    // artificiel, l'aller-retour réseau réel est trop rapide pour observer de façon fiable l'état
+    // désactivé transitoire dans ce test.
+    await page.route("**/api/v1/academic-terms*", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await route.continue();
+    });
+
+    // Premier clic : le bouton doit devenir désactivé immédiatement (avant même que la requête
+    // réseau de revérification ne se termine) — un second clic pendant ce court intervalle ne doit
+    // rien déclencher de plus qu'une seule finalisation.
+    await finishButton.click();
+    await expect(finishButton).toBeDisabled();
+    await finishButton.click({ force: true });
+
+    await expect(page).toHaveURL("/", { timeout: 10_000 });
+  });
+
+  test("bouton « Terminer la configuration » : configuration incomplète correctement refusée", async ({
+    page,
+    request,
+  }) => {
+    await registerSchool(page, request, "wizfinishincomplete");
+    await page.goto("/setup");
+
+    const yearName = unique("Annee-");
+    await page.getByPlaceholder("2026-2027").fill(yearName);
+    await page.getByLabel("Début").fill("2026-09-01");
+    await page.getByLabel("Fin").fill("2027-06-30");
+    await page.getByRole("button", { name: "Créer cette année" }).click();
+    await expect(page.getByText(yearName)).toBeVisible();
+
+    // Saute directement au résumé sans créer ni terme ni classe (les pilules de progression sont
+    // toutes accessibles dès qu'une année est sélectionnée — comportement existant, non modifié).
+    await page.getByRole("button", { name: "7. Résumé et confirmation" }).click();
+    await expect(page.getByText("Termes : 0")).toBeVisible();
+    await expect(page.getByText("Classes (cette année) : 0")).toBeVisible();
+
+    await page.getByRole("button", { name: "Terminer la configuration" }).click();
+
+    // Refus clair, pas de redirection.
+    await expect(
+      page.getByText("Configuration incomplète : au moins un terme et une classe sont nécessaires avant de terminer."),
+    ).toBeVisible();
+    await expect(page).toHaveURL("/setup");
   });
 
   test("les données déjà configurées sont chargées et réutilisables au rechargement (pas de doublon)", async ({

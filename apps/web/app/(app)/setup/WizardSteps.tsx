@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ClassSubjectsEditor } from "@/app/(app)/academics/ClassesPanel";
 import {
   academicTerms,
@@ -604,6 +605,7 @@ export function StepSummary({
   year: AcademicYear;
   onGoToStep: (step: number) => void;
 }) {
+  const router = useRouter();
   const [counts, setCounts] = useState<{
     terms: number;
     levels: number;
@@ -611,24 +613,60 @@ export function StepSummary({
     classes: number;
   } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
 
-  useEffect(() => {
-    Promise.all([
+  // Partagée entre le chargement initial (affichage du résumé) et la finalisation (revérification
+  // fraîche des prérequis au moment du clic, plutôt que de faire confiance à un résumé qui a pu
+  // devenir périmé pendant que l'admin naviguait dans les étapes précédentes) — mêmes 4 appels de
+  // lecture déjà utilisés partout ailleurs dans ce wizard, aucun nouvel endpoint.
+  const loadCounts = useCallback(async () => {
+    const [terms, levels, subjects, classes] = await Promise.all([
       academicTerms.list(year.id),
       educationLevels.list(schoolId),
       subjectsClient.list(schoolId),
       schoolClasses.list(schoolId),
-    ])
-      .then(([terms, levels, subjects, classes]) => {
-        setCounts({
-          terms: terms.length,
-          levels: levels.length,
-          subjects: subjects.length,
-          classes: classes.filter((c) => c.academic_year_id === year.id).length,
-        });
-      })
-      .catch((err) => setLoadError(formatWizardError(err)));
+    ]);
+    const next = {
+      terms: terms.length,
+      levels: levels.length,
+      subjects: subjects.length,
+      classes: classes.filter((c) => c.academic_year_id === year.id).length,
+    };
+    setCounts(next);
+    return next;
   }, [schoolId, year.id]);
+
+  useEffect(() => {
+    loadCounts().catch((err) => setLoadError(formatWizardError(err)));
+  }, [loadCounts]);
+
+  // Prérequis minimum pour qu'une école soit réellement utilisable (appel, notes) — l'année seule
+  // (déjà garantie pour atteindre cette étape, voir page.tsx::maxReachableStep) ne suffit pas.
+  // Volontairement PAS de minimum sur niveaux/matières : une école peut légitimement n'avoir encore
+  // configuré aucune matière à ce stade sans que ce soit bloquant pour "terminer" la mise en place.
+  async function handleFinish() {
+    if (finishing) return; // anti-double-clic : un clic pendant que l'action est déjà en cours est ignoré
+    setFinishing(true);
+    setFinishError(null);
+    try {
+      const fresh = await loadCounts();
+      if (fresh.terms === 0 || fresh.classes === 0) {
+        setFinishError(
+          "Configuration incomplète : au moins un terme et une classe sont nécessaires avant de terminer.",
+        );
+        return;
+      }
+      router.push("/");
+    } catch (err) {
+      // Une session expirée ici emprunte exactement le même chemin que partout ailleurs dans le
+      // wizard (apiFetch -> refresh -> AuthProvider -> redirection /login, Phase 27 Sprint 1.1) —
+      // aucune gestion spécifique nécessaire, formatWizardError couvre le cas générique restant.
+      setFinishError(formatWizardError(err));
+    } finally {
+      setFinishing(false);
+    }
+  }
 
   const rows: { label: string; value: string; step: number }[] = [
     { label: "Année scolaire", value: year.name, step: 0 },
@@ -661,6 +699,19 @@ export function StepSummary({
         <span className="font-medium">Académique</span> à tout moment. Les affectations enseignants
         peuvent être complétées progressivement au fil de l&apos;arrivée des enseignants.
       </p>
+
+      <StepError message={finishError} />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={handleFinish}
+          disabled={finishing || counts === null}
+          className={`${primaryButtonClass} inline-flex items-center gap-2`}
+        >
+          <span aria-hidden="true">✓</span>
+          {finishing ? "Finalisation..." : "Terminer la configuration"}
+        </button>
+      </div>
     </div>
   );
 }
