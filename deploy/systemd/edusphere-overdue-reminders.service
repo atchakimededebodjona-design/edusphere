@@ -1,0 +1,32 @@
+# EduLinkage — Sprint 1.2 : rappels automatiques des frais scolaires en retard.
+#
+# Fichier PRÉPARÉ dans ce dépôt, PAS installé automatiquement — voir
+# docs/phases/PHASE_27_SPRINT_1_2_OVERDUE_FEE_REMINDERS.md pour la procédure d'installation
+# manuelle sur l'hôte de production. Indépendant de edusphere-backup.service/.timer existants :
+# ne les modifie ni ne les remplace.
+#
+# Convention : même mécanisme que scripts/db-backup.sh — invoque le job DANS le conteneur `api`
+# via `docker compose exec`, jamais une route HTTP interne. Aucun secret n'est écrit ici : les
+# identifiants DB/Redis sont déjà dans l'environnement du conteneur `api` (.env, non committé),
+# ce service ne fait qu'exécuter une commande dans ce conteneur déjà configuré.
+
+[Unit]
+Description=EduLinkage - rappels automatiques des frais scolaires en retard (Sprint 1.2)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Remplacer par l'utilisateur système dédié au déploiement Docker Compose de production
+# (le même que celui utilisé pour edusphere-backup.service, par cohérence) — jamais root.
+User=edusphere
+Group=edusphere
+# Répertoire contenant docker-compose.yml en production — à adapter à l'hôte réel.
+WorkingDirectory=/opt/edusphere
+ExecStart=/usr/bin/docker compose exec -T api python -m app.jobs.overdue_fee_reminders
+
+# Défense en profondeur — ce job n'écrit que via les endpoints applicatifs habituels (le
+# conteneur api), rien en dehors de l'exécution ponctuelle de la commande ci-dessus.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

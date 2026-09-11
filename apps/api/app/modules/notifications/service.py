@@ -28,6 +28,7 @@ async def create_notifications(
     type_: NotificationType,
     title: str,
     body: str,
+    student_fee_id: uuid.UUID | None = None,
 ) -> int:
     """Écriture en masse (un seul lot `add_all` + `flush`), jamais une boucle de requêtes
     individuelles — voir PHASE_21_DISCOVERY.md §15. `notifications` est la seule table de ce
@@ -56,6 +57,7 @@ async def create_notifications(
                 type=type_,
                 title=title,
                 body=body,
+                student_fee_id=student_fee_id,
             )
         )
     await db.flush()
@@ -129,6 +131,49 @@ async def notify_student_absent(db: AsyncSession, student: Student, record: Atte
         type_="STUDENT_ABSENT",
         title="Absence signalée",
         body=f"{student.first_name} {student.last_name} a été marqué{gender_suffix} absent{gender_suffix}.",
+    )
+
+
+async def existing_fee_overdue_recipient_ids(db: AsyncSession, student_fee_id: uuid.UUID) -> set[uuid.UUID]:
+    """Destinataires ayant déjà reçu un rappel `FEE_OVERDUE` pour CETTE `StudentFee` — base de
+    l'idempotence structurelle du job (Sprint 1.2, voir fees/overdue_reminders.py), pas une
+    recherche par texte. Élargit le contexte tenant comme `create_notifications` : cette lecture
+    doit voir les notifications de n'importe quelle organisation (le job est plateforme entière),
+    jamais uniquement celles de l'appelant courant (qui n'existe pas ici, motif identique)."""
+    await set_platform_wide_context(db)
+    result = await db.execute(
+        select(Notification.recipient_user_id).where(
+            Notification.student_fee_id == student_fee_id, Notification.type == "FEE_OVERDUE"
+        )
+    )
+    return {row[0] for row in result.all()}
+
+
+async def notify_fee_overdue(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    school_id: uuid.UUID,
+    student_id: uuid.UUID,
+    student_fee_id: uuid.UUID,
+    title: str,
+    body: str,
+) -> int:
+    """Un seul rappel par (StudentFee, destinataire) — voir `existing_fee_overdue_recipient_ids`
+    ci-dessus (contrôle applicatif) et l'index unique partiel `uq_notifications_fee_overdue_recipient`
+    (migration 0013, dernière ligne de défense contre une double exécution concurrente)."""
+    recipient_ids = await resolve_guardian_user_ids_for_student(db, student_id, school_id)
+    already_notified = await existing_fee_overdue_recipient_ids(db, student_fee_id)
+    to_notify = recipient_ids - already_notified
+    return await create_notifications(
+        db,
+        organization_id=organization_id,
+        school_id=school_id,
+        recipient_user_ids=to_notify,
+        type_="FEE_OVERDUE",
+        title=title,
+        body=body,
+        student_fee_id=student_fee_id,
     )
 
 

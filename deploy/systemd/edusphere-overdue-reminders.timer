@@ -1,0 +1,23 @@
+# Déclenche edusphere-overdue-reminders.service une fois par jour, à 06:00 (heure du serveur).
+#
+# Choix de l'heure : après la fenêtre de backup quotidien (02:00, voir edusphere-backup.timer
+# existant en production) et hors heures ouvrables typiques d'une école, pour ne rivaliser ni
+# avec le backup ni avec un usage réel de l'application. Aucune dépendance d'ordonnancement
+# stricte n'est nécessaire entre les deux jobs (l'un lit/écrit des notifications, l'autre dump
+# la base sans la modifier) — cet écart de 4h est une précaution de bon sens, pas une exigence
+# technique.
+#
+# Persistent=true : si le serveur était éteint/indisponible à 06:00, le job s'exécute dès le
+# prochain démarrage plutôt que d'attendre silencieusement le jour suivant (même motif que pour
+# tout job de rappel : un retard de déclenchement ne doit pas devenir un rappel manqué).
+
+[Unit]
+Description=Timer quotidien - rappels automatiques des frais scolaires en retard (Sprint 1.2)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+Unit=edusphere-overdue-reminders.service
+
+[Install]
+WantedBy=timers.target

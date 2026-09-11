@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NotificationType = Literal["ANNOUNCEMENT", "REPORT_CARD_PUBLISHED", "PAYMENT_RECORDED", "STUDENT_ABSENT"]
+NotificationType = Literal["ANNOUNCEMENT", "REPORT_CARD_PUBLISHED", "PAYMENT_RECORDED", "STUDENT_ABSENT", "FEE_OVERDUE"]
 
 
 class NotificationOut(BaseModel):

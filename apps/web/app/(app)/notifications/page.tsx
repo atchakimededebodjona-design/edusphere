@@ -10,6 +10,7 @@ const TYPE_LABELS: Record<string, string> = {
   REPORT_CARD_PUBLISHED: "Bulletin",
   PAYMENT_RECORDED: "Paiement",
   STUDENT_ABSENT: "Absence",
+  FEE_OVERDUE: "Paiement en retard",
 };
 
 export default function NotificationsPage() {

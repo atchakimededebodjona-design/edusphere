@@ -95,6 +95,14 @@ async def _sum_active_allocations(db: AsyncSession, student_fee_id: uuid.UUID) -
     return by_fee.get(student_fee_id, Decimal("0"))
 
 
+async def compute_remaining_balances(db: AsyncSession, fees: list[StudentFee]) -> dict[uuid.UUID, Decimal]:
+    """Solde réel (`amount_due` - paiements `COMPLETED` alloués) pour un lot de `StudentFee` —
+    même calcul que `compute_financial_summary`/`_refresh_student_fee_status`, exposé ici pour
+    être réutilisé par `fees/overdue_reminders.py` (Sprint 1.2) sans dupliquer cette logique."""
+    paid_by_fee = await _allocations_by_fee(db, [fee.id for fee in fees])
+    return {fee.id: fee.amount_due - paid_by_fee.get(fee.id, Decimal("0")) for fee in fees}
+
+
 async def compute_financial_summary(db: AsyncSession, student: Student) -> FinancialSummaryOut:
     result = await db.execute(
         select(StudentFee, FeeSchedule.name)

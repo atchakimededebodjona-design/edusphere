@@ -9,6 +9,7 @@ const TYPE_LABELS: Record<string, string> = {
   REPORT_CARD_PUBLISHED: "Bulletin",
   PAYMENT_RECORDED: "Paiement",
   STUDENT_ABSENT: "Absence",
+  FEE_OVERDUE: "Paiement en retard",
 };
 
 /** Partagé entre le flux Parent et le flux Enseignant (Phase 21) — les deux affichent la même

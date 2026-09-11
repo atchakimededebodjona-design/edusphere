@@ -14,7 +14,7 @@ from app.db.base import Base
 # projet pour justifier un tel état — une notification in-app est délivrée au moment où la ligne
 # existe (voir Discovery §19).
 
-NOTIFICATION_TYPES = ("ANNOUNCEMENT", "REPORT_CARD_PUBLISHED", "PAYMENT_RECORDED", "STUDENT_ABSENT")
+NOTIFICATION_TYPES = ("ANNOUNCEMENT", "REPORT_CARD_PUBLISHED", "PAYMENT_RECORDED", "STUDENT_ABSENT", "FEE_OVERDUE")
 
 
 class Notification(Base):
@@ -43,5 +43,14 @@ class Notification(Base):
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # Sprint 1.2 (rappels de retard de paiement) — lien optionnel vers la StudentFee à l'origine
+    # d'une notification FEE_OVERDUE. Nullable : aucun des 4 types de notification précédents n'a
+    # de référence structurelle de ce genre (voir Discovery — texte seul, jamais fiable pour
+    # dédupliquer). Base de l'idempotence : un seul rappel par (student_fee_id, recipient_user_id),
+    # garanti par l'index unique partiel `uq_notifications_fee_overdue_recipient` (migration 0013),
+    # pas seulement par le contrôle applicatif dans fees/overdue_reminders.py.
+    student_fee_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("student_fees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
