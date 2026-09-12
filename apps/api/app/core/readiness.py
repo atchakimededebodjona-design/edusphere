@@ -18,6 +18,7 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.rate_limit import _get_client
 from app.core.storage import storage
 
@@ -59,9 +60,27 @@ async def _check_storage() -> str:
         return "error"
 
 
+async def _check_email() -> str:
+    """Sprint 1.5 — vérification de CONFIGURATION, jamais une connexion SMTP réelle à chaque
+    appel de `/ready` (coûteux, et risqué vis-à-vis d'un vrai fournisseur qui pourrait considérer
+    des connexions répétées et rapprochées comme un abus). `EMAIL_PROVIDER=local` est une
+    configuration valide et auto-cohérente (voir `app/core/email.py`) — jamais "error" ici, un
+    opérateur souhaitant savoir si la production utilise encore ce provider consulte le champ
+    `email_provider` de la réponse (voir `app/api/v1/health.py`), qui n'affecte jamais le statut
+    global. Seul un `EMAIL_PROVIDER=smtp` sans identifiants est un état réellement cassé — tout
+    envoi échouerait à coup sûr — même sévérité que `_check_database`/`_check_redis` ci-dessus, et
+    déjà signalé par un `logger.critical` isolé au démarrage (`validate_production_config`), mais
+    jamais visible depuis un `GET /ready` jusqu'ici."""
+    if settings.email_provider == "smtp" and (not settings.smtp_username or not settings.smtp_password):
+        logger.error("Readiness check: EMAIL_PROVIDER=smtp sans SMTP_USERNAME/SMTP_PASSWORD configurés")
+        return "error"
+    return "ok"
+
+
 async def check_readiness(db: AsyncSession) -> dict[str, str]:
     return {
         "database": await _check_database(db),
         "redis": await _check_redis(),
         "storage": await _check_storage(),
+        "email": await _check_email(),
     }

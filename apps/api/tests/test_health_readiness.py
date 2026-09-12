@@ -14,6 +14,8 @@ validation") — ne pas confondre les deux niveaux de preuve.
 import app.core.readiness as readiness_module
 from httpx import AsyncClient
 
+from app.core.config import settings
+
 
 async def test_health_returns_ok(client: AsyncClient) -> None:
     response = await client.get("/api/v1/health")
@@ -26,7 +28,11 @@ async def test_ready_returns_200_when_all_dependencies_available(client: AsyncCl
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert body["checks"] == {"database": "ok", "redis": "ok", "storage": "ok"}
+    assert body["checks"] == {"database": "ok", "redis": "ok", "storage": "ok", "email": "ok"}
+    # Sprint 1.5 — champ informatif : reflète le provider réellement configuré dans cet
+    # environnement (jamais fixé en dur ici, sinon ce test se déconnecterait silencieusement de
+    # la vraie configuration dès qu'elle change).
+    assert body["email_provider"] == settings.email_provider
 
 
 async def test_ready_returns_503_when_database_check_fails(client: AsyncClient, monkeypatch) -> None:
@@ -104,3 +110,44 @@ async def test_ready_response_never_leaks_connection_strings_or_secrets(client: 
     assert response.status_code == 503
     assert "password" not in response.text
     assert "edusphere_app" not in response.text
+
+
+# --- Sprint 1.5 — vérification de configuration email ------------------------------------------
+async def test_ready_reports_ok_when_email_provider_is_local(client: AsyncClient, monkeypatch) -> None:
+    """`EMAIL_PROVIDER=local` est une configuration valide et auto-cohérente (aucun envoi réel
+    attendu) — ne doit jamais faire échouer la readiness, contrairement à un `smtp` mal
+    configuré ci-dessous."""
+    monkeypatch.setattr(settings, "email_provider", "local")
+
+    response = await client.get("/api/v1/ready")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["checks"]["email"] == "ok"
+    assert body["email_provider"] == "local"
+
+
+async def test_ready_returns_503_when_smtp_selected_without_credentials(client: AsyncClient, monkeypatch) -> None:
+    """`EMAIL_PROVIDER=smtp` sans identifiants garantit l'échec de tout envoi — même sévérité
+    qu'une base de données ou un Redis indisponible."""
+    monkeypatch.setattr(settings, "email_provider", "smtp")
+    monkeypatch.setattr(settings, "smtp_username", "")
+    monkeypatch.setattr(settings, "smtp_password", "")
+
+    response = await client.get("/api/v1/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["checks"]["email"] == "error"
+    # Les dépendances saines restent rapportées comme telles — un échec n'écrase pas les autres.
+    assert body["checks"]["database"] == "ok"
+    assert body["email_provider"] == "smtp"
+
+
+async def test_ready_reports_ok_when_smtp_selected_with_credentials(client: AsyncClient, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "email_provider", "smtp")
+    monkeypatch.setattr(settings, "smtp_username", "no-reply@example.tg")
+    monkeypatch.setattr(settings, "smtp_password", "irrelevant-for-this-check")
+
+    response = await client.get("/api/v1/ready")
+    assert response.status_code == 200
+    assert response.json()["checks"]["email"] == "ok"
