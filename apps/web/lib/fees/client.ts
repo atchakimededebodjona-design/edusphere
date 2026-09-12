@@ -102,6 +102,40 @@ export type PaymentCreate = {
 
 export type FeesSummary = { total_due: string; total_paid: string; balance: string; overdue_count: number };
 
+// --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) ---------------------
+export type OverdueContactChannel = "IN_APP_SENT" | "EMAIL_SENT" | "NO_CHANNEL";
+
+export type OverdueFeeGuardianContact = {
+  guardian_id: string;
+  full_name: string;
+  has_user_account: boolean;
+  email: string | null;
+  statuses: OverdueContactChannel[];
+};
+
+export type OverdueFeeItem = {
+  student_fee_id: string;
+  student_id: string;
+  student_matricule: string;
+  student_first_name: string;
+  student_last_name: string;
+  fee_schedule_name: string;
+  amount_due: string;
+  remaining_balance: string;
+  due_date: string;
+  overdue_days: number;
+  currency: string;
+  guardians: OverdueFeeGuardianContact[];
+};
+
+export type OverdueFeesPage = {
+  items: OverdueFeeItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -170,5 +204,15 @@ export const feesSummary = {
     const params = new URLSearchParams({ school_id: schoolId });
     if (academicYearId) params.set("academic_year_id", academicYearId);
     return getJson<FeesSummary>(`/api/v1/fees/summary?${params.toString()}`);
+  },
+};
+
+export const overdueFees = {
+  list: (schoolId: string, opts: { academicYearId?: string; page?: number; pageSize?: number } = {}) => {
+    const params = new URLSearchParams({ school_id: schoolId });
+    if (opts.academicYearId) params.set("academic_year_id", opts.academicYearId);
+    params.set("page", String(opts.page ?? 1));
+    params.set("page_size", String(opts.pageSize ?? 20));
+    return getJson<OverdueFeesPage>(`/api/v1/fees/overdue?${params.toString()}`);
   },
 };

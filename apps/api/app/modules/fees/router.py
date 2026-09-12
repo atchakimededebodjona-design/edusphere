@@ -19,6 +19,7 @@ from app.modules.fees.schemas import (
     FeeScheduleOut,
     FeesSummaryOut,
     FinancialSummaryOut,
+    OverdueFeesOut,
     PaymentCancelRequest,
     PaymentCreate,
     PaymentOut,
@@ -295,3 +296,20 @@ async def get_fees_summary(
     school = await _get_school_or_404(db, school_id)
     await ensure_permission(db, current_user, "fees.read", organization_id=school.organization_id, school_id=school.id)
     return await service.compute_fees_summary(db, school_id, academic_year_id)
+
+
+# --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) ------------
+@router.get("/fees/overdue", response_model=OverdueFeesOut)
+async def list_overdue_fees(
+    db: DbSession,
+    current_user: CurrentUser,
+    school_id: uuid.UUID = Query(...),
+    academic_year_id: uuid.UUID | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+) -> OverdueFeesOut:
+    school = await _get_school_or_404(db, school_id)
+    await ensure_permission(db, current_user, "fees.read", organization_id=school.organization_id, school_id=school.id)
+    return await service.list_overdue_fees(
+        db, school_id=school_id, academic_year_id=academic_year_id, page=page, page_size=page_size
+    )

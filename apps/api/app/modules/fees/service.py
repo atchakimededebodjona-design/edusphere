@@ -11,17 +11,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.email import send_email_best_effort
 from app.core.payment import payment_provider
 from app.core.storage import storage
+from app.core.tenancy import set_platform_wide_context
 from app.modules.academics.models import SchoolClass
 from app.modules.notifications import service as notifications_service
-from app.modules.fees.models import FeeSchedule, Payment, PaymentAllocation, StudentFee
+from app.modules.fees.models import FeeOverdueEmailReminder, FeeSchedule, Payment, PaymentAllocation, StudentFee
 from app.modules.fees.schemas import (
     FeeScheduleGenerateResult,
     FinancialSummaryOut,
     FeesSummaryOut,
+    OverdueContactChannel,
+    OverdueFeeGuardianContact,
+    OverdueFeeItem,
+    OverdueFeesOut,
     PaymentCreate,
     StudentFeeBalanceOut,
     StudentFeeOut,
 )
+from app.modules.notifications.models import Notification
 from app.modules.report_cards.service import html_to_pdf
 from app.modules.schools.models import School
 from app.modules.students.models import Guardian, Student, StudentEnrollment, StudentGuardian
@@ -418,3 +424,158 @@ async def _prepare_payment_notifications(db: AsyncSession, student: Student, pay
 async def send_payment_notifications(notifications: list[tuple[str, str, str]]) -> None:
     for to, subject, body in notifications:
         await send_email_best_effort(to, subject, body)
+
+
+# --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) -----------------------
+
+
+async def list_overdue_fees(
+    db: AsyncSession,
+    *,
+    school_id: uuid.UUID,
+    academic_year_id: uuid.UUID | None,
+    page: int,
+    page_size: int,
+) -> OverdueFeesOut:
+    """Une ligne par `StudentFee` en retard, jamais par tuteur (voir PHASE_14_DISCOVERY_REPORT
+    §14). Reprend EXACTEMENT la même règle d'éligibilité que
+    `fees/overdue_reminders.py::_list_eligible_overdue_fees` (`status != CANCELLED`, `due_date`
+    non nul et strictement passé) combinée au même calcul de solde que
+    `compute_remaining_balances` (`amount_due` - paiements `COMPLETED` alloués) — exprimée ici en
+    UNE requête SQL (sous-requête d'agrégation des allocations + filtre sur le solde), plutôt
+    qu'en appelant ces deux fonctions séparément : elles ne filtrent/paginent pas par école, un
+    appel tel quel chargerait tous les frais en retard de la plateforme avant de les filtrer côté
+    Python, ce qu'interdit explicitement ce sprint (voir Discovery §4/Étape 4). Aucune ligne
+    n'est modifiée : lecture seule stricte, aucun `db.add`/`db.flush`/`db.commit`.
+
+    Comptage des tuteurs sans N+1 : au plus 4 requêtes au total pour toute la page (comptage,
+    page de frais+élève+solde, tuteurs des élèves de cette page, notifications FEE_OVERDUE de ces
+    frais, rappels email de ces frais) — jamais une requête par élève ni par tuteur."""
+    today = date.today()
+
+    allocations_subq = (
+        select(
+            PaymentAllocation.student_fee_id.label("student_fee_id"),
+            func.sum(PaymentAllocation.amount).label("amount_paid"),
+        )
+        .join(Payment, Payment.id == PaymentAllocation.payment_id)
+        .where(Payment.status == "COMPLETED")
+        .group_by(PaymentAllocation.student_fee_id)
+        .subquery()
+    )
+    remaining_balance_expr = StudentFee.amount_due - func.coalesce(allocations_subq.c.amount_paid, 0)
+
+    conditions = [
+        StudentFee.school_id == school_id,
+        StudentFee.status != "CANCELLED",
+        StudentFee.due_date.isnot(None),
+        StudentFee.due_date < today,
+        remaining_balance_expr > 0,
+    ]
+    if academic_year_id is not None:
+        conditions.append(FeeSchedule.academic_year_id == academic_year_id)
+
+    count_stmt = (
+        select(func.count())
+        .select_from(StudentFee)
+        .join(FeeSchedule, FeeSchedule.id == StudentFee.fee_schedule_id)
+        .outerjoin(allocations_subq, allocations_subq.c.student_fee_id == StudentFee.id)
+        .where(*conditions)
+    )
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    page_stmt = (
+        select(
+            StudentFee,
+            FeeSchedule.name,
+            FeeSchedule.currency,
+            remaining_balance_expr,
+            Student.matricule,
+            Student.first_name,
+            Student.last_name,
+        )
+        .join(FeeSchedule, FeeSchedule.id == StudentFee.fee_schedule_id)
+        .join(Student, Student.id == StudentFee.student_id)
+        .outerjoin(allocations_subq, allocations_subq.c.student_fee_id == StudentFee.id)
+        .where(*conditions)
+        .order_by(StudentFee.due_date.asc(), StudentFee.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    rows = (await db.execute(page_stmt)).all()
+
+    fee_ids = [row[0].id for row in rows]
+    student_ids = {row[0].student_id for row in rows}
+
+    guardians_by_student: dict[uuid.UUID, list[tuple[uuid.UUID, str, str | None, uuid.UUID | None]]] = {}
+    if student_ids:
+        guardians_result = await db.execute(
+            select(StudentGuardian.student_id, Guardian.id, Guardian.full_name, Guardian.email, Guardian.user_id)
+            .join(Guardian, Guardian.id == StudentGuardian.guardian_id)
+            .where(StudentGuardian.student_id.in_(student_ids), StudentGuardian.school_id == school_id)
+        )
+        for student_id, guardian_id, full_name, email, user_id in guardians_result.all():
+            guardians_by_student.setdefault(student_id, []).append((guardian_id, full_name, email, user_id))
+
+    in_app_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    email_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    if fee_ids:
+        # `notifications` a une policy RLS PAR DESTINATAIRE, pas par organisation (migration 0011)
+        # — un membre du staff lisant ce rapport n'est jamais lui-même le destinataire de la
+        # notification du tuteur, donc invisible sans élargir le contexte. Même motif et même
+        # fonction que `notifications/service.py::existing_fee_overdue_recipient_ids`. Élargi
+        # seulement ICI (après les lectures `StudentFee`/`Guardian` ci-dessus, déjà scopées par
+        # `school_id` explicite) pour garder ces dernières sous la policy RLS restrictive normale.
+        await set_platform_wide_context(db)
+        notif_result = await db.execute(
+            select(Notification.student_fee_id, Notification.recipient_user_id).where(
+                Notification.student_fee_id.in_(fee_ids), Notification.type == "FEE_OVERDUE"
+            )
+        )
+        in_app_pairs = {(row[0], row[1]) for row in notif_result.all()}
+
+        email_result = await db.execute(
+            select(FeeOverdueEmailReminder.student_fee_id, FeeOverdueEmailReminder.guardian_id).where(
+                FeeOverdueEmailReminder.student_fee_id.in_(fee_ids)
+            )
+        )
+        email_pairs = {(row[0], row[1]) for row in email_result.all()}
+
+    items: list[OverdueFeeItem] = []
+    for fee, schedule_name, currency, remaining_balance, matricule, first_name, last_name in rows:
+        contacts: list[OverdueFeeGuardianContact] = []
+        for guardian_id, full_name, email, user_id in guardians_by_student.get(fee.student_id, []):
+            statuses: list[OverdueContactChannel] = []
+            if user_id is not None and (fee.id, user_id) in in_app_pairs:
+                statuses.append("IN_APP_SENT")
+            if (fee.id, guardian_id) in email_pairs:
+                statuses.append("EMAIL_SENT")
+            contacts.append(
+                OverdueFeeGuardianContact(
+                    guardian_id=guardian_id,
+                    full_name=full_name,
+                    has_user_account=user_id is not None,
+                    email=email,
+                    statuses=statuses or ["NO_CHANNEL"],
+                )
+            )
+        assert fee.due_date is not None  # garanti par `conditions` ci-dessus
+        items.append(
+            OverdueFeeItem(
+                student_fee_id=fee.id,
+                student_id=fee.student_id,
+                student_matricule=matricule,
+                student_first_name=first_name,
+                student_last_name=last_name,
+                fee_schedule_name=schedule_name,
+                amount_due=fee.amount_due,
+                remaining_balance=remaining_balance,
+                due_date=fee.due_date,
+                overdue_days=(today - fee.due_date).days,
+                currency=currency,
+                guardians=contacts,
+            )
+        )
+
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+    return OverdueFeesOut(items=items, page=page, page_size=page_size, total=total, total_pages=total_pages)

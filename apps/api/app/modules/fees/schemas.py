@@ -147,3 +147,47 @@ class FeesSummaryOut(BaseModel):
     total_paid: Decimal
     balance: Decimal
     overdue_count: int
+
+
+# --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) ----------------------
+
+# Concepts de portée dérivés uniquement des données déjà écrites par les Sprints 1.2/1.3, jamais
+# d'un nouveau canal : IN_APP_SENT <=> une ligne `notifications` (type FEE_OVERDUE, ce
+# student_fee_id) référence le `user_id` de ce tuteur ; EMAIL_SENT <=> une ligne
+# `fee_overdue_email_reminders` existe pour (student_fee_id, guardian_id). Une liste plutôt qu'un
+# scalaire unique : un même tuteur peut légitimement cumuler les deux au fil du temps (ex. rappelé
+# par email avant de créer un compte, puis notifié in-app pour ce même frais toujours impayé lors
+# d'une exécution ultérieure du job) — voir PHASE_14_DISCOVERY_REPORT §5. ["NO_CHANNEL"] seul si
+# ni l'un ni l'autre.
+OverdueContactChannel = Literal["IN_APP_SENT", "EMAIL_SENT", "NO_CHANNEL"]
+
+
+class OverdueFeeGuardianContact(BaseModel):
+    guardian_id: uuid.UUID
+    full_name: str
+    has_user_account: bool
+    email: str | None
+    statuses: list[OverdueContactChannel]
+
+
+class OverdueFeeItem(BaseModel):
+    student_fee_id: uuid.UUID
+    student_id: uuid.UUID
+    student_matricule: str
+    student_first_name: str
+    student_last_name: str
+    fee_schedule_name: str
+    amount_due: Decimal
+    remaining_balance: Decimal
+    due_date: date
+    overdue_days: int
+    currency: str
+    guardians: list[OverdueFeeGuardianContact]
+
+
+class OverdueFeesOut(BaseModel):
+    items: list[OverdueFeeItem]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
