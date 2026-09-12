@@ -13,15 +13,21 @@ import {
 
 const PAGE_SIZE = 20;
 
+// Sprint 1.6 — un transport SMTP accepté n'est jamais une preuve de remise réelle : jamais
+// "livré"/"reçu"/"envoyé" seul dans ces libellés (voir SPRINT 1.6 DISCOVERY REPORT §4/§11).
 const STATUS_LABELS: Record<OverdueContactChannel, string> = {
   IN_APP_SENT: "Notifié in-app",
-  EMAIL_SENT: "Email envoyé",
+  EMAIL_ATTEMPTED: "Email en attente de confirmation",
+  EMAIL_TRANSPORT_ACCEPTED: "Email transmis",
+  EMAIL_TRANSPORT_FAILED: "Échec d'envoi",
   NO_CHANNEL: "Aucun canal",
 };
 
 const STATUS_STYLES: Record<OverdueContactChannel, string> = {
   IN_APP_SENT: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  EMAIL_SENT: "bg-amber-50 text-amber-700 border-amber-200",
+  EMAIL_ATTEMPTED: "bg-slate-100 text-slate-700 border-slate-200",
+  EMAIL_TRANSPORT_ACCEPTED: "bg-amber-50 text-amber-700 border-amber-200",
+  EMAIL_TRANSPORT_FAILED: "bg-red-50 text-red-700 border-red-200",
   NO_CHANNEL: "bg-red-50 text-red-700 border-red-200",
 };
 

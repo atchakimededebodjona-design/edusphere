@@ -35,10 +35,13 @@ async def _run() -> int:
             logger.exception("overdue_fee_reminders: échec du job, transaction annulée.")
             return 1
 
-    # Sprint 1.3 — envoi réseau pur, APRÈS le commit ci-dessus (déjà effectué à l'intérieur de
+    # Sprint 1.3 — envoi réseau, APRÈS le commit ci-dessus (déjà effectué à l'intérieur de
     # send_overdue_fee_reminders) : un échec d'envoi ne peut plus jamais affecter les notifications
-    # in-app ni les lignes de suivi email déjà committées.
-    await send_overdue_fee_reminder_emails(result.emails)
+    # in-app ni les lignes de suivi email déjà committées. Sprint 1.6 — nouvelle session dédiée :
+    # celle utilisée ci-dessus est déjà fermée (sortie du `async with`), et cette étape a
+    # maintenant besoin d'écrire (par ligne, son propre commit) le résultat réel du transport.
+    async with AsyncSessionLocal() as send_db:
+        await send_overdue_fee_reminder_emails(send_db, result.emails)
 
     logger.info(
         "overdue_fee_reminders: terminé — %d frais éligibles, %d notification(s) créée(s) pour %d frais distinct(s), "

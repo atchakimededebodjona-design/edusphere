@@ -103,11 +103,22 @@ def get_email_provider(provider: str, local_path: str) -> EmailProvider:
 email_provider = get_email_provider(settings.email_provider, settings.email_local_path)
 
 
-async def send_email_best_effort(to: str, subject: str, body: str) -> None:
+async def send_email_best_effort(to: str, subject: str, body: str) -> bool:
     """Envoie un email sans jamais faire échouer l'appelant (cohérent avec le principe déjà
     appliqué au rate limiting Redis — app/core/rate_limit.py — un incident d'envoi ne doit pas
-    bloquer la création de compte ou la demande de réinitialisation, déjà commitées en base)."""
+    bloquer la création de compte ou la demande de réinitialisation, déjà commitées en base).
+
+    Sprint 1.6 — retourne désormais `True`/`False` (transport SMTP accepté sans exception, ou
+    non) au lieu de `None` : changement de signature volontairement minimal, les 4 appelants
+    historiques (reset password, bienvenue, reçu de paiement, bulletin publié) ignorent déjà la
+    valeur de retour et continuent de fonctionner sans modification. Seul le 5e appelant (rappels
+    de frais en retard, `fees/overdue_reminders.py`) l'utilise, pour distinguer
+    `TRANSPORT_ACCEPTED` de `TRANSPORT_FAILED`. Le comportement best-effort (jamais d'exception
+    levée à l'appelant) et le contenu du log restent inchangés — aucun secret n'y a jamais figuré
+    (adresse destinataire et nom du provider uniquement, jamais host/identifiants)."""
     try:
         await email_provider.send(to, subject, body)
+        return True
     except Exception:  # best-effort volontaire, voir docstring.
         logger.warning("Échec de l'envoi d'email à %s (fournisseur=%s)", to, settings.email_provider, exc_info=True)
+        return False

@@ -49,10 +49,12 @@ def _overdue_reminder_emails(directory: Path) -> list[str]:
 
 async def _run_job_with_emails() -> None:
     """Même séquence que `app/jobs/overdue_fee_reminders.py::_run` : commit d'abord (dans
-    `send_overdue_fee_reminders`), envoi réseau ensuite."""
+    `send_overdue_fee_reminders`), envoi réseau + report du résultat de transport ensuite, dans
+    une session neuve (Sprint 1.6 — même découplage que le vrai job)."""
     async with AsyncSessionLocal() as db:
         result = await send_overdue_fee_reminders(db)
-    await send_overdue_fee_reminder_emails(result.emails)
+    async with AsyncSessionLocal() as send_db:
+        await send_overdue_fee_reminder_emails(send_db, result.emails)
 
 
 async def _create_guardian_with_email(client: AsyncClient, env: dict, email_prefix: str) -> dict:
@@ -229,12 +231,20 @@ async def test_email_content_never_leaks_another_students_data(client: AsyncClie
     assert guardian_a["email"] not in email_b
 
 
-# --- K : EMAIL_PROVIDER=local écrit correctement l'email (unitaire, sans DB) -----------------------------
+# --- K : EMAIL_PROVIDER=local écrit correctement l'email --------------------------------------------------
 async def test_send_overdue_fee_reminder_emails_writes_via_local_provider(monkeypatch, tmp_path) -> None:
+    """Sprint 1.6 — `send_overdue_fee_reminder_emails` a désormais besoin d'une session DB (pour
+    reporter le résultat de transport), même pour un envoi synthétique sans ligne de suivi réelle
+    associée : un `reminder_id` sans ligne correspondante ne fait échouer ni l'envoi ni le report
+    (un `UPDATE` sans ligne correspondante n'est jamais une erreur SQL, seulement un no-op) — le
+    comportement de suivi RÉEL (avec une vraie ligne) est couvert séparément ci-dessous."""
     monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
     to = unique_email("directsend.overduemail-k")
 
-    await send_overdue_fee_reminder_emails([(to, "Paiement en retard — Test Eleve", "Corps du message de test.")])
+    async with AsyncSessionLocal() as db:
+        await send_overdue_fee_reminder_emails(
+            db, [(uuid.uuid4(), to, "Paiement en retard — Test Eleve", "Corps du message de test.")]
+        )
 
     emails = _read_emails(tmp_path)
     assert len(emails) == 1
@@ -300,3 +310,96 @@ async def test_fee_overdue_email_reminders_policy_exists() -> None:
             )
         )
         assert result.first() is not None
+
+
+# --- Sprint 1.6 : distinction tentative / succès / échec de transport --------------------------------------
+async def _fetch_reminder_row(school_id: str, fee_id: str, guardian_id: str):
+    from sqlalchemy import select
+
+    from app.core.tenancy import set_platform_wide_context
+    from app.modules.fees.models import FeeOverdueEmailReminder
+
+    async with AsyncSessionLocal() as db:
+        await set_platform_wide_context(db)
+        result = await db.execute(
+            select(FeeOverdueEmailReminder).where(
+                FeeOverdueEmailReminder.school_id == uuid.UUID(school_id),
+                FeeOverdueEmailReminder.student_fee_id == uuid.UUID(fee_id),
+                FeeOverdueEmailReminder.guardian_id == uuid.UUID(guardian_id),
+            )
+        )
+        return result.scalar_one()
+
+
+async def test_tracking_row_is_attempted_before_any_send(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    """La ligne de suivi existe déjà à `ATTEMPTED` dès la préparation (transaction métier commitée
+    par `send_overdue_fee_reminders`), avant même que l'étape d'envoi réseau ne soit appelée."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup_student(client, "overduemail-attempted")
+    guardian = await _create_guardian_with_email(client, env, "guardian.overduemail-attempted")
+    fee = await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    async with AsyncSessionLocal() as db:
+        result = await send_overdue_fee_reminders(db)
+    assert len(result.emails) == 1
+
+    row = await _fetch_reminder_row(env["school_id"], fee["id"], guardian["guardian"]["id"])
+    assert row.transport_status == "ATTEMPTED"
+    assert row.transport_checked_at is None
+    # Aucun envoi n'a encore eu lieu (étape réseau non appelée) — écrit nulle part.
+    assert _read_emails(tmp_path) == []
+
+
+async def test_tracking_row_becomes_transport_accepted_on_successful_send(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup_student(client, "overduemail-accepted")
+    guardian = await _create_guardian_with_email(client, env, "guardian.overduemail-accepted")
+    fee = await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    await _run_job_with_emails()
+
+    row = await _fetch_reminder_row(env["school_id"], fee["id"], guardian["guardian"]["id"])
+    assert row.transport_status == "TRANSPORT_ACCEPTED"
+    assert row.transport_checked_at is not None
+
+
+async def test_tracking_row_becomes_transport_failed_on_provider_exception(client: AsyncClient, monkeypatch) -> None:
+    """Un fournisseur qui lève (panne SMTP simulée) ne doit jamais faire échouer le job ni le
+    reste du lot — seule cette ligne de suivi doit refléter l'échec réel du transport."""
+
+    class FailingProvider:
+        async def send(self, to: str, subject: str, body: str) -> None:
+            raise RuntimeError("SMTP down (simulé)")
+
+    monkeypatch.setattr(email_module, "email_provider", FailingProvider())
+    env = await _setup_student(client, "overduemail-failed")
+    guardian = await _create_guardian_with_email(client, env, "guardian.overduemail-failed")
+    fee = await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    await _run_job_with_emails()  # ne doit jamais lever, malgré le fournisseur en échec
+
+    row = await _fetch_reminder_row(env["school_id"], fee["id"], guardian["guardian"]["id"])
+    assert row.transport_status == "TRANSPORT_FAILED"
+    assert row.transport_checked_at is not None
+
+
+async def test_second_run_does_not_resend_after_transport_accepted(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    """Idempotence Sprint 1.6 : une ligne déjà `TRANSPORT_ACCEPTED` n'est jamais retentée par une
+    exécution suivante du job — même règle qu'avant ce sprint (l'idempotence reste par existence
+    de ligne, jamais par statut de transport ; voir SPRINT 1.6 IMPLEMENTATION PLAN §9 — le
+    retry éventuel d'un `TRANSPORT_FAILED` reste explicitement hors périmètre de ce sprint)."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup_student(client, "overduemail-norecreate")
+    guardian = await _create_guardian_with_email(client, env, "guardian.overduemail-norecreate")
+    fee = await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    await _run_job_with_emails()
+    row_after_first_run = await _fetch_reminder_row(env["school_id"], fee["id"], guardian["guardian"]["id"])
+    assert row_after_first_run.transport_status == "TRANSPORT_ACCEPTED"
+
+    await _run_job_with_emails()
+
+    row_after_second_run = await _fetch_reminder_row(env["school_id"], fee["id"], guardian["guardian"]["id"])
+    assert row_after_second_run.id == row_after_first_run.id  # même ligne, jamais recréée
+    assert row_after_second_run.transport_status == "TRANSPORT_ACCEPTED"
+    assert len(_overdue_reminder_emails(tmp_path)) == 1  # un seul email au total sur les deux runs

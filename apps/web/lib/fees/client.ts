@@ -103,7 +103,15 @@ export type PaymentCreate = {
 export type FeesSummary = { total_due: string; total_paid: string; balance: string; overdue_count: number };
 
 // --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) ---------------------
-export type OverdueContactChannel = "IN_APP_SENT" | "EMAIL_SENT" | "NO_CHANNEL";
+// Sprint 1.6 — "EMAIL_SENT" scindé en 3 (attempted/transport accepted/transport failed) : un
+// transport SMTP accepté n'est jamais une preuve de remise réelle, jamais affiché comme "envoyé"
+// ou "reçu" seul (voir apps/web/app/(app)/fees/overdue/page.tsx pour les libellés exacts).
+export type OverdueContactChannel =
+  | "IN_APP_SENT"
+  | "EMAIL_ATTEMPTED"
+  | "EMAIL_TRANSPORT_ACCEPTED"
+  | "EMAIL_TRANSPORT_FAILED"
+  | "NO_CHANNEL";
 
 export type OverdueFeeGuardianContact = {
   guardian_id: string;

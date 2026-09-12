@@ -428,6 +428,19 @@ async def send_payment_notifications(notifications: list[tuple[str, str, str]]) 
 
 # --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) -----------------------
 
+# Sprint 1.6 — correspondance directe `FeeOverdueEmailReminder.transport_status` -> statut exposé
+# à l'API/au frontend (jamais "delivered"/"reçu"/"envoyé" seul — voir SPRINT 1.6 DISCOVERY REPORT
+# §4/§6). `.get(..., "EMAIL_ATTEMPTED")` protège une valeur de `transport_status` qui ne serait
+# pas (encore) l'une des trois connues plutôt que de lever — aucune valeur de ce type n'existe
+# aujourd'hui (colonne non contrainte par un CHECK, voir migration 0015), mais faillir ouvert vers
+# la valeur la plus prudente ("tentative, résultat inconnu") est plus sûr qu'une exception sur un
+# simple endpoint de lecture.
+_EMAIL_TRANSPORT_STATUS_TO_CHANNEL: dict[str, OverdueContactChannel] = {
+    "ATTEMPTED": "EMAIL_ATTEMPTED",
+    "TRANSPORT_ACCEPTED": "EMAIL_TRANSPORT_ACCEPTED",
+    "TRANSPORT_FAILED": "EMAIL_TRANSPORT_FAILED",
+}
+
 
 async def list_overdue_fees(
     db: AsyncSession,
@@ -518,7 +531,11 @@ async def list_overdue_fees(
             guardians_by_student.setdefault(student_id, []).append((guardian_id, full_name, email, user_id))
 
     in_app_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
-    email_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    # Sprint 1.6 — plus un simple ensemble (existence de ligne) : associe désormais chaque couple
+    # (student_fee_id, guardian_id) à son `transport_status` réel, pour ne jamais afficher au
+    # staff un email "envoyé" alors que seule une tentative a été enregistrée (voir
+    # PHASE_14_DISCOVERY_REPORT / SPRINT 1.6 DISCOVERY REPORT §6).
+    email_status_pairs: dict[tuple[uuid.UUID, uuid.UUID], str] = {}
     if fee_ids:
         # `notifications` a une policy RLS PAR DESTINATAIRE, pas par organisation (migration 0011)
         # — un membre du staff lisant ce rapport n'est jamais lui-même le destinataire de la
@@ -535,11 +552,13 @@ async def list_overdue_fees(
         in_app_pairs = {(row[0], row[1]) for row in notif_result.all()}
 
         email_result = await db.execute(
-            select(FeeOverdueEmailReminder.student_fee_id, FeeOverdueEmailReminder.guardian_id).where(
-                FeeOverdueEmailReminder.student_fee_id.in_(fee_ids)
-            )
+            select(
+                FeeOverdueEmailReminder.student_fee_id,
+                FeeOverdueEmailReminder.guardian_id,
+                FeeOverdueEmailReminder.transport_status,
+            ).where(FeeOverdueEmailReminder.student_fee_id.in_(fee_ids))
         )
-        email_pairs = {(row[0], row[1]) for row in email_result.all()}
+        email_status_pairs = {(row[0], row[1]): row[2] for row in email_result.all()}
 
     items: list[OverdueFeeItem] = []
     for fee, schedule_name, currency, remaining_balance, matricule, first_name, last_name in rows:
@@ -548,8 +567,9 @@ async def list_overdue_fees(
             statuses: list[OverdueContactChannel] = []
             if user_id is not None and (fee.id, user_id) in in_app_pairs:
                 statuses.append("IN_APP_SENT")
-            if (fee.id, guardian_id) in email_pairs:
-                statuses.append("EMAIL_SENT")
+            transport_status = email_status_pairs.get((fee.id, guardian_id))
+            if transport_status is not None:
+                statuses.append(_EMAIL_TRANSPORT_STATUS_TO_CHANNEL.get(transport_status, "EMAIL_ATTEMPTED"))
             contacts.append(
                 OverdueFeeGuardianContact(
                     guardian_id=guardian_id,

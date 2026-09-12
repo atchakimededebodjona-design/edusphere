@@ -236,7 +236,19 @@ class FeeOverdueEmailReminder(Base):
     table `notifications`. Idempotence transposée de `uq_notifications_fee_overdue_recipient`
     (migration 0013) : un seul rappel par (StudentFee, tuteur), ici par `guardian_id` plutôt que
     `recipient_user_id`, jamais par adresse email (un même email pourrait en théorie être partagé
-    par deux `Guardian` distincts, aucune contrainte d'unicité n'existe sur `Guardian.email`)."""
+    par deux `Guardian` distincts, aucune contrainte d'unicité n'existe sur `Guardian.email`).
+
+    Sprint 1.6 — `sent_at` est écrit à la création de la ligne, AVANT toute tentative d'envoi
+    réseau (voir `fees/overdue_reminders.py::_prepare_overdue_emails`) : son nom reste tel quel
+    (aucun renommage, pour ne pas élargir le diff) mais il ne doit jamais être lu comme une
+    preuve d'envoi réel — `transport_status`/`transport_checked_at` ci-dessous portent cette
+    information. `transport_status` distingue explicitement une tentative enregistrée
+    (`ATTEMPTED`, valeur par défaut — y compris pour les lignes déjà existantes, dont l'issue
+    réelle n'a jamais été enregistrée et ne doit jamais être supposée) d'un succès de transport
+    SMTP (`TRANSPORT_ACCEPTED` — le serveur a accepté le message, ce qui n'est PAS une preuve de
+    remise ni de lecture) ou d'un échec (`TRANSPORT_FAILED`). Pas de `Literal` Python ni de
+    contrainte CHECK en base — même convention que `notifications.type`/`student_fees.status`,
+    déjà de simples `String` non contraints côté base dans ce dépôt."""
 
     __tablename__ = "fee_overdue_email_reminders"
     __table_args__ = (UniqueConstraint("student_fee_id", "guardian_id", name="uq_fee_overdue_email_reminder"),)
@@ -255,3 +267,5 @@ class FeeOverdueEmailReminder(Base):
         PGUUID(as_uuid=True), ForeignKey("guardians.id", ondelete="CASCADE"), nullable=False, index=True
     )
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    transport_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ATTEMPTED", server_default="ATTEMPTED")
+    transport_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

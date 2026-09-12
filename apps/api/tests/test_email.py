@@ -74,7 +74,17 @@ async def test_send_email_best_effort_does_not_raise_on_provider_failure(monkeyp
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())
     # Ne doit jamais lever — un incident d'envoi ne bloque pas l'appelant (cf. docstring).
-    await send_email_best_effort("someone@example.tg", "Sujet", "Corps")
+    # Sprint 1.6 — retourne `False` plutôt que de simplement ne pas lever : seul signal dont
+    # dispose l'appelant (`fees/overdue_reminders.py`) pour distinguer un transport accepté d'un
+    # échec, sans jamais faire fuiter le détail de l'exception (jamais dans la valeur de retour).
+    result = await send_email_best_effort("someone@example.tg", "Sujet", "Corps")
+    assert result is False
+
+
+async def test_send_email_best_effort_returns_true_on_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    result = await send_email_best_effort("someone@example.tg", "Sujet", "Corps")
+    assert result is True
 
 
 # --- Intégration : mot de passe oublié déclenche réellement un envoi ----------------------------

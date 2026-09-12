@@ -25,15 +25,23 @@ mutuellement exclusifs par construction (`resolve_guardian_user_ids_for_student`
 `resolve_guardian_emails_without_account_for_student`, voir notifications/service.py). Idempotence
 par tuteur (`fee_overdue_email_reminders`, unique par `(student_fee_id, guardian_id)`), pas par
 adresse email — au maximum UN email par (StudentFee, tuteur), jamais renvoyé même si le frais
-reste impayé (pas de relance J+7/J+30 dans ce sprint)."""
+reste impayé (pas de relance J+7/J+30 dans ce sprint).
+
+Sprint 1.6 — `send_overdue_fee_reminder_emails` enregistre désormais le résultat RÉEL du
+transport SMTP (`TRANSPORT_ACCEPTED`/`TRANSPORT_FAILED`) sur la ligne de suivi déjà créée
+(`ATTEMPTED` à la préparation), une ligne à la fois, chacune avec son propre commit — jamais un
+commit unique pour tout le lot, pour qu'une interruption n'affecte jamais plus d'UNE ligne (voir
+SPRINT 1.6 IMPLEMENTATION PLAN §7/§8). Aucun retry automatique, aucune queue : un
+`TRANSPORT_FAILED` reste tel quel jusqu'à une décision produit explicite et distincte (non prise
+dans ce sprint)."""
 
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,11 +64,13 @@ class OverdueReminderRunResult:
     eligible_fees: int
     notifications_created: int
     fees_with_new_notifications: int
-    # Sprint 1.3 — emails prêts à envoyer (destinataire, sujet, corps), déjà enregistrés comme
-    # tracés (voir `_prepare_overdue_email` ci-dessous) au moment où cette liste est renvoyée :
-    # l'envoi réseau proprement dit reste la responsabilité de l'appelant, APRÈS son commit (voir
-    # `send_overdue_fee_reminder_emails`).
-    emails: list[tuple[str, str, str]] = field(default_factory=list)
+    # Sprint 1.3 — emails prêts à envoyer, déjà enregistrés comme tentés (voir
+    # `_prepare_overdue_emails` ci-dessous) au moment où cette liste est renvoyée : l'envoi réseau
+    # proprement dit reste la responsabilité de l'appelant, APRÈS son commit (voir
+    # `send_overdue_fee_reminder_emails`). Sprint 1.6 — `reminder_id` ajouté (identifiant de la
+    # ligne `FeeOverdueEmailReminder` déjà créée) pour que l'appelant puisse y reporter le
+    # résultat réel du transport une fois l'envoi tenté.
+    emails: list[tuple[uuid.UUID, str, str, str]] = field(default_factory=list)
 
 
 async def _list_eligible_overdue_fees(db: AsyncSession) -> list[tuple[StudentFee, str, str]]:
@@ -88,7 +98,7 @@ def _format_reminder_body(student: Student, schedule_name: str, balance: Decimal
 
 async def _prepare_overdue_emails(
     db: AsyncSession, *, student: Student, fee: StudentFee, reminder_body: str
-) -> list[tuple[str, str, str]]:
+) -> list[tuple[uuid.UUID, str, str, str]]:
     """Sprint 1.3 — LECTURE + enregistrement du suivi d'idempotence (dans la transaction en
     cours), pour les tuteurs SANS compte utilisateur de cet élève. L'envoi réseau réel n'a lieu
     qu'après le commit de l'appelant (voir `send_overdue_fee_reminder_emails`) — même découplage
@@ -99,7 +109,13 @@ async def _prepare_overdue_emails(
     réellement concurrente du job (hors usage normal — un seul timer, séquentiel) qui gagnerait la
     course sur la contrainte unique `(student_fee_id, guardian_id)` ne doit annuler que CET envoi,
     jamais la transaction entière (qui contient aussi les notifications in-app déjà `flush`ées pour
-    d'autres frais)."""
+    d'autres frais).
+
+    Sprint 1.6 — `transport_status="ATTEMPTED"` est renseigné explicitement dès la création (déjà
+    la valeur par défaut en base, mais explicite ici pour rester lisible sans consulter le
+    modèle) ; l'identifiant de la ligne (déjà généré, nécessaire pour l'idempotence) est renvoyé
+    avec chaque email pour que l'appelant puisse y reporter le résultat réel du transport après
+    la tentative d'envoi (voir `send_overdue_fee_reminder_emails`)."""
     candidates = await resolve_guardian_emails_without_account_for_student(db, student.id, fee.school_id)
     if not candidates:
         return []
@@ -107,19 +123,21 @@ async def _prepare_overdue_emails(
     already_emailed = await existing_fee_overdue_emailed_guardian_ids(db, fee.id)
     subject = f"Paiement en retard — {student.first_name} {student.last_name}"
 
-    emails: list[tuple[str, str, str]] = []
+    emails: list[tuple[uuid.UUID, str, str, str]] = []
     for guardian_id, full_name, email in candidates:
         if guardian_id in already_emailed:
             continue
+        reminder_id = uuid.uuid4()
         try:
             async with db.begin_nested():
                 db.add(
                     FeeOverdueEmailReminder(
-                        id=uuid.uuid4(),
+                        id=reminder_id,
                         school_id=fee.school_id,
                         organization_id=fee.organization_id,
                         student_fee_id=fee.id,
                         guardian_id=guardian_id,
+                        transport_status="ATTEMPTED",
                     )
                 )
                 await db.flush()
@@ -130,7 +148,7 @@ async def _prepare_overdue_emails(
                 guardian_id,
             )
             continue
-        emails.append((email, subject, f"Bonjour {full_name},\n\n{reminder_body}\n\n— EduLinkage"))
+        emails.append((reminder_id, email, subject, f"Bonjour {full_name},\n\n{reminder_body}\n\n— EduLinkage"))
 
     return emails
 
@@ -156,7 +174,7 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
 
     notifications_created = 0
     fees_with_new_notifications = 0
-    emails: list[tuple[str, str, str]] = []
+    emails: list[tuple[uuid.UUID, str, str, str]] = []
     for fee, schedule_name, currency in overdue_rows:
         student = students_by_id.get(fee.student_id)
         if student is None:
@@ -187,11 +205,36 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
     )
 
 
-async def send_overdue_fee_reminder_emails(emails: list[tuple[str, str, str]]) -> None:
-    """Étape d'ENVOI — pur réseau, aucun accès DB, à appeler APRÈS le commit de
-    `send_overdue_fee_reminders` (voir `report_cards/service.py::
-    send_report_card_published_notifications`, même motif). Best-effort : `send_email_best_effort`
-    ne lève jamais, un échec d'envoi n'affecte donc jamais les notifications in-app ni les lignes
-    de suivi déjà committées."""
-    for to, subject, body in emails:
-        await send_email_best_effort(to, subject, body)
+async def send_overdue_fee_reminder_emails(db: AsyncSession, emails: list[tuple[uuid.UUID, str, str, str]]) -> None:
+    """Étape d'ENVOI, à appeler APRÈS le commit de `send_overdue_fee_reminders` (voir
+    `report_cards/service.py::send_report_card_published_notifications`, même motif de
+    découplage) : la transaction métier (frais, notifications in-app, lignes de suivi créées à
+    `ATTEMPTED`) est déjà close et ne dépend jamais du résultat de ce qui suit.
+
+    Sprint 1.6 — `db` sert uniquement à reporter, ligne par ligne, le résultat RÉEL du transport
+    SMTP (`TRANSPORT_ACCEPTED`/`TRANSPORT_FAILED`) sur la ligne `FeeOverdueEmailReminder` déjà
+    créée — jamais à rouvrir ou modifier quoi que ce soit d'autre. Un commit PAR LIGNE (jamais un
+    commit unique pour tout le lot) : une interruption du processus n'affecte donc jamais plus
+    d'UNE ligne, qui reste alors à `ATTEMPTED` (jamais reportée comme un succès qu'elle n'a pas
+    prouvé). `send_email_best_effort` ne lève jamais — un échec d'envoi n'affecte donc jamais les
+    notifications in-app ni les lignes de suivi déjà committées, seul le report du résultat en
+    tient compte ici. Aucun retry automatique : un `TRANSPORT_FAILED` reste tel quel jusqu'à une
+    décision produit explicite, hors périmètre de ce sprint.
+
+    `db` est une session neuve (voir `app/jobs/overdue_fee_reminders.py::_run`), sans contexte
+    tenant encore posé sur CETTE session — `fee_overdue_email_reminders` a la policy RLS
+    générique par organisation (migration 0014) : sans élargissement, l'UPDATE ci-dessous
+    affecterait silencieusement 0 ligne (jamais une erreur). Même motif que
+    `send_overdue_fee_reminders` : job plateforme entière, pas une requête utilisateur scopée."""
+    await set_platform_wide_context(db)
+    for reminder_id, to, subject, body in emails:
+        accepted = await send_email_best_effort(to, subject, body)
+        await db.execute(
+            update(FeeOverdueEmailReminder)
+            .where(FeeOverdueEmailReminder.id == reminder_id)
+            .values(
+                transport_status="TRANSPORT_ACCEPTED" if accepted else "TRANSPORT_FAILED",
+                transport_checked_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()

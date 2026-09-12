@@ -139,8 +139,8 @@ async def test_guardian_with_in_app_notification_has_in_app_sent_status(client: 
     assert contact["statuses"] == ["IN_APP_SENT"]
 
 
-# --- H : tuteur sans compte avec email + rappel email -> EMAIL_SENT ------------------------------------
-async def test_guardian_without_account_with_email_has_email_sent_status(client: AsyncClient) -> None:
+# --- H : tuteur sans compte avec email + rappel email transmis -> EMAIL_TRANSPORT_ACCEPTED --------------
+async def test_guardian_without_account_with_email_has_transport_accepted_status(client: AsyncClient) -> None:
     env = await _setup_student(client, "overdueview-h")
     guardian = await _create_guardian_with_email(client, env, "guardian.overdueview-h")
     fee = await _create_student_fee(client, env, PAST_DUE_DATE)
@@ -151,7 +151,8 @@ async def test_guardian_without_account_with_email_has_email_sent_status(client:
     contact = next(g for g in item["guardians"] if g["guardian_id"] == guardian["guardian"]["id"])
     assert contact["has_user_account"] is False
     assert contact["email"] == guardian["email"]
-    assert contact["statuses"] == ["EMAIL_SENT"]
+    # LocalEmailProvider (environnement de test) réussit toujours son écriture -> transport accepté.
+    assert contact["statuses"] == ["EMAIL_TRANSPORT_ACCEPTED"]
 
 
 # --- I : tuteur sans compte ni email -> NO_CHANNEL ------------------------------------------------------
@@ -185,7 +186,7 @@ async def test_multiple_guardians_have_independent_statuses(client: AsyncClient)
 
     by_id = {g["guardian_id"]: g for g in item["guardians"]}
     assert by_id[parent["guardian"]["id"]]["statuses"] == ["IN_APP_SENT"]
-    assert by_id[email_guardian["guardian"]["id"]]["statuses"] == ["EMAIL_SENT"]
+    assert by_id[email_guardian["guardian"]["id"]]["statuses"] == ["EMAIL_TRANSPORT_ACCEPTED"]
     assert by_id[no_channel_guardian["id"]]["statuses"] == ["NO_CHANNEL"]
 
 

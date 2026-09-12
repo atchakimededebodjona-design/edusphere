@@ -151,15 +151,25 @@ class FeesSummaryOut(BaseModel):
 
 # --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) ----------------------
 
-# Concepts de portée dérivés uniquement des données déjà écrites par les Sprints 1.2/1.3, jamais
-# d'un nouveau canal : IN_APP_SENT <=> une ligne `notifications` (type FEE_OVERDUE, ce
-# student_fee_id) référence le `user_id` de ce tuteur ; EMAIL_SENT <=> une ligne
-# `fee_overdue_email_reminders` existe pour (student_fee_id, guardian_id). Une liste plutôt qu'un
-# scalaire unique : un même tuteur peut légitimement cumuler les deux au fil du temps (ex. rappelé
-# par email avant de créer un compte, puis notifié in-app pour ce même frais toujours impayé lors
-# d'une exécution ultérieure du job) — voir PHASE_14_DISCOVERY_REPORT §5. ["NO_CHANNEL"] seul si
-# ni l'un ni l'autre.
-OverdueContactChannel = Literal["IN_APP_SENT", "EMAIL_SENT", "NO_CHANNEL"]
+# Concepts de portée dérivés uniquement des données déjà écrites par les Sprints 1.2/1.3/1.6,
+# jamais d'un nouveau canal : IN_APP_SENT <=> une ligne `notifications` (type FEE_OVERDUE, ce
+# student_fee_id) référence le `user_id` de ce tuteur. Le canal email (Sprint 1.6) reflète
+# désormais `FeeOverdueEmailReminder.transport_status` au lieu de la simple existence de la ligne
+# (`EMAIL_SENT` avant Sprint 1.6) — jamais "delivered"/"reçu"/"envoyé" seul, le transport SMTP
+# accepté n'est pas une preuve de remise réelle :
+#   EMAIL_ATTEMPTED           <=> transport_status == "ATTEMPTED" (tentative enregistrée, résultat
+#                                  pas encore connu — inclut les lignes créées avant ce sprint)
+#   EMAIL_TRANSPORT_ACCEPTED  <=> transport_status == "TRANSPORT_ACCEPTED"
+#   EMAIL_TRANSPORT_FAILED    <=> transport_status == "TRANSPORT_FAILED"
+# Une liste plutôt qu'un scalaire unique : un même tuteur peut légitimement cumuler IN_APP_SENT et
+# UN statut email au fil du temps (ex. rappelé par email avant de créer un compte, puis notifié
+# in-app pour ce même frais toujours impayé lors d'une exécution ultérieure du job) — voir
+# PHASE_14_DISCOVERY_REPORT §5. Jamais plusieurs statuts email à la fois pour un même tuteur/frais
+# (une seule ligne `fee_overdue_email_reminders`, contrainte unique). ["NO_CHANNEL"] seul si ni
+# in-app ni email n'a jamais été tenté.
+OverdueContactChannel = Literal[
+    "IN_APP_SENT", "EMAIL_ATTEMPTED", "EMAIL_TRANSPORT_ACCEPTED", "EMAIL_TRANSPORT_FAILED", "NO_CHANNEL"
+]
 
 
 class OverdueFeeGuardianContact(BaseModel):
