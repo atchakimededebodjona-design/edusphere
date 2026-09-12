@@ -14,7 +14,13 @@ qu'aucun test ne s'exécute — `Base.metadata` y est donc toujours complet, con
 `python -m app.jobs.overdue_fee_reminders` lancé dans un process neuf.
 
 Seul un lancement du module dans un VRAI sous-process (`subprocess.run`, pas un import direct)
-reproduit fidèlement l'incident."""
+reproduit fidèlement l'incident.
+
+Sprint 1.3 (canal email) ajoute un second modèle ORM (`FeeOverdueEmailReminder`) dont le `flush`
+peut être touché par le même incident s'il n'est pas, lui aussi, enregistré dans
+`app/db/model_registry.py` — ce test crée donc, en plus du tuteur avec compte, un tuteur SANS
+compte utilisateur mais avec email, pour que le sous-processus exerce réellement les DEUX chemins
+de `flush` (notifications in-app + suivi email) et pas seulement le premier."""
 
 import os
 import subprocess
@@ -24,14 +30,23 @@ from pathlib import Path
 from httpx import AsyncClient
 
 from tests.test_overdue_fee_reminders import PAST_DUE_DATE, _create_student_fee, _link_parent, _list_fee_overdue_notifications, _setup_student
+from tests.test_overdue_fee_reminders_email import _create_guardian_with_email
 
 API_ROOT = Path(__file__).resolve().parent.parent
+EMAILS_DIR = API_ROOT / "emails"
+
+
+def _existing_email_files() -> set[Path]:
+    return set(EMAILS_DIR.glob("*.txt")) if EMAILS_DIR.exists() else set()
 
 
 async def test_standalone_job_process_creates_notification_without_crashing(client: AsyncClient) -> None:
     env = await _setup_student(client, "overduestandalone")
     parent = await _link_parent(client, env, "parent.overduestandalone")
+    guardian = await _create_guardian_with_email(client, env, "guardian.overduestandalone")
     await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    emails_before = _existing_email_files()
 
     result = subprocess.run(
         [sys.executable, "-m", "app.jobs.overdue_fee_reminders"],
@@ -46,3 +61,9 @@ async def test_standalone_job_process_creates_notification_without_crashing(clie
 
     items = await _list_fee_overdue_notifications(client, parent["headers"])
     assert len(items) == 1
+
+    # EMAIL_PROVIDER=local dans cet environnement (voir .env) — le sous-processus écrit réellement
+    # un fichier sous EMAILS_DIR, non monkeypatché (impossible dans un process séparé) : on ne
+    # compare donc qu'un avant/après pour tolérer d'éventuels fichiers déjà présents.
+    new_files = _existing_email_files() - emails_before
+    assert any(guardian["email"] in f.read_text(encoding="utf-8") for f in new_files)

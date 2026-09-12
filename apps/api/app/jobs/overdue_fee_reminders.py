@@ -20,7 +20,7 @@ import sys
 
 from app.core.logging_config import configure_logging
 from app.db.session import AsyncSessionLocal
-from app.modules.fees.overdue_reminders import send_overdue_fee_reminders
+from app.modules.fees.overdue_reminders import send_overdue_fee_reminder_emails, send_overdue_fee_reminders
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,18 @@ async def _run() -> int:
             logger.exception("overdue_fee_reminders: échec du job, transaction annulée.")
             return 1
 
+    # Sprint 1.3 — envoi réseau pur, APRÈS le commit ci-dessus (déjà effectué à l'intérieur de
+    # send_overdue_fee_reminders) : un échec d'envoi ne peut plus jamais affecter les notifications
+    # in-app ni les lignes de suivi email déjà committées.
+    await send_overdue_fee_reminder_emails(result.emails)
+
     logger.info(
-        "overdue_fee_reminders: terminé — %d frais éligibles, %d notification(s) créée(s) pour %d frais distinct(s).",
+        "overdue_fee_reminders: terminé — %d frais éligibles, %d notification(s) créée(s) pour %d frais distinct(s), "
+        "%d email(s) préparé(s) pour les tuteurs sans compte.",
         result.eligible_fees,
         result.notifications_created,
         result.fees_with_new_notifications,
+        len(result.emails),
     )
     return 0
 

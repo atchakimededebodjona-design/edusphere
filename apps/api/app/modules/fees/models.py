@@ -225,3 +225,33 @@ class PaymentAllocation(Base):
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FeeOverdueEmailReminder(Base):
+    """Sprint 1.3 — suivi des emails de rappel de frais en retard envoyés aux tuteurs SANS compte
+    utilisateur (`Guardian.user_id IS NULL`). Table dédiée plutôt qu'une extension de
+    `Notification` (voir `notifications/models.py`) : `notifications.recipient_user_id` est
+    NOT NULL + FK vers `users.id` — un tuteur sans compte n'a structurellement aucun `user_id` à y
+    placer, et relâcher cette contrainte toucherait la policy RLS et les index existants de la
+    table `notifications`. Idempotence transposée de `uq_notifications_fee_overdue_recipient`
+    (migration 0013) : un seul rappel par (StudentFee, tuteur), ici par `guardian_id` plutôt que
+    `recipient_user_id`, jamais par adresse email (un même email pourrait en théorie être partagé
+    par deux `Guardian` distincts, aucune contrainte d'unicité n'existe sur `Guardian.email`)."""
+
+    __tablename__ = "fee_overdue_email_reminders"
+    __table_args__ = (UniqueConstraint("student_fee_id", "guardian_id", name="uq_fee_overdue_email_reminder"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    student_fee_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("student_fees.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    guardian_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("guardians.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tenancy import set_platform_wide_context
 from app.modules.academics.models import SchoolClass
 from app.modules.attendance.models import AttendanceRecord
-from app.modules.fees.models import Payment
+from app.modules.fees.models import FeeOverdueEmailReminder, Payment
 from app.modules.notifications.models import Notification
 from app.modules.notifications.schemas import NotificationType
 from app.modules.rbac.models import UserRole
@@ -144,6 +144,44 @@ async def existing_fee_overdue_recipient_ids(db: AsyncSession, student_fee_id: u
     result = await db.execute(
         select(Notification.recipient_user_id).where(
             Notification.student_fee_id == student_fee_id, Notification.type == "FEE_OVERDUE"
+        )
+    )
+    return {row[0] for row in result.all()}
+
+
+async def resolve_guardian_emails_without_account_for_student(
+    db: AsyncSession, student_id: uuid.UUID, school_id: uuid.UUID
+) -> list[tuple[uuid.UUID, str, str]]:
+    """Sprint 1.3 — pendant de `resolve_guardian_user_ids_for_student` ci-dessus pour le canal
+    email : tuteurs de cet élève SANS compte utilisateur (`Guardian.user_id IS NULL`) mais avec
+    une adresse email renseignée. Un tuteur avec compte n'apparaît jamais ici, même si son email
+    est aussi renseigné — il reçoit uniquement le rappel in-app (`notify_fee_overdue`), jamais les
+    deux canaux à la fois (voir fees/overdue_reminders.py)."""
+    result = await db.execute(
+        select(Guardian.id, Guardian.full_name, Guardian.email)
+        .join(StudentGuardian, StudentGuardian.guardian_id == Guardian.id)
+        .where(
+            StudentGuardian.student_id == student_id,
+            StudentGuardian.school_id == school_id,
+            Guardian.user_id.is_(None),
+            Guardian.email.isnot(None),
+        )
+    )
+    return [
+        (guardian_id, full_name, email) for guardian_id, full_name, email in result.all() if email is not None
+    ]
+
+
+async def existing_fee_overdue_emailed_guardian_ids(db: AsyncSession, student_fee_id: uuid.UUID) -> set[uuid.UUID]:
+    """Sprint 1.3 — pendant de `existing_fee_overdue_recipient_ids` ci-dessus pour le canal email :
+    lit `fee_overdue_email_reminders` plutôt que `notifications` (un tuteur sans compte n'a
+    structurellement aucun `recipient_user_id` sous lequel apparaître dans cette dernière table —
+    voir fees/models.py::FeeOverdueEmailReminder). Élargit le contexte tenant comme
+    `existing_fee_overdue_recipient_ids` : le job est plateforme entière."""
+    await set_platform_wide_context(db)
+    result = await db.execute(
+        select(FeeOverdueEmailReminder.guardian_id).where(
+            FeeOverdueEmailReminder.student_fee_id == student_fee_id
         )
     )
     return {row[0] for row in result.all()}

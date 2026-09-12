@@ -17,20 +17,38 @@ Ne cible que les tuteurs dont `Guardian.user_id` est renseigné (réutilise
 `notify_payment_recorded`/`notify_report_card_published`/`notify_student_absent` — même règle,
 aucune logique nouvelle). Un même élève peut avoir plusieurs tuteurs avec compte : chacun reçoit
 sa propre notification.
-"""
 
-from dataclasses import dataclass
+Sprint 1.3 — canal EMAIL, en complément du canal in-app ci-dessus, réservé aux tuteurs SANS
+compte utilisateur (`Guardian.user_id IS NULL`) mais avec une adresse email renseignée. Un tuteur
+avec compte ne reçoit jamais d'email en plus de sa notification in-app — les deux canaux sont
+mutuellement exclusifs par construction (`resolve_guardian_user_ids_for_student` vs
+`resolve_guardian_emails_without_account_for_student`, voir notifications/service.py). Idempotence
+par tuteur (`fee_overdue_email_reminders`, unique par `(student_fee_id, guardian_id)`), pas par
+adresse email — au maximum UN email par (StudentFee, tuteur), jamais renvoyé même si le frais
+reste impayé (pas de relance J+7/J+30 dans ce sprint)."""
+
+import logging
+import uuid
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email import send_email_best_effort
 from app.core.tenancy import set_platform_wide_context
-from app.modules.fees.models import FeeSchedule, StudentFee
+from app.modules.fees.models import FeeOverdueEmailReminder, FeeSchedule, StudentFee
 from app.modules.fees.service import compute_remaining_balances
-from app.modules.notifications.service import notify_fee_overdue
+from app.modules.notifications.service import (
+    existing_fee_overdue_emailed_guardian_ids,
+    notify_fee_overdue,
+    resolve_guardian_emails_without_account_for_student,
+)
 from app.modules.students.models import Student
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,6 +56,11 @@ class OverdueReminderRunResult:
     eligible_fees: int
     notifications_created: int
     fees_with_new_notifications: int
+    # Sprint 1.3 — emails prêts à envoyer (destinataire, sujet, corps), déjà enregistrés comme
+    # tracés (voir `_prepare_overdue_email` ci-dessous) au moment où cette liste est renvoyée :
+    # l'envoi réseau proprement dit reste la responsabilité de l'appelant, APRÈS son commit (voir
+    # `send_overdue_fee_reminder_emails`).
+    emails: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 async def _list_eligible_overdue_fees(db: AsyncSession) -> list[tuple[StudentFee, str, str]]:
@@ -63,6 +86,55 @@ def _format_reminder_body(student: Student, schedule_name: str, balance: Decimal
     )
 
 
+async def _prepare_overdue_emails(
+    db: AsyncSession, *, student: Student, fee: StudentFee, reminder_body: str
+) -> list[tuple[str, str, str]]:
+    """Sprint 1.3 — LECTURE + enregistrement du suivi d'idempotence (dans la transaction en
+    cours), pour les tuteurs SANS compte utilisateur de cet élève. L'envoi réseau réel n'a lieu
+    qu'après le commit de l'appelant (voir `send_overdue_fee_reminder_emails`) — même découplage
+    que `report_cards/service.py::prepare_report_card_published_notifications` /
+    `send_report_card_published_notifications`.
+
+    Chaque ligne de suivi est écrite dans un SAVEPOINT dédié (`db.begin_nested`) : une exécution
+    réellement concurrente du job (hors usage normal — un seul timer, séquentiel) qui gagnerait la
+    course sur la contrainte unique `(student_fee_id, guardian_id)` ne doit annuler que CET envoi,
+    jamais la transaction entière (qui contient aussi les notifications in-app déjà `flush`ées pour
+    d'autres frais)."""
+    candidates = await resolve_guardian_emails_without_account_for_student(db, student.id, fee.school_id)
+    if not candidates:
+        return []
+
+    already_emailed = await existing_fee_overdue_emailed_guardian_ids(db, fee.id)
+    subject = f"Paiement en retard — {student.first_name} {student.last_name}"
+
+    emails: list[tuple[str, str, str]] = []
+    for guardian_id, full_name, email in candidates:
+        if guardian_id in already_emailed:
+            continue
+        try:
+            async with db.begin_nested():
+                db.add(
+                    FeeOverdueEmailReminder(
+                        id=uuid.uuid4(),
+                        school_id=fee.school_id,
+                        organization_id=fee.organization_id,
+                        student_fee_id=fee.id,
+                        guardian_id=guardian_id,
+                    )
+                )
+                await db.flush()
+        except IntegrityError:
+            logger.warning(
+                "overdue_fee_reminders: email déjà tracé pour (student_fee_id=%s, guardian_id=%s), ignoré.",
+                fee.id,
+                guardian_id,
+            )
+            continue
+        emails.append((email, subject, f"Bonjour {full_name},\n\n{reminder_body}\n\n— EduLinkage"))
+
+    return emails
+
+
 async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResult:
     """Point d'entrée unique du job (voir `app/jobs/overdue_fee_reminders.py`). Commit sa propre
     transaction en fin d'exécution — même convention que `notifications/service.py::
@@ -84,11 +156,13 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
 
     notifications_created = 0
     fees_with_new_notifications = 0
+    emails: list[tuple[str, str, str]] = []
     for fee, schedule_name, currency in overdue_rows:
         student = students_by_id.get(fee.student_id)
         if student is None:
             continue
         balance = balances[fee.id]
+        reminder_body = _format_reminder_body(student, schedule_name, balance, currency)
         created = await notify_fee_overdue(
             db,
             organization_id=fee.organization_id,
@@ -96,15 +170,28 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
             student_id=student.id,
             student_fee_id=fee.id,
             title="Paiement en retard",
-            body=_format_reminder_body(student, schedule_name, balance, currency),
+            body=reminder_body,
         )
         notifications_created += created
         if created > 0:
             fees_with_new_notifications += 1
+
+        emails.extend(await _prepare_overdue_emails(db, student=student, fee=fee, reminder_body=reminder_body))
 
     await db.commit()
     return OverdueReminderRunResult(
         eligible_fees=len(overdue_rows),
         notifications_created=notifications_created,
         fees_with_new_notifications=fees_with_new_notifications,
+        emails=emails,
     )
+
+
+async def send_overdue_fee_reminder_emails(emails: list[tuple[str, str, str]]) -> None:
+    """Étape d'ENVOI — pur réseau, aucun accès DB, à appeler APRÈS le commit de
+    `send_overdue_fee_reminders` (voir `report_cards/service.py::
+    send_report_card_published_notifications`, même motif). Best-effort : `send_email_best_effort`
+    ne lève jamais, un échec d'envoi n'affecte donc jamais les notifications in-app ni les lignes
+    de suivi déjà committées."""
+    for to, subject, body in emails:
+        await send_email_best_effort(to, subject, body)
