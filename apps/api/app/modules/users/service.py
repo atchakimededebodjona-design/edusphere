@@ -47,6 +47,15 @@ async def create_or_attach_user(
     existing_result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = existing_result.scalar_one_or_none()
     dev_reset_token: str | None = None
+    # Sprint 1.7 — préparé ici, envoyé APRÈS le commit final de cette fonction (voir plus bas) :
+    # avant ce correctif, l'email était envoyé immédiatement après ce bloc, alors que le compte et
+    # son token n'étaient que `flush`és, pas committés. Toute exception survenant entre ce point
+    # et le commit final (ex. la lecture des rôles ci-dessous, ou le commit lui-même) aurait fait
+    # rollback le compte tout en ayant déjà envoyé un email d'invitation avec un lien de
+    # réinitialisation pointant vers un compte qui n'existe plus — même principe déjà appliqué
+    # ailleurs dans ce module/ce dépôt (voir `auth/service.py::request_password_reset`,
+    # `report_cards/service.py::prepare_report_card_published_notifications`).
+    welcome_email: tuple[str, str, str] | None = None
 
     if user is None:
         user = User(
@@ -75,7 +84,7 @@ async def create_or_attach_user(
         )
         await db.flush()
         await apply_tenant_context(db, current_user_id)
-        await send_email_best_effort(
+        welcome_email = (
             user.email,
             "Bienvenue sur EduLinkage — activez votre compte",
             f"Un compte a été créé pour vous sur EduLinkage. Pour définir votre mot de passe, "
@@ -118,6 +127,14 @@ async def create_or_attach_user(
     all_roles = [RoleData(role_code=code, organization_id=ur.organization_id, school_id=ur.school_id) for ur, code in roles_result.all()]
 
     await db.commit()
+
+    # Sprint 1.7 — envoi réel (pur réseau, best-effort) APRÈS le commit ci-dessus : le compte et
+    # son token de réinitialisation sont déjà durablement enregistrés, un échec d'envoi (ou toute
+    # exception qui aurait pu survenir plus haut) ne peut plus jamais laisser un email pointer
+    # vers un compte qui n'existe pas réellement.
+    if welcome_email is not None:
+        await send_email_best_effort(*welcome_email)
+
     return user, all_roles, dev_reset_token
 
 

@@ -181,3 +181,50 @@ async def test_reattaching_existing_user_does_not_send_a_new_invitation(
     assert second.json()["dev_reset_token"] is None
     # Toujours un seul email au total : aucun second envoi pour un compte déjà existant.
     assert len(_read_emails(tmp_path)) == 1
+
+
+# --- Sprint 1.7 : l'email de bienvenue ne doit jamais partir avant que le compte ne soit committé ---------
+async def test_create_or_attach_user_does_not_send_welcome_email_if_commit_fails(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Régression : avant correction, `create_or_attach_user` envoyait l'email de bienvenue juste
+    après un `flush()` du compte/token, AVANT le `commit()` final de la fonction — une exception
+    survenant entre les deux (ex. le commit lui-même) aurait laissé un email pointer vers un
+    compte réellement inexistant (rollback). Simule ce cas en faisant échouer `db.commit()` sur
+    une session dédiée, et vérifie qu'aucun email n'a été écrit."""
+    import uuid as uuid_module
+
+    from app.core.tenancy import set_platform_wide_context
+    from app.db.session import AsyncSessionLocal
+    from app.modules.schools.models import School
+    from app.modules.users import service as users_service
+    from app.modules.users.schemas import UserCreateRequest
+
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    data = await register_school(client, "emailcommitfail")
+    admin_id = uuid_module.UUID(data["user"]["id"])
+    school_id = uuid_module.UUID(data["school"]["id"])
+    teacher_email = unique_email("teacher.emailcommitfail")
+
+    async with AsyncSessionLocal() as db:
+        # `schools` a la policy RLS générique par organisation : une session neuve sans contexte
+        # tenant ne verrait aucune ligne — élargi ici uniquement pour pouvoir charger l'école déjà
+        # créée par `register_school` ci-dessus, avant d'appeler le service testé.
+        await set_platform_wide_context(db)
+        school = await db.get(School, school_id)
+        assert school is not None
+
+        async def failing_commit() -> None:
+            raise RuntimeError("commit simulé en échec (Sprint 1.7 — test de régression)")
+
+        monkeypatch.setattr(db, "commit", failing_commit)
+
+        payload = UserCreateRequest(
+            email=teacher_email, full_name="Prof CommitFail", school_id=school_id, role_code="TEACHER"
+        )
+        with pytest.raises(RuntimeError):
+            await users_service.create_or_attach_user(db, school, payload, admin_id)
+
+    # Le commit a échoué avant que l'email ne soit tenté : aucun fichier écrit.
+    assert _read_emails(tmp_path) == []
