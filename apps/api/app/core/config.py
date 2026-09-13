@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from_address: str = "no-reply@edulinkage.local"
+    # Sprint 1.7.1 — nom d'affichage de l'expéditeur (ex. "EduLinkage <no-reply@...>" dans un
+    # client mail), distinct de l'adresse elle-même. Chaîne vide par défaut : `SmtpEmailProvider`
+    # retombe alors sur l'adresse seule (voir app/core/email.py), comportement des environnements
+    # existants strictement inchangé tant que cette variable n'est pas définie.
+    smtp_from_name: str = ""
     smtp_use_tls: bool = True
     # Phase 16 — configurable pour permettre aux tests de vérifier un dépassement de délai en
     # quelques secondes plutôt que d'attendre la valeur de production ; 10s reste la valeur par

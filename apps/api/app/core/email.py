@@ -10,6 +10,7 @@ import smtplib
 import uuid
 from abc import ABC, abstractmethod
 from email.message import EmailMessage
+from email.utils import formataddr
 from pathlib import Path
 
 from app.core.config import settings
@@ -50,6 +51,7 @@ class SmtpEmailProvider(EmailProvider):
         from_address: str,
         use_tls: bool,
         timeout_seconds: int = 10,
+        from_name: str = "",
     ) -> None:
         self._host = host
         self._port = port
@@ -58,10 +60,16 @@ class SmtpEmailProvider(EmailProvider):
         self._from_address = from_address
         self._use_tls = use_tls
         self._timeout_seconds = timeout_seconds
+        self._from_name = from_name
 
     async def send(self, to: str, subject: str, body: str) -> None:
         message = EmailMessage()
-        message["From"] = self._from_address
+        # Sprint 1.7.1 — `formataddr` (bibliothèque standard, RFC 2047) plutôt qu'une
+        # concaténation manuelle : encode correctement un nom d'affichage contenant des
+        # caractères non-ASCII, et échappe les caractères spéciaux (virgule, guillemets) si
+        # jamais présents. `from_name` vide (valeur par défaut) fait retomber sur l'adresse
+        # seule — comportement des environnements existants strictement inchangé.
+        message["From"] = formataddr((self._from_name, self._from_address))
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
@@ -95,6 +103,7 @@ def get_email_provider(provider: str, local_path: str) -> EmailProvider:
             from_address=settings.smtp_from_address,
             use_tls=settings.smtp_use_tls,
             timeout_seconds=settings.smtp_timeout_seconds,
+            from_name=settings.smtp_from_name,
         )
     raise ValueError(f"Unknown email provider: {provider}")
 

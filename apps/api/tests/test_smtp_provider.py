@@ -17,6 +17,7 @@ Voir docs/phases/PHASE_16_IMPLEMENTATION.md, section 10, pour l'affirmation expl
 import smtplib
 import socket
 import threading
+from email.message import EmailMessage
 
 import pytest
 
@@ -152,6 +153,119 @@ async def test_smtp_provider_propagates_authentication_error(monkeypatch: pytest
 
     with pytest.raises(smtplib.SMTPAuthenticationError):
         await provider.send("someone@example-test.invalid", "Sujet", "Corps")
+
+
+# --- Sprint 1.7.1 : nom d'affichage de l'expéditeur (From) ----------------------------------
+class _FakeSmtpCapturingMessage:
+    """Faux SMTP (même motif que `_FakeSmtpRejectingAuth` ci-dessus) qui n'échoue jamais mais
+    capture le message tel qu'il serait réellement transmis sur le fil SMTP (`as_bytes()`), pour
+    vérifier le header `From` sans dépendre d'un vrai serveur externe. Note : `message["From"]`
+    (accès par clé) renvoie la forme décodée lisible par un humain, PAS la forme transmise —
+    `EmailMessage` utilise la politique moderne (`email.policy.default`) qui ne ré-encode en RFC
+    2047 qu'au moment de la sérialisation réelle (`as_bytes`/`as_string`, ce que fait
+    `smtplib.send_message` en interne). Vérifier uniquement l'accès par clé masquerait un bug
+    d'encodage qui n'apparaîtrait que sur le vrai fil SMTP."""
+
+    captured_wire: str | None = None
+
+    def __init__(self, host: str, port: int, timeout: int) -> None:
+        pass
+
+    def __enter__(self) -> "_FakeSmtpCapturingMessage":
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
+
+    def starttls(self) -> None:
+        pass
+
+    def login(self, username: str, password: str) -> None:
+        pass
+
+    def send_message(self, message: EmailMessage) -> None:
+        type(self).captured_wire = message.as_bytes().decode("utf-8", errors="replace")
+
+
+async def test_smtp_provider_from_header_uses_display_name_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="no-reply@edulinkage.com",
+        use_tls=True,
+        timeout_seconds=2,
+        from_name="EduLinkage",
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps")
+
+    # Format Gmail attendu explicitement (voir contexte Sprint 1.7.1) : nom d'affichage, adresse
+    # réelle intacte entre chevrons — jamais l'adresse seule ni "no-reply" comme nom.
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "From: EduLinkage <no-reply@edulinkage.com>\n" in wire
+
+
+async def test_smtp_provider_from_header_falls_back_to_address_alone_without_from_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Régression : `from_name=""` (valeur par défaut, environnements existants non reconfigurés)
+    doit produire l'adresse seule — jamais une reconstitution du nom d'affichage à partir de la
+    partie locale de l'adresse (ex. "no-reply") ni de chevrons vides."""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="no-reply@edulinkage.com",
+        use_tls=True,
+        timeout_seconds=2,
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps")
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "From: no-reply@edulinkage.com\n" in wire
+    assert "<" not in wire.split("\n", 1)[0]
+
+
+async def test_smtp_provider_from_header_encodes_unicode_display_name_safely(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confirme que `formataddr` (RFC 2047), pas une concaténation manuelle, gère un nom
+    d'affichage non-ASCII — pertinent si l'orthographe francophone du nom change un jour."""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="no-reply@edulinkage.com",
+        use_tls=True,
+        timeout_seconds=2,
+        from_name="Édu Linkage",
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps")
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    from_line = wire.split("\n", 1)[0]
+    assert "no-reply@edulinkage.com" in from_line
+    assert "Édu Linkage" not in from_line  # encodé RFC 2047, jamais les octets bruts sur le fil
+    assert "=?utf-8?" in from_line.lower()
+
+
+def test_get_email_provider_wires_smtp_from_name_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example-test.invalid")
+    monkeypatch.setattr(settings, "smtp_from_address", "no-reply@edulinkage.com")
+    monkeypatch.setattr(settings, "smtp_from_name", "EduLinkage")
+
+    provider = get_email_provider("smtp", "./unused")
+
+    assert isinstance(provider, SmtpEmailProvider)
+    assert provider._from_name == "EduLinkage"
+    assert provider._from_address == "no-reply@edulinkage.com"
 
 
 # --- Aucun secret dans les logs, y compris en cas d'échec ------------------------------------
