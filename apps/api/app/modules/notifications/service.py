@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import set_platform_wide_context
 from app.modules.academics.models import SchoolClass
-from app.modules.attendance.models import AttendanceRecord
+from app.modules.attendance.models import AttendanceAbsenceEmailReminder, AttendanceRecord
 from app.modules.fees.models import FeeOverdueEmailReminder, Payment
 from app.modules.notifications.models import Notification
 from app.modules.notifications.schemas import NotificationType
@@ -182,6 +182,24 @@ async def existing_fee_overdue_emailed_guardian_ids(db: AsyncSession, student_fe
     result = await db.execute(
         select(FeeOverdueEmailReminder.guardian_id).where(
             FeeOverdueEmailReminder.student_fee_id == student_fee_id
+        )
+    )
+    return {row[0] for row in result.all()}
+
+
+async def existing_absence_emailed_guardian_ids(
+    db: AsyncSession, student_id: uuid.UUID, absence_date: date
+) -> set[uuid.UUID]:
+    """Sprint 1.8 — pendant de `existing_fee_overdue_emailed_guardian_ids` ci-dessus pour les
+    absences : lit `attendance_absence_email_reminders` (un tuteur sans compte n'a structurellement
+    aucun `recipient_user_id` sous lequel apparaître dans `notifications`). Contrairement à son
+    équivalent frais (job plateforme entière), cette lecture s'exécute dans le contexte tenant
+    normal de la requête en cours — aucun élargissement nécessaire, la policy RLS générique de
+    cette table filtre déjà correctement par organisation."""
+    result = await db.execute(
+        select(AttendanceAbsenceEmailReminder.guardian_id).where(
+            AttendanceAbsenceEmailReminder.student_id == student_id,
+            AttendanceAbsenceEmailReminder.absence_date == absence_date,
         )
     )
     return {row[0] for row in result.all()}

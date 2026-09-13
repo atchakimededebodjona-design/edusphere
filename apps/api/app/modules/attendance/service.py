@@ -1,13 +1,26 @@
+import logging
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email import send_email_best_effort
+from app.core.tenancy import apply_tenant_context
 from app.modules.academics.models import AcademicTerm, ClassSubject, SchoolClass, TeacherAssignment
-from app.modules.attendance.models import AttendanceRecord, AttendanceSession
-from app.modules.notifications.service import notify_student_absent
+from app.modules.attendance.models import AttendanceAbsenceEmailReminder, AttendanceRecord, AttendanceSession
+from app.modules.notifications.service import (
+    existing_absence_emailed_guardian_ids,
+    notify_student_absent,
+    resolve_guardian_emails_without_account_for_student,
+)
+from app.modules.schools.models import School
 from app.modules.students.models import Student, StudentEnrollment
+
+logger = logging.getLogger(__name__)
+
+EmailTuple = tuple[uuid.UUID, str, str, str]
 
 
 async def is_teacher_assigned_to_class(db: AsyncSession, user_id: uuid.UUID, class_id: uuid.UUID) -> bool:
@@ -46,7 +59,104 @@ async def student_in_class_scope(db: AsyncSession, student: Student, class_id: u
     return result.scalar_one_or_none() is not None
 
 
-async def maybe_notify_absence(db: AsyncSession, record: AttendanceRecord, previous_status: str | None) -> None:
+def _format_absence_email_body(student: Student, school_name: str, absence_date: date) -> str:
+    where = f" à {school_name}" if school_name else ""
+    return f"{student.first_name} {student.last_name} a été marqué(e) absent(e) le {absence_date.isoformat()}{where}."
+
+
+async def _prepare_absence_emails(
+    db: AsyncSession, *, student: Student, record: AttendanceRecord, session: AttendanceSession
+) -> list[EmailTuple]:
+    """Sprint 1.8 — pendant, pour les absences, de `fees/overdue_reminders.py::
+    _prepare_overdue_emails` : LECTURE + enregistrement du suivi d'idempotence (dans la transaction
+    en cours), pour les tuteurs SANS compte utilisateur de cet élève. L'envoi réseau réel n'a lieu
+    qu'après le commit de l'appelant (voir `send_absence_reminder_emails`), même découplage.
+
+    Chaque ligne de suivi est écrite dans un SAVEPOINT dédié (`db.begin_nested`) : une écriture
+    concurrente (ex. resoumission simultanée) qui gagnerait la course sur la contrainte unique
+    (student_id, guardian_id, absence_date) ne doit annuler que CET envoi, jamais la transaction
+    entière (qui contient aussi la notification in-app déjà flush-ée)."""
+    candidates = await resolve_guardian_emails_without_account_for_student(db, student.id, record.school_id)
+    if not candidates:
+        return []
+
+    already_emailed = await existing_absence_emailed_guardian_ids(db, student.id, session.session_date)
+    school = await db.get(School, record.school_id)
+    school_name = school.name if school is not None else ""
+    subject = f"Absence signalée — {student.first_name} {student.last_name}"
+    body = _format_absence_email_body(student, school_name, session.session_date)
+
+    emails: list[EmailTuple] = []
+    for guardian_id, full_name, email in candidates:
+        if guardian_id in already_emailed:
+            continue
+        reminder_id = uuid.uuid4()
+        try:
+            async with db.begin_nested():
+                db.add(
+                    AttendanceAbsenceEmailReminder(
+                        id=reminder_id,
+                        school_id=record.school_id,
+                        organization_id=record.organization_id,
+                        student_id=student.id,
+                        guardian_id=guardian_id,
+                        attendance_id=record.id,
+                        absence_date=session.session_date,
+                        transport_status="ATTEMPTED",
+                    )
+                )
+                await db.flush()
+        except IntegrityError:
+            logger.warning(
+                "attendance_absence_email: email déjà tracé pour (student_id=%s, guardian_id=%s, "
+                "absence_date=%s), ignoré.",
+                student.id,
+                guardian_id,
+                session.session_date,
+            )
+            continue
+        emails.append((reminder_id, email, subject, f"Bonjour {full_name},\n\n{body}\n\n— EduLinkage"))
+
+    return emails
+
+
+async def send_absence_reminder_emails(db: AsyncSession, current_user_id: uuid.UUID, emails: list[EmailTuple]) -> None:
+    """Étape d'ENVOI, à appeler APRÈS le commit de `upsert_records`/`attendance/router.py::
+    update_record` (même motif de découplage que `fees/overdue_reminders.py::
+    send_overdue_fee_reminder_emails`) : la transaction métier (absence, notification in-app,
+    lignes de suivi créées à ATTEMPTED) est déjà close et ne dépend jamais du résultat de ce qui
+    suit — un échec d'envoi ne peut jamais annuler l'absence déjà enregistrée.
+
+    Contrairement au job batch équivalent des frais (session sans contexte tenant, élargie en
+    `set_platform_wide_context`), cette fonction s'exécute dans le contexte d'une requête HTTP
+    authentifiée normale. `db.commit()` termine la transaction Postgres et réinitialise donc les
+    variables de session posées par `SET LOCAL` (voir app/core/tenancy.py — vérifié empiriquement :
+    `current_setting` redevient vide juste après un commit sur la même session) : sans réappliquer
+    le contexte, l'UPDATE ci-dessous affecterait silencieusement 0 ligne sous RLS. `apply_tenant_context`
+    (plutôt que `set_platform_wide_context`) restaure le scope tenant précis de l'utilisateur
+    courant — pas un accès plateforme entière non nécessaire ici. Réappliqué À CHAQUE itération
+    (pas une seule fois avant la boucle) car le commit par ligne ci-dessous réinitialise
+    systématiquement ce contexte après chaque itération.
+
+    Commit PAR LIGNE (jamais un commit unique pour tout le lot) — même garantie que Sprint 1.6 :
+    une interruption n'affecte donc jamais plus d'UNE ligne, qui reste alors à `ATTEMPTED`."""
+    for reminder_id, to, subject, body in emails:
+        accepted = await send_email_best_effort(to, subject, body)
+        await apply_tenant_context(db, current_user_id)
+        await db.execute(
+            update(AttendanceAbsenceEmailReminder)
+            .where(AttendanceAbsenceEmailReminder.id == reminder_id)
+            .values(
+                transport_status="TRANSPORT_ACCEPTED" if accepted else "TRANSPORT_FAILED",
+                transport_checked_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+
+async def maybe_notify_absence(
+    db: AsyncSession, record: AttendanceRecord, previous_status: str | None, session: AttendanceSession
+) -> list[EmailTuple]:
     """Phase 27 Sprint 1 — notifie les tuteurs UNIQUEMENT quand le statut DEVIENT ABSENT :
     - création directe en ABSENT (`previous_status is None`) -> notifie ;
     - PRESENT/LATE -> ABSENT -> notifie ;
@@ -55,13 +165,18 @@ async def maybe_notify_absence(db: AsyncSession, record: AttendanceRecord, previ
     - ABSENT -> PRESENT/LATE, ou tout statut qui n'est pas ABSENT -> ne notifie jamais.
     Appelée pour CHAQUE écriture d'un AttendanceRecord (création, resoumission en masse, correction
     unitaire) — voir les deux points d'appel : `upsert_records` ci-dessous et
-    `attendance/router.py::update_record`."""
+    `attendance/router.py::update_record`.
+
+    Sprint 1.8 — prépare EN PLUS, pour les mêmes conditions, les emails destinés aux tuteurs SANS
+    compte utilisateur (voir `_prepare_absence_emails`) ; les retourne pour que l'appelant les
+    envoie APRÈS son commit (jamais avant, voir `send_absence_reminder_emails`)."""
     if record.status != "ABSENT" or previous_status == "ABSENT":
-        return
+        return []
     student = await db.get(Student, record.student_id)
     if student is None:
-        return
+        return []
     await notify_student_absent(db, student, record)
+    return await _prepare_absence_emails(db, student=student, record=record, session=session)
 
 
 async def upsert_records(
@@ -69,10 +184,14 @@ async def upsert_records(
     session: AttendanceSession,
     entries: list[tuple[uuid.UUID, str, bool, str | None]],
     recorded_by: uuid.UUID | None,
-) -> list[AttendanceRecord]:
+) -> tuple[list[AttendanceRecord], list[EmailTuple]]:
     """Upsert idempotent par (session_id, student_id) : une resoumission identique laisse le même
     état final, sans erreur ni duplication — propriété requise pour un futur mode offline (décision
-    validée, PHASE_6_ATTENDANCE_PLAN.md §9)."""
+    validée, PHASE_6_ATTENDANCE_PLAN.md §9).
+
+    Sprint 1.8 — retourne désormais aussi les emails préparés (tuteurs SANS compte, voir
+    `maybe_notify_absence`/`_prepare_absence_emails`) pour que l'appelant les envoie APRÈS son
+    commit (voir `attendance/router.py::submit_records` + `send_absence_reminder_emails`)."""
     saved: list[AttendanceRecord] = []
     previous_statuses: dict[uuid.UUID, str | None] = {}
     for student_id, status, justified, reason in entries:
@@ -108,10 +227,11 @@ async def upsert_records(
     # Notifications d'absence — APRÈS refresh (état final connu), AVANT commit : même contrainte
     # que create_notifications (le contexte RLS élargi via set_platform_wide_context doit vivre
     # dans CETTE transaction, voir notifications/service.py).
+    emails: list[EmailTuple] = []
     for row in saved:
-        await maybe_notify_absence(db, row, previous_statuses[row.id])
+        emails.extend(await maybe_notify_absence(db, row, previous_statuses[row.id], session))
     await db.commit()
-    return saved
+    return saved, emails
 
 
 def _summarize(rows: list[tuple[str, bool]]) -> dict:

@@ -191,7 +191,9 @@ async def submit_records(payload: AttendanceRecordsBulkCreate, db: DbSession, cu
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found in this class")
         entries.append((entry.student_id, entry.status, entry.justified, entry.reason))
 
-    return await service.upsert_records(db, session, entries, recorded_by=current_user.id)
+    records, emails = await service.upsert_records(db, session, entries, recorded_by=current_user.id)
+    await service.send_absence_reminder_emails(db, current_user.id, emails)
+    return records
 
 
 @router.patch("/attendance-records/{record_id}", response_model=AttendanceRecordOut)
@@ -215,8 +217,9 @@ async def update_record(
     await db.refresh(record)
     # Même règle anti-spam que la soumission en masse (voir service.maybe_notify_absence) : une
     # correction PATCH qui ne touche pas `status`, ou qui le laisse à ABSENT, ne notifie pas.
-    await service.maybe_notify_absence(db, record, previous_status)
+    emails = await service.maybe_notify_absence(db, record, previous_status, session)
     await db.commit()
+    await service.send_absence_reminder_emails(db, current_user.id, emails)
     return record
 
 
