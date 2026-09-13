@@ -351,6 +351,211 @@ async def test_appreciation_update(client: AsyncClient) -> None:
     assert update_response.json()["appreciation"] == "Bon travail, continue ainsi."
 
 
+# --- Sprint 1.7.2 : ajout d'un mécanisme "Enregistrer" explicite côté web pour l'appréciation
+# (apps/web/app/(app)/grades/GradeBookPanel.tsx). L'API existait déjà (endpoint ci-dessus, Phase
+# antérieure) — ce sprint ne change rien côté backend, ces tests renforcent la couverture déjà en
+# place (modification d'une valeur existante, persistance après relecture indépendante, permission,
+# isolation tenant, erreur API) autour du seul endpoint que le nouveau bouton "Enregistrer" appelle.
+async def test_appreciation_update_modifies_existing_value(client: AsyncClient) -> None:
+    """Écrase la valeur précédente (simple remplacement, pas de cumul) — et ne touche jamais à la
+    moyenne ni au rang déjà calculés, seul le champ appréciation change."""
+    data = await register_school(client, "gradesapprchange")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student_a = ctx["students"][0]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+    await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 14}]},
+        headers=headers,
+    )
+    averages = (
+        await client.get(f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers)
+    ).json()
+    average_id = next(s for s in averages["subject_averages"] if s["class_subject_id"] == ctx["math_cs"]["id"])["id"]
+
+    first = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Premier avis."}, headers=headers
+    )
+    assert first.status_code == 200
+    assert first.json()["appreciation"] == "Premier avis."
+
+    second = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Avis corrigé."}, headers=headers
+    )
+    assert second.status_code == 200
+    assert second.json()["appreciation"] == "Avis corrigé."
+    assert second.json()["average"] == first.json()["average"]
+    assert second.json()["rank"] == first.json()["rank"]
+
+
+async def test_appreciation_persists_after_independent_reload(client: AsyncClient) -> None:
+    """La nouvelle UI recharge la donnée via un GET indépendant après la sauvegarde (pas seulement
+    la réponse du PATCH) pour confirmer la persistance réelle — reproduit exactement cet appel."""
+    data = await register_school(client, "gradesapprreload")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student_a = ctx["students"][0]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+    await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 14}]},
+        headers=headers,
+    )
+    averages = (
+        await client.get(f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers)
+    ).json()
+    average_id = next(s for s in averages["subject_averages"] if s["class_subject_id"] == ctx["math_cs"]["id"])["id"]
+
+    await client.patch(f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Persistant."}, headers=headers)
+
+    reloaded = (
+        await client.get(f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers)
+    ).json()
+    reloaded_avg = next(s for s in reloaded["subject_averages"] if s["class_subject_id"] == ctx["math_cs"]["id"])
+    assert reloaded_avg["appreciation"] == "Persistant."
+
+
+async def test_appreciation_update_requires_grades_manage_permission(client: AsyncClient) -> None:
+    """Un enseignant affecté uniquement à une autre matière de la même classe ne peut pas modifier
+    l'appréciation d'une matière qui ne lui est pas assignée — même garde que la saisie de notes
+    (`_ensure_can_manage_class_subject_grades`)."""
+    data = await register_school(client, "gradesapprperm")
+    headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    organization_id = data["organization"]["id"]
+
+    ctx = await _setup_class_with_two_subjects(client, headers_admin, school_id)
+    student_a = ctx["students"][0]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers_admin,
+        )
+    ).json()
+    await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 14}]},
+        headers=headers_admin,
+    )
+    averages = (
+        await client.get(
+            f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers_admin
+        )
+    ).json()
+    average_id = next(s for s in averages["subject_averages"] if s["class_subject_id"] == ctx["math_cs"]["id"])["id"]
+
+    teacher_data = await register_school(client, "gradesapprperm-teacher")
+    teacher_user_id = teacher_data["user"]["id"]
+    await assign_role(teacher_user_id, "TEACHER", organization_id=organization_id, school_id=school_id)
+    await client.post(
+        f"/api/v1/classes/{ctx['class']['id']}/teachers",
+        json={"user_id": teacher_user_id, "subject_id": ctx["french_cs"]["subject_id"]},
+        headers=headers_admin,
+    )
+    headers_teacher = {"Authorization": f"Bearer {await _login(client, teacher_data['user']['email'])}"}
+
+    response = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Non autorisé."}, headers=headers_teacher
+    )
+    assert response.status_code == 403
+
+
+async def test_appreciation_update_cross_tenant_returns_404(client: AsyncClient) -> None:
+    """Isolation tenant : un admin de l'École A ne peut jamais modifier une appréciation d'un élève
+    de l'École B, même en devinant un average_id valide — RLS masque la ligne (404, pas 403, pour
+    ne pas confirmer l'existence de la ressource — même convention que test_grades_tenant_isolation)."""
+    school_a = await register_school(client, "gradesapprisoa")
+    school_b = await register_school(client, "gradesapprisob")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+    headers_b = {"Authorization": f"Bearer {await _login(client, school_b['user']['email'])}"}
+
+    ctx_b = await _setup_class_with_two_subjects(client, headers_b, school_b["school"]["id"])
+    student_b = ctx_b["students"][0]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx_b["math_cs"]["id"],
+                "academic_term_id": ctx_b["term"]["id"],
+                "assessment_type_id": ctx_b["assessment_type"]["id"],
+                "name": "Devoir 1",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers_b,
+        )
+    ).json()
+    await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_b["id"], "score": 14}]},
+        headers=headers_b,
+    )
+    averages_b = (
+        await client.get(
+            f"/api/v1/students/{student_b['id']}/averages?academic_term_id={ctx_b['term']['id']}", headers=headers_b
+        )
+    ).json()
+    average_id = next(s for s in averages_b["subject_averages"] if s["class_subject_id"] == ctx_b["math_cs"]["id"])["id"]
+
+    response = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Fuite tenant."}, headers=headers_a
+    )
+    assert response.status_code == 404
+
+
+async def test_appreciation_update_unknown_average_returns_404(client: AsyncClient) -> None:
+    """Erreur API attendue par la nouvelle UI (affichage d'erreur + saisie conservée côté web) :
+    un average_id inexistant renvoie 404, jamais une 500 ni un succès silencieux."""
+    import uuid
+
+    data = await register_school(client, "gradesapprmissing")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+
+    response = await client.patch(
+        f"/api/v1/student-subject-averages/{uuid.uuid4()}", json={"appreciation": "Peu importe."}, headers=headers
+    )
+    assert response.status_code == 404
+
+
 async def test_teacher_restricted_to_assigned_class_subject(client: AsyncClient) -> None:
     data = await register_school(client, "gradesteacher")
     headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}

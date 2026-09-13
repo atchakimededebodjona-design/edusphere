@@ -26,28 +26,59 @@ function AppreciationCell({
   onSaved: (updated: StudentSubjectAverage) => void;
 }) {
   const [value, setValue] = useState(average.appreciation ?? "");
+  const [lastSaved, setLastSaved] = useState(average.appreciation ?? "");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  const isDirty = value !== lastSaved;
 
-  async function handleBlur() {
-    if (value === (average.appreciation ?? "") || !canManage) return;
+  async function handleSave() {
     setSaving(true);
+    setError(null);
+    setJustSaved(false);
     try {
-      const updated = await subjectAverages.updateAppreciation(average.id, value);
-      onSaved(updated);
+      await subjectAverages.updateAppreciation(average.id, value);
+      // Recharge depuis l'API (pas la seule réponse du PATCH) pour confirmer la persistance réelle.
+      const refreshed = await studentAverages.get(average.student_id, average.academic_term_id);
+      const confirmed = refreshed.subject_averages.find((a) => a.id === average.id);
+      if (!confirmed) throw new Error("Rechargement impossible après l'enregistrement.");
+      setLastSaved(confirmed.appreciation ?? "");
+      setValue(confirmed.appreciation ?? "");
+      onSaved(confirmed);
+      setJustSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <input
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={handleBlur}
-      disabled={!canManage || saving}
-      placeholder="Appréciation"
-      className="w-full rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
-    />
+    <div className="flex flex-col gap-1">
+      <input
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setJustSaved(false);
+          setError(null);
+        }}
+        disabled={!canManage || saving}
+        placeholder="Appréciation"
+        className="w-full rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+      />
+      {canManage && isDirty && (
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="w-fit rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+        >
+          {saving ? "Enregistrement..." : "Enregistrer"}
+        </button>
+      )}
+      {justSaved && !isDirty && <p className="text-xs text-green-700">Enregistré.</p>}
+      {error && <p className="text-xs text-red-700">{error}</p>}
+    </div>
   );
 }
 
