@@ -403,3 +403,94 @@ async def test_second_run_does_not_resend_after_transport_accepted(client: Async
     assert row_after_second_run.id == row_after_first_run.id  # même ligne, jamais recréée
     assert row_after_second_run.transport_status == "TRANSPORT_ACCEPTED"
     assert len(_overdue_reminder_emails(tmp_path)) == 1  # un seul email au total sur les deux runs
+
+
+# --- Sprint 1.8.1 : régression du bug découvert lors du Sprint 1.8 -----------------------------------
+# Avant correctif, `set_platform_wide_context` n'était appelé qu'une fois avant la boucle de
+# `send_overdue_fee_reminder_emails` : le premier commit par ligne réinitialisait ce contexte
+# (`SET LOCAL`, voir app/core/tenancy.py), si bien que la mise à jour de `transport_status` des
+# 2e, 3e, etc. lignes d'un même lot affectait silencieusement 0 ligne sous RLS (restées à
+# `ATTEMPTED`). Ces tests répliquent précisément un lot de 2 puis 3+ emails, jamais couvert par
+# les tests existants ci-dessus (qui ne vérifient le statut de transport que pour un seul tuteur
+# à la fois).
+async def test_two_emails_both_transport_statuses_recorded_correctly(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup_student(client, "overduemail-two")
+    guardian_1 = await _create_guardian_with_email(client, env, "guardian.overduemail-two1")
+    guardian_2 = await _create_guardian_with_email(client, env, "guardian.overduemail-two2")
+    fee = await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    await _run_job_with_emails()
+
+    row_1 = await _fetch_reminder_row(env["school_id"], fee["id"], guardian_1["guardian"]["id"])
+    row_2 = await _fetch_reminder_row(env["school_id"], fee["id"], guardian_2["guardian"]["id"])
+    assert row_1.transport_status == "TRANSPORT_ACCEPTED"
+    assert row_1.transport_checked_at is not None
+    assert row_2.transport_status == "TRANSPORT_ACCEPTED"
+    assert row_2.transport_checked_at is not None
+
+
+async def test_three_or_more_emails_all_transport_statuses_recorded_correctly(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup_student(client, "overduemail-fourplus")
+    guardians = [
+        await _create_guardian_with_email(client, env, f"guardian.overduemail-fourplus{i}") for i in range(4)
+    ]
+    fee = await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    await _run_job_with_emails()
+
+    for guardian in guardians:
+        row = await _fetch_reminder_row(env["school_id"], fee["id"], guardian["guardian"]["id"])
+        assert row.transport_status == "TRANSPORT_ACCEPTED", f"non reporté pour {guardian['email']}"
+        assert row.transport_checked_at is not None
+    assert len(_overdue_reminder_emails(tmp_path)) == 4
+
+
+async def test_multiple_failed_emails_all_transport_statuses_recorded_as_failed(client: AsyncClient, monkeypatch) -> None:
+    """Même lot que le test ci-dessus mais avec un provider qui échoue systématiquement : le
+    correctif ne doit pas seulement fonctionner pour TRANSPORT_ACCEPTED, mais réappliquer le
+    contexte quel que soit le résultat de `send_email_best_effort`."""
+
+    class FailingProvider:
+        async def send(self, to: str, subject: str, body: str) -> None:
+            raise RuntimeError("SMTP down (simulé)")
+
+    monkeypatch.setattr(email_module, "email_provider", FailingProvider())
+    env = await _setup_student(client, "overduemail-threefail")
+    guardians = [
+        await _create_guardian_with_email(client, env, f"guardian.overduemail-threefail{i}") for i in range(3)
+    ]
+    fee = await _create_student_fee(client, env, PAST_DUE_DATE)
+
+    await _run_job_with_emails()  # ne doit jamais lever, malgré le provider en échec
+
+    for guardian in guardians:
+        row = await _fetch_reminder_row(env["school_id"], fee["id"], guardian["guardian"]["id"])
+        assert row.transport_status == "TRANSPORT_FAILED", f"non reporté pour {guardian['email']}"
+        assert row.transport_checked_at is not None
+
+
+async def test_transport_status_recorded_correctly_across_organizations_in_same_run(
+    client: AsyncClient, monkeypatch, tmp_path
+) -> None:
+    """Isolation tenant conservée par le correctif : réappliquer `set_platform_wide_context` à
+    chaque itération continue de porter, sans dérive ni fuite, sur des lignes de suivi
+    appartenant à des organisations différentes traitées dans le MÊME lot (le job parcourt toutes
+    les organisations en une seule exécution)."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env_a = await _setup_student(client, "overduemail-orga")
+    env_b = await _setup_student(client, "overduemail-orgb")
+    guardian_a = await _create_guardian_with_email(client, env_a, "guardian.overduemail-orga")
+    guardian_b = await _create_guardian_with_email(client, env_b, "guardian.overduemail-orgb")
+    fee_a = await _create_student_fee(client, env_a, PAST_DUE_DATE)
+    fee_b = await _create_student_fee(client, env_b, PAST_DUE_DATE)
+
+    await _run_job_with_emails()
+
+    row_a = await _fetch_reminder_row(env_a["school_id"], fee_a["id"], guardian_a["guardian"]["id"])
+    row_b = await _fetch_reminder_row(env_b["school_id"], fee_b["id"], guardian_b["guardian"]["id"])
+    assert row_a.transport_status == "TRANSPORT_ACCEPTED"
+    assert row_a.transport_checked_at is not None
+    assert row_b.transport_status == "TRANSPORT_ACCEPTED"
+    assert row_b.transport_checked_at is not None

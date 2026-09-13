@@ -225,10 +225,22 @@ async def send_overdue_fee_reminder_emails(db: AsyncSession, emails: list[tuple[
     tenant encore posé sur CETTE session — `fee_overdue_email_reminders` a la policy RLS
     générique par organisation (migration 0014) : sans élargissement, l'UPDATE ci-dessous
     affecterait silencieusement 0 ligne (jamais une erreur). Même motif que
-    `send_overdue_fee_reminders` : job plateforme entière, pas une requête utilisateur scopée."""
-    await set_platform_wide_context(db)
+    `send_overdue_fee_reminders` : job plateforme entière, pas une requête utilisateur scopée.
+
+    Sprint 1.8.1 — correctif d'un bug découvert lors du Sprint 1.8 : `set_platform_wide_context`
+    pose une variable de session `SET LOCAL` (voir app/core/tenancy.py), valable UNIQUEMENT pour
+    la transaction en cours — `db.commit()` la réinitialise. Appeler cette fonction UNE SEULE
+    fois avant la boucle (comme avant ce correctif) ne protège donc que la 1ère itération : à
+    partir de la 2e ligne, l'UPDATE s'exécute après un commit qui a déjà effacé le contexte,
+    affectant silencieusement 0 ligne sous RLS (la ligne reste alors à `ATTEMPTED` indéfiniment,
+    jamais reportée comme `TRANSPORT_ACCEPTED`/`TRANSPORT_FAILED` bien que l'email ait réellement
+    été tenté). Vérifié empiriquement (`current_setting` redevient vide juste après un commit sur
+    la même session). Corrigé en réappliquant le contexte à CHAQUE itération, juste avant l'UPDATE
+    — même correctif déjà appliqué dès l'écriture du Sprint 1.8 pour les emails d'absence
+    (voir attendance/service.py::send_absence_reminder_emails)."""
     for reminder_id, to, subject, body in emails:
         accepted = await send_email_best_effort(to, subject, body)
+        await set_platform_wide_context(db)
         await db.execute(
             update(FeeOverdueEmailReminder)
             .where(FeeOverdueEmailReminder.id == reminder_id)
