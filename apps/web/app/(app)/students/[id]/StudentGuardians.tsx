@@ -19,35 +19,75 @@ const RELATIONSHIP_LABELS: Record<GuardianRelationship, string> = {
   other: "Autre",
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Sprint 1.11 — liaison d'un Guardian existant à un compte utilisateur PARENT existant (PATCH
 // /guardians/{id}, endpoint déjà validé — voir students/client.ts::guardians.update). Panneau
 // isolé (mêmes conventions que AppreciationCell dans grades/GradeBookPanel.tsx : état local,
 // pas de nouvelle abstraction de type "modal") pour ne pas alourdir la liste principale.
+//
+// Sprint 1.12 — ajoute un second chemin, "Créer un nouveau compte parent", qui enchaîne
+// POST /users (rôle imposé à PARENT, jamais un sélecteur — endpoint déjà existant,
+// users/client.ts::users.create) puis le PATCH /guardians/{id} ci-dessus. Les deux appels HTTP
+// ne sont pas atomiques : si la création réussit mais la liaison échoue, le compte créé n'est
+// jamais dissimulé ni auto-supprimé (aucun rollback backend, cf. Discovery) — `pendingUser`
+// garde son identité pour permettre de rejouer uniquement l'étape de liaison.
 function GuardianLinkPanel({
   guardian,
   parentUsers,
   parentUsersLoading,
   parentUsersError,
+  linkedUserIds,
+  canCreateParentAccount,
   onLinked,
+  onRefreshDirectory,
   onCancel,
 }: {
   guardian: Guardian;
   parentUsers: UserWithRoles[] | null;
   parentUsersLoading: boolean;
   parentUsersError: string | null;
+  // Sprint 1.12, étape 11 — comptes PARENT déjà liés à un autre tuteur de cette école (calculé par
+  // l'appelant depuis `directory`, déjà chargé) : exclus de la sélection pour éviter un 409 évitable.
+  linkedUserIds: Set<string>;
+  canCreateParentAccount: boolean;
   onLinked: () => Promise<void>;
+  onRefreshDirectory: () => Promise<void>;
   onCancel: () => void;
 }) {
+  const [mode, setMode] = useState<"existing" | "create">("existing");
   const [selectedUserId, setSelectedUserId] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
+  const [createForm, setCreateForm] = useState({
+    full_name: guardian.full_name,
+    email: guardian.email ?? "",
+    phone: guardian.phone ?? "",
+  });
+  const [createPhase, setCreatePhase] = useState<"idle" | "creating" | "linking">("idle");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [pendingUser, setPendingUser] = useState<{ id: string; email: string } | null>(null);
+
   const parentOptions = useMemo(
-    () => (parentUsers ?? []).filter((u) => u.roles.some((r) => r.role_code === "PARENT")),
-    [parentUsers],
+    () =>
+      (parentUsers ?? []).filter(
+        (u) => u.roles.some((r) => r.role_code === "PARENT") && !linkedUserIds.has(u.user.id),
+      ),
+    [parentUsers, linkedUserIds],
   );
   const selected = parentOptions.find((u) => u.user.id === selectedUserId) ?? null;
+
+  const accountsReady = !parentUsersLoading && !parentUsersError;
+  const hasExistingOptions = accountsReady && parentOptions.length > 0;
+  // Étape 12 — pas de cul-de-sac : si aucun compte n'est sélectionnable et que l'utilisateur peut
+  // en créer un, le mode "create" est forcé (le bascule manuel `mode` n'a alors plus d'effet tant
+  // qu'aucun compte n'apparaît). Sans `users.manage`, on reste en mode "existing" pour n'afficher
+  // que le message d'information neutre, jamais une action interdite.
+  const effectiveMode: "existing" | "create" =
+    !canCreateParentAccount ? "existing" : accountsReady && !hasExistingOptions ? "create" : mode;
+  const showModeToggle = canCreateParentAccount && hasExistingOptions;
 
   async function handleConfirm() {
     if (!selected) return;
@@ -64,6 +104,62 @@ function GuardianLinkPanel({
     }
   }
 
+  async function linkPendingUser(userId: string, email: string) {
+    setCreatePhase("linking");
+    try {
+      await guardiansClient.update(guardian.id, { user_id: userId });
+      await onLinked();
+    } catch (err) {
+      // Étape 6 (état intermédiaire) — la création a réussi mais la liaison échoue : ne jamais
+      // afficher "Compte parent lié" ici, garder l'email du compte créé pour permettre de rejouer
+      // uniquement cette étape, et recharger les Guardians (un autre admin a pu agir entre-temps).
+      setPendingUser({ id: userId, email });
+      setCreateError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+      try {
+        await onRefreshDirectory();
+      } catch {
+        // best-effort — un échec de ce rafraîchissement de confort ne doit pas masquer le message
+        // d'erreur de liaison déjà affiché ci-dessus.
+      }
+    } finally {
+      setCreatePhase("idle");
+    }
+  }
+
+  async function handleCreateAndLink(event: React.FormEvent) {
+    event.preventDefault();
+    setCreateError(null);
+    setCreatePhase("creating");
+    let createdUser: { id: string; email: string };
+    try {
+      // Étape 14 — uniquement les champs strictement nécessaires ; `role_code` est imposé en dur à
+      // "PARENT" (jamais un sélecteur), `school_id` provient du Guardian lui-même (déjà vérifié
+      // côté backend), jamais d'is_platform_admin/hashed_password/rôle plateforme.
+      const response = await usersClient.create({
+        email: createForm.email,
+        full_name: createForm.full_name,
+        phone: createForm.phone || null,
+        school_id: guardian.school_id,
+        role_code: "PARENT",
+      });
+      createdUser = { id: response.user.id, email: response.user.email };
+    } catch (err) {
+      setCreateError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+      setCreatePhase("idle");
+      return;
+    }
+    await linkPendingUser(createdUser.id, createdUser.email);
+  }
+
+  async function handleRetryLink() {
+    if (!pendingUser) return;
+    setCreateError(null);
+    await linkPendingUser(pendingUser.id, pendingUser.email);
+  }
+
+  const createBusy = createPhase !== "idle";
+  const createFormValid = createForm.full_name.trim().length > 0 && EMAIL_PATTERN.test(createForm.email.trim());
+
   return (
     <div className="mt-2 flex flex-col gap-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-sm">
       <p className="font-medium text-slate-700">Lier « {guardian.full_name} » à un compte parent</p>
@@ -71,70 +167,187 @@ function GuardianLinkPanel({
       {parentUsersLoading && <p className="text-xs text-slate-400">Chargement des comptes parent...</p>}
       {parentUsersError && <p className="text-xs text-red-700">{parentUsersError}</p>}
 
-      {!parentUsersLoading && !parentUsersError && parentOptions.length === 0 && (
-        <p className="text-xs text-slate-500">Aucun compte parent disponible dans cette école.</p>
+      {showModeToggle && (
+        <div className="flex gap-3 text-xs">
+          <button
+            type="button"
+            onClick={() => setMode("existing")}
+            className={effectiveMode === "existing" ? "font-semibold text-slate-900 underline" : "text-slate-500 underline"}
+          >
+            Lier à un compte existant
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("create")}
+            className={effectiveMode === "create" ? "font-semibold text-slate-900 underline" : "text-slate-500 underline"}
+          >
+            Créer un nouveau compte parent
+          </button>
+        </div>
       )}
 
-      {!parentUsersLoading && !parentUsersError && parentOptions.length > 0 && !confirming && (
+      {accountsReady && effectiveMode === "existing" && (
         <>
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
-            Sélectionner un compte parent
-            <select
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value)}
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
-            >
-              <option value="">—</option>
-              {parentOptions.map((u) => (
-                <option key={u.user.id} value={u.user.id}>
-                  {u.user.full_name} — {u.user.email}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              disabled={!selectedUserId}
-              className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
-            >
-              Lier le compte
-            </button>
-            <button type="button" onClick={onCancel} className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100">
-              Annuler
-            </button>
-          </div>
+          {parentOptions.length === 0 && (
+            <p className="text-xs text-slate-500">
+              Aucun compte parent disponible dans cette école
+              {canCreateParentAccount ? " — utilisez « Créer un nouveau compte parent »." : "."}
+            </p>
+          )}
+
+          {parentOptions.length > 0 && !confirming && (
+            <>
+              <label className="flex flex-col gap-1 text-xs text-slate-600">
+                Sélectionner un compte parent
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                >
+                  <option value="">—</option>
+                  {parentOptions.map((u) => (
+                    <option key={u.user.id} value={u.user.id}>
+                      {u.user.full_name} — {u.user.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirming(true)}
+                  disabled={!selectedUserId}
+                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                >
+                  Lier le compte
+                </button>
+                <button type="button" onClick={onCancel} className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100">
+                  Annuler
+                </button>
+              </div>
+            </>
+          )}
+
+          {confirming && selected && (
+            <>
+              <p className="text-xs text-slate-700">
+                Voulez-vous lier ce tuteur à « {selected.user.full_name} — {selected.user.email} » ?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleConfirm()}
+                  disabled={linking}
+                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                >
+                  {linking ? "Liaison..." : "Confirmer la liaison"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  disabled={linking}
+                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+              </div>
+            </>
+          )}
+
+          {linkError && <p className="text-xs text-red-700">{linkError}</p>}
         </>
       )}
 
-      {confirming && selected && (
+      {accountsReady && effectiveMode === "create" && canCreateParentAccount && (
         <>
-          <p className="text-xs text-slate-700">
-            Voulez-vous lier ce tuteur à « {selected.user.full_name} — {selected.user.email} » ?
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void handleConfirm()}
-              disabled={linking}
-              className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
-            >
-              {linking ? "Liaison..." : "Confirmer la liaison"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              disabled={linking}
-              className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-            >
-              Annuler
-            </button>
-          </div>
+          {!pendingUser && (
+            <form onSubmit={(e) => void handleCreateAndLink(e)} className="flex flex-col gap-2">
+              <p className="text-xs text-slate-500">
+                Un compte parent (rôle PARENT) sera créé et lié à ce tuteur. Un email de bienvenue
+                permettant de définir le mot de passe sera envoyé automatiquement à l&apos;adresse
+                indiquée.
+              </p>
+              <label className="flex flex-col gap-1 text-xs text-slate-600">
+                Nom complet
+                <input
+                  value={createForm.full_name}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, full_name: e.target.value }))}
+                  required
+                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-slate-600">
+                Email
+                <input
+                  type="email"
+                  value={createForm.email}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
+                  required
+                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-slate-600">
+                Téléphone
+                <input
+                  value={createForm.phone}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={createBusy || !createFormValid}
+                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                >
+                  {createPhase === "creating"
+                    ? "Création du compte..."
+                    : createPhase === "linking"
+                      ? "Association du compte..."
+                      : "Créer et lier"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={createBusy}
+                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+              </div>
+            </form>
+          )}
+
+          {pendingUser && (
+            <div className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-2">
+              <p className="text-xs text-amber-900">
+                Le compte parent <strong>{pendingUser.email}</strong> a été créé mais n&apos;a pas
+                pu être lié à ce tuteur.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleRetryLink()}
+                  disabled={createBusy}
+                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                >
+                  {createPhase === "linking" ? "Association du compte..." : "Réessayer la liaison"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={createBusy}
+                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+          )}
+
+          {createError && <p className="text-xs text-red-700">{createError}</p>}
         </>
       )}
-
-      {linkError && <p className="text-xs text-red-700">{linkError}</p>}
     </div>
   );
 }
@@ -152,6 +365,7 @@ export function StudentGuardians({
   schoolId,
   canManage,
   canLinkParentAccount,
+  canCreateParentAccount,
 }: {
   studentId: string;
   schoolId: string;
@@ -161,6 +375,9 @@ export function StudentGuardians({
   // déjà en possession de `permissions` via useAuth) plutôt que recalculé ici, pour ne pas
   // dupliquer la lecture des permissions à deux endroits.
   canLinkParentAccount: boolean;
+  // Sprint 1.12 — création d'un nouveau compte parent (POST /users) depuis ce panneau, distincte
+  // de `canLinkParentAccount` (qui ne couvre que GET /users) : exige en plus `users.manage`.
+  canCreateParentAccount: boolean;
 }) {
   const [directory, setDirectory] = useState<Guardian[] | null>(null);
   const [links, setLinks] = useState<StudentGuardian[] | null>(null);
@@ -206,17 +423,49 @@ export function StudentGuardians({
     }
   }
 
-  async function handleGuardianLinked() {
-    // Recharge depuis l'API (pas seulement la réponse du PATCH) pour confirmer la persistance
-    // réelle — même motif que grades/GradeBookPanel.tsx::AppreciationCell.
+  // Recharge depuis l'API (pas seulement la réponse du PATCH) pour confirmer la persistance
+  // réelle — même motif que grades/GradeBookPanel.tsx::AppreciationCell. Séparée de
+  // `handleGuardianLinked` (Sprint 1.12) : réutilisée aussi après un échec de liaison
+  // post-création (le panneau doit rester ouvert pour permettre de réessayer, pas se fermer).
+  const refreshDirectoryOnly = useCallback(async () => {
     const refreshedDirectory = await guardiansClient.list(schoolId);
     setDirectory(refreshedDirectory);
-    setLinkingGuardianId(null);
+  }, [schoolId]);
+
+  async function handleGuardianLinked() {
+    // Rafraîchit aussi `parentUsers` (pas seulement `directory`) : le badge "Compte parent lié"
+    // affiche l'email via ce cache — sans ce refresh, un compte tout juste créé par le chemin
+    // "Créer un nouveau compte parent" (Sprint 1.12) resterait invisible de ce cache et le badge
+    // afficherait la liaison sans email tant que la page n'est pas rechargée.
+    //
+    // best-effort volontaire : `onLinked` n'est appelé qu'APRÈS le succès réel du PATCH
+    // /guardians/{id} (voir handleConfirm/linkPendingUser) — un échec de ce simple
+    // rafraîchissement de confort ne doit jamais remonter comme une erreur de liaison auprès de
+    // l'appelant (qui l'afficherait à tort comme "la liaison a échoué").
+    try {
+      const [refreshedDirectory, refreshedParentUsers] = await Promise.all([
+        guardiansClient.list(schoolId),
+        usersClient.list(schoolId),
+      ]);
+      setDirectory(refreshedDirectory);
+      setParentUsers(refreshedParentUsers);
+    } catch {
+      // ignoré — voir commentaire ci-dessus.
+    } finally {
+      setLinkingGuardianId(null);
+    }
   }
 
   const available = useMemo(
     () => (directory ?? []).filter((g) => !links?.some((l) => l.guardian_id === g.id)),
     [directory, links],
+  );
+
+  // Sprint 1.12, étape 11 — comptes PARENT déjà liés à un autre tuteur de cette école, exclus de
+  // la sélection dans GuardianLinkPanel pour éviter un 409 évitable côté backend.
+  const linkedUserIds = useMemo(
+    () => new Set((directory ?? []).filter((g) => g.user_id).map((g) => g.user_id as string)),
+    [directory],
   );
 
   async function handleAttachExisting(event: React.FormEvent) {
@@ -322,7 +571,10 @@ export function StudentGuardians({
                   parentUsers={parentUsers}
                   parentUsersLoading={parentUsersLoading}
                   parentUsersError={parentUsersError}
+                  linkedUserIds={linkedUserIds}
+                  canCreateParentAccount={canCreateParentAccount}
                   onLinked={handleGuardianLinked}
+                  onRefreshDirectory={refreshDirectoryOnly}
                   onCancel={() => setLinkingGuardianId(null)}
                 />
               )}

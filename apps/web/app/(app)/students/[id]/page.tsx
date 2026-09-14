@@ -31,6 +31,10 @@ export default function StudentDetailPage() {
   // permission, l'action se solderait par un 403 dès l'ouverture du panneau. Les deux permissions
   // sont donc requises pour PROPOSER l'action, jamais une nouvelle permission inventée.
   const canLinkGuardianToParentAccount = canManage && permissions.includes("users.read");
+  // Sprint 1.12 — création d'un nouveau compte parent (POST /users) depuis ce même panneau :
+  // exige en plus `users.manage` (distinct de `users.read`, qui ne couvre que la liste des
+  // comptes existants) — même raisonnement que le hotfix Sprint 1.11 ci-dessus.
+  const canCreateParentAccount = canManage && permissions.includes("users.manage");
 
   const [student, setStudent] = useState<Student | null>(null);
   const [form, setForm] = useState({
@@ -203,6 +207,7 @@ export default function StudentDetailPage() {
         schoolId={student.school_id}
         canManage={canManage}
         canLinkParentAccount={canLinkGuardianToParentAccount}
+        canCreateParentAccount={canCreateParentAccount}
       />
       <StudentEnrollments studentId={studentId} schoolId={student.school_id} canManage={canManage} />
       <StudentDocuments studentId={studentId} canManage={canManage} />
