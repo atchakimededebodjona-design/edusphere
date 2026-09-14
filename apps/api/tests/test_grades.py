@@ -1,5 +1,7 @@
+import io
 from datetime import date
 
+import openpyxl
 import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy import event
@@ -1194,3 +1196,308 @@ async def test_rbac_permission_checked_before_report_card_lock(client: AsyncClie
         headers=headers_teacher,
     )
     assert response.status_code == 403, response.text
+
+
+# ==================================================================================================
+# Sprint 1.10 — export XLSX des notes/moyennes d'une classe pour une période (une ligne par élève x
+# matière). Aucune donnée n'est recalculée ici — uniquement une relecture de ce que les tests
+# ci-dessus valident déjà (StudentSubjectAverage/StudentTermAverage).
+# ==================================================================================================
+
+EXPORT_HEADERS = (
+    "Matricule",
+    "Nom",
+    "Prénom",
+    "Matière",
+    "Coefficient",
+    "Moyenne matière",
+    "Rang matière",
+    "Appréciation",
+    "Moyenne générale",
+    "Rang général",
+)
+
+
+def _read_xlsx_rows(content: bytes) -> list[tuple]:
+    workbook = openpyxl.load_workbook(io.BytesIO(content))
+    sheet = workbook.active
+    return list(sheet.iter_rows(values_only=True))
+
+
+async def _export_class_performance(client: AsyncClient, headers: dict, class_id: str, academic_term_id: str) -> Response:
+    return await client.get(
+        f"/api/v1/classes/{class_id}/performance/export.xlsx?academic_term_id={academic_term_id}", headers=headers
+    )
+
+
+async def test_export_class_performance_with_complete_data(client: AsyncClient) -> None:
+    data = await register_school(client, "gradesexport1")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student_a, student_b = ctx["students"]
+
+    for subject_key, score_a, score_b in [("math_cs", 16, 10), ("french_cs", 14, 12)]:
+        assessment = (
+            await client.post(
+                "/api/v1/assessments",
+                json={
+                    "class_subject_id": ctx[subject_key]["id"],
+                    "academic_term_id": ctx["term"]["id"],
+                    "assessment_type_id": ctx["assessment_type"]["id"],
+                    "name": "Devoir export",
+                    "assessment_date": str(date(2026, 10, 1)),
+                },
+                headers=headers,
+            )
+        ).json()
+        submit = await client.post(
+            "/api/v1/results",
+            json={
+                "assessment_id": assessment["id"],
+                "results": [
+                    {"student_id": student_a["id"], "score": score_a},
+                    {"student_id": student_b["id"], "score": score_b},
+                ],
+            },
+            headers=headers,
+        )
+        assert submit.status_code == 201, submit.text
+
+    # Appréciation accentuée, sur une seule des deux lignes de l'élève A — vérifie à la fois la
+    # conservation des accents et la cellule vide pour l'élève B (aucune appréciation saisie).
+    averages_a = (
+        await client.get(f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers)
+    ).json()
+    math_average_a = next(s for s in averages_a["subject_averages"] if s["class_subject_id"] == ctx["math_cs"]["id"])
+    appreciation_text = "Excellent élève, continue à progresser."
+    patch = await client.patch(
+        f"/api/v1/student-subject-averages/{math_average_a['id']}",
+        json={"appreciation": appreciation_text},
+        headers=headers,
+    )
+    assert patch.status_code == 200, patch.text
+
+    response = await _export_class_performance(client, headers, ctx["class"]["id"], ctx["term"]["id"])
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert "attachment" in response.headers["content-disposition"]
+
+    rows = _read_xlsx_rows(response.content)
+    assert rows[0] == EXPORT_HEADERS
+    # 2 élèves x 2 matières = 4 lignes de données.
+    assert len(rows) == 1 + 4
+
+    data_rows = rows[1:]
+    assert {row[0] for row in data_rows} == {"S001", "S002"}
+    assert {row[3] for row in data_rows} == {"Mathématiques", "Français"}
+
+    row_a_math = next(r for r in data_rows if r[0] == "S001" and r[3] == "Mathématiques")
+    assert row_a_math[1] == "Test"  # nom
+    assert row_a_math[2] == "Alpha"  # prénom
+    assert row_a_math[4] == pytest.approx(3.0)  # coefficient
+    assert row_a_math[5] == pytest.approx(16.0)  # moyenne matière
+    assert row_a_math[6] == 1  # rang matière (meilleur élève en maths)
+    assert row_a_math[7] == appreciation_text  # accents conservés
+    # (16*3 + 14*2) / 5 = 15.2
+    assert row_a_math[8] == pytest.approx(15.2)  # moyenne générale
+    assert row_a_math[9] == 1  # rang général
+
+    row_b_math = next(r for r in data_rows if r[0] == "S002" and r[3] == "Mathématiques")
+    assert row_b_math[6] == 2  # rang matière
+    assert row_b_math[7] is None  # aucune appréciation saisie pour cet élève -> cellule vide
+    # (10*3 + 12*2) / 5 = 10.8
+    assert row_b_math[8] == pytest.approx(10.8)
+    assert row_b_math[9] == 2
+
+
+async def test_export_shows_blank_cells_for_student_without_any_grade(client: AsyncClient) -> None:
+    """Un élève sans aucune note dans une matière doit tout de même apparaître dans l'export
+    (roster de la classe, pas seulement les élèves ayant déjà une moyenne) — cellules vides,
+    jamais une moyenne fabriquée."""
+    data = await register_school(client, "gradesexport2")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student_a, student_b = ctx["students"]
+
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": ctx["term"]["id"],
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir",
+                "assessment_date": str(date(2026, 10, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+    await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 15}]},
+        headers=headers,
+    )
+
+    response = await _export_class_performance(client, headers, ctx["class"]["id"], ctx["term"]["id"])
+    assert response.status_code == 200, response.text
+    data_rows = _read_xlsx_rows(response.content)[1:]
+    # Toujours 4 lignes (2 élèves x 2 matières) même si B n'a jamais été noté nulle part.
+    assert len(data_rows) == 4
+
+    row_b_math = next(r for r in data_rows if r[0] == "S002" and r[3] == "Mathématiques")
+    assert row_b_math[5] is None  # moyenne matière
+    assert row_b_math[6] is None  # rang matière
+    assert row_b_math[7] is None  # appréciation
+    assert row_b_math[8] is None  # moyenne générale
+    assert row_b_math[9] is None  # rang général
+
+
+async def test_export_class_without_active_students_returns_headers_only(client: AsyncClient) -> None:
+    data = await register_school(client, "gradesexport3")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+
+    for student in ctx["students"]:
+        student_enrollments = (await client.get(f"/api/v1/students/{student['id']}/enrollments", headers=headers)).json()
+        update = await client.patch(
+            f"/api/v1/enrollments/{student_enrollments[0]['id']}", json={"status": "WITHDRAWN"}, headers=headers
+        )
+        assert update.status_code == 200, update.text
+
+    response = await _export_class_performance(client, headers, ctx["class"]["id"], ctx["term"]["id"])
+    assert response.status_code == 200, response.text
+    rows = _read_xlsx_rows(response.content)
+    assert rows == [EXPORT_HEADERS]
+
+
+async def test_export_requires_grades_read_permission(client: AsyncClient) -> None:
+    data = await register_school(client, "gradesexport4")
+    headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    organization_id = data["organization"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers_admin, school_id)
+
+    accountant_data = await register_school(client, "gradesexport4-accountant")
+    accountant_user_id = accountant_data["user"]["id"]
+    await assign_role(accountant_user_id, "ACCOUNTANT", organization_id=organization_id, school_id=school_id)
+    headers_accountant = {"Authorization": f"Bearer {await _login(client, accountant_data['user']['email'])}"}
+
+    response = await _export_class_performance(client, headers_accountant, ctx["class"]["id"], ctx["term"]["id"])
+    assert response.status_code == 403, response.text
+
+
+async def test_export_rejects_class_from_another_school(client: AsyncClient) -> None:
+    school_a = await register_school(client, "gradesexport5a")
+    school_b = await register_school(client, "gradesexport5b")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+    headers_b = {"Authorization": f"Bearer {await _login(client, school_b['user']['email'])}"}
+
+    ctx_b = await _setup_class_with_two_subjects(client, headers_b, school_b["school"]["id"])
+
+    response = await _export_class_performance(client, headers_a, ctx_b["class"]["id"], ctx_b["term"]["id"])
+    assert response.status_code == 404, response.text
+
+
+async def test_export_with_unrelated_term_shows_blank_cells_not_an_error(client: AsyncClient) -> None:
+    """Même comportement tolérant que `get_class_performance` : aucune validation que la période
+    appartient à l'année scolaire de la classe — un academic_term_id sans rapport ne provoque
+    jamais d'erreur, seulement des cellules vides (aucune moyenne n'existe pour cette période)."""
+    data = await register_school(client, "gradesexport6")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+
+    other_year = (
+        await client.post(
+            "/api/v1/academic-years",
+            json={
+                "school_id": school_id,
+                "name": "2027-2028",
+                "start_date": str(date(2027, 9, 1)),
+                "end_date": str(date(2028, 6, 30)),
+            },
+            headers=headers,
+        )
+    ).json()
+    other_term = (
+        await client.post(
+            "/api/v1/academic-terms",
+            json={
+                "academic_year_id": other_year["id"],
+                "name": "Trimestre autre année",
+                "start_date": str(date(2027, 9, 1)),
+                "end_date": str(date(2027, 12, 20)),
+            },
+            headers=headers,
+        )
+    ).json()
+
+    response = await _export_class_performance(client, headers, ctx["class"]["id"], other_term["id"])
+    assert response.status_code == 200, response.text
+    data_rows = _read_xlsx_rows(response.content)[1:]
+    assert len(data_rows) == 4  # roster affiché même sans aucune moyenne pour cette période
+    for row in data_rows:
+        assert row[5] is None and row[6] is None and row[7] is None and row[8] is None and row[9] is None
+
+
+async def test_export_still_works_after_report_card_published(client: AsyncClient) -> None:
+    """Le verrou Sprint 1.9 bloque l'ÉCRITURE des notes/appréciations, jamais la LECTURE — un
+    export doit continuer de fonctionner normalement pour un élève dont le bulletin est publié."""
+    data = await register_school(client, "gradesexport7")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student = ctx["students"][0]
+
+    submit = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 14)
+    assert submit.status_code == 201, submit.text
+
+    await _publish_report_card_for_student(client, headers, ctx, school_id, student["id"], ctx["term"]["id"])
+
+    response = await _export_class_performance(client, headers, ctx["class"]["id"], ctx["term"]["id"])
+    assert response.status_code == 200, response.text
+    data_rows = _read_xlsx_rows(response.content)[1:]
+    row_math = next(r for r in data_rows if r[0] == student["matricule"] and r[3] == "Mathématiques")
+    assert row_math[5] == pytest.approx(14.0)
+
+    # Non-régression Sprint 1.9 : la modification reste bien bloquée après publication.
+    blocked = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 20)
+    assert blocked.status_code == 409, blocked.text
+
+
+async def test_export_preserves_accented_student_names(client: AsyncClient) -> None:
+    data = await register_school(client, "gradesexport8")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+
+    accented_student = (
+        await client.post(
+            "/api/v1/students",
+            json={
+                "school_id": school_id,
+                "matricule": "S003",
+                "first_name": "Amélie",
+                "last_name": "Créspin",
+                "date_of_birth": str(date(2015, 1, 1)),
+                "sex": "F",
+            },
+            headers=headers,
+        )
+    ).json()
+    enroll = await client.post(
+        f"/api/v1/students/{accented_student['id']}/enrollments",
+        json={"class_id": ctx["class"]["id"], "enrollment_date": str(date(2026, 9, 1))},
+        headers=headers,
+    )
+    assert enroll.status_code == 201, enroll.text
+
+    response = await _export_class_performance(client, headers, ctx["class"]["id"], ctx["term"]["id"])
+    assert response.status_code == 200, response.text
+    data_rows = _read_xlsx_rows(response.content)[1:]
+    row = next(r for r in data_rows if r[0] == "S003" and r[3] == "Mathématiques")
+    assert row[1] == "Créspin"
+    assert row[2] == "Amélie"

@@ -146,4 +146,17 @@ export const subjectAverages = {
 export const classPerformance = {
   get: (classId: string, academicTermId: string) =>
     getJson<ClassPerformance>(`/api/v1/classes/${classId}/performance?academic_term_id=${academicTermId}`),
+  // Sprint 1.10 — réponse binaire (XLSX), jamais passée par getJson/`.json()` : `apiFetch` gère
+  // déjà l'authentification/le refresh de session de façon identique, seule la lecture du corps
+  // diffère. Le nom de fichier proposé par le serveur (Content-Disposition) est respecté quand
+  // présent, avec un repli local sinon (ne devrait jamais arriver en pratique).
+  exportXlsx: async (classId: string, academicTermId: string): Promise<{ blob: Blob; filename: string }> => {
+    const response = await apiFetch(
+      `/api/v1/classes/${classId}/performance/export.xlsx?academic_term_id=${academicTermId}`,
+    );
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const match = /filename="?([^"]+)"?/.exec(disposition);
+    return { blob, filename: match ? match[1] : "notes_moyennes.xlsx" };
+  },
 };

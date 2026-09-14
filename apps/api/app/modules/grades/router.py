@@ -1,12 +1,12 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_teacher_only
-from app.modules.academics.models import ClassSubject, SchoolClass, TeacherAssignment
+from app.modules.academics.models import AcademicTerm, ClassSubject, SchoolClass, TeacherAssignment
 from app.modules.grades import service
 from app.modules.grades.models import (
     Assessment,
@@ -286,4 +286,40 @@ async def get_class_performance(
         academic_term_id=academic_term_id,
         class_id=class_id,
         students=[ClassPerformanceEntry(student_id=r.student_id, average=r.average, rank=r.rank) for r in rows],
+    )
+
+
+@router.get("/classes/{class_id}/performance/export.xlsx")
+async def export_class_performance(
+    class_id: uuid.UUID, db: DbSession, current_user: CurrentUser, academic_term_id: uuid.UUID = Query(...)
+) -> Response:
+    """Sprint 1.10 — export XLSX des notes/moyennes d'une classe pour une période. Mêmes
+    contrôles d'autorisation EXACTEMENT que `get_class_performance` ci-dessus (même permission,
+    même portée organisation/école, même absence de restriction par affectation enseignant —
+    volontairement cohérent avec ce que ce rôle peut déjà consulter en direct dans "Performance de
+    classe"). Fichier généré entièrement en mémoire, jamais stocké (voir
+    service.build_class_performance_workbook)."""
+    school_class = await db.get(SchoolClass, class_id)
+    if school_class is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+    await ensure_permission(
+        db, current_user, "grades.read", organization_id=school_class.organization_id, school_id=school_class.school_id
+    )
+
+    rows = await service.build_class_performance_export_rows(db, school_class, academic_term_id)
+    content = service.build_class_performance_workbook(rows)
+
+    # Terme utilisé uniquement pour un nom de fichier lisible — même motif que
+    # report_cards/router.py::download_report_card_pdf (chargement d'un objet annexe juste pour le
+    # nom de fichier) ; un academic_term_id inconnu ne doit jamais faire échouer l'export
+    # (les lignes seraient de toute façon vides), juste retomber sur l'identifiant brut.
+    academic_term = await db.get(AcademicTerm, academic_term_id)
+    class_label = service.safe_filename_component(school_class.name)
+    term_label = service.safe_filename_component(academic_term.name) if academic_term else str(academic_term_id)
+    filename = f"notes_moyennes_{class_label}_{term_label}.xlsx"
+
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -1,11 +1,15 @@
+import re
+import unicodedata
 import uuid
 from decimal import Decimal
+from io import BytesIO
 
 from fastapi import HTTPException, status
+from openpyxl import Workbook
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.academics.models import AcademicTerm, ClassSubject
+from app.modules.academics.models import AcademicTerm, ClassSubject, SchoolClass, Subject
 from app.modules.grades.models import Assessment, AssessmentResult, StudentSubjectAverage, StudentTermAverage
 from app.modules.report_cards.models import ReportCard
 from app.modules.students.models import Student, StudentEnrollment
@@ -359,3 +363,135 @@ async def compute_school_completeness(db: AsyncSession, school_id: uuid.UUID, ac
 
     rate = round(actual / expected * 100, 2) if expected > 0 else None
     return {"expected_results": expected, "actual_results": actual, "completeness_rate": rate}
+
+
+# --- Sprint 1.10 — export XLSX des notes et moyennes d'une classe pour une période --------------
+
+EXPORT_COLUMN_HEADERS = (
+    "Matricule",
+    "Nom",
+    "Prénom",
+    "Matière",
+    "Coefficient",
+    "Moyenne matière",
+    "Rang matière",
+    "Appréciation",
+    "Moyenne générale",
+    "Rang général",
+)
+
+
+async def build_class_performance_export_rows(
+    db: AsyncSession, school_class: SchoolClass, academic_term_id: uuid.UUID
+) -> list[tuple]:
+    """Une ligne par (élève actif de la classe) x (matière de la classe), pour la période donnée.
+
+    Aucun calcul de moyenne/rang ici — relit uniquement `StudentSubjectAverage`/
+    `StudentTermAverage`, déjà tenus à jour par `apply_results_and_recompute` ci-dessus (même
+    règle que `get_class_performance` : ne jamais dupliquer la logique de calcul).
+
+    Contrairement à `get_class_performance` (qui part de `StudentTermAverage`, donc omet tout
+    élève n'ayant STRICTEMENT aucune moyenne), cette fonction part du ROSTER réel de la classe
+    (`StudentEnrollment` actif) : un élève sans aucune note doit tout de même apparaître dans un
+    export de classe (cellules vides, jamais une moyenne inventée), pour qu'une école puisse voir
+    qui n'a pas encore de note plutôt que de le voir simplement disparaître du fichier.
+
+    Batché en 3 requêtes fixes (roster, matières de la classe, moyennes matière + moyennes
+    générale), jamais une requête par élève ni par matière — même discipline anti-N+1 que
+    `recompute_term_averages` (Phase 25)."""
+    students_result = await db.execute(
+        select(Student)
+        .join(StudentEnrollment, StudentEnrollment.student_id == Student.id)
+        .where(StudentEnrollment.class_id == school_class.id, StudentEnrollment.status == "ACTIVE")
+        .order_by(Student.last_name, Student.first_name)
+    )
+    students = list(students_result.scalars().all())
+    if not students:
+        return []
+
+    class_subjects_result = await db.execute(
+        select(ClassSubject, Subject.name)
+        .join(Subject, Subject.id == ClassSubject.subject_id)
+        .where(ClassSubject.class_id == school_class.id)
+        .order_by(Subject.name)
+    )
+    class_subjects = list(class_subjects_result.all())
+    if not class_subjects:
+        return []
+
+    student_ids = [student.id for student in students]
+    class_subject_ids = [class_subject.id for class_subject, _ in class_subjects]
+
+    subject_averages_result = await db.execute(
+        select(StudentSubjectAverage).where(
+            StudentSubjectAverage.student_id.in_(student_ids),
+            StudentSubjectAverage.class_subject_id.in_(class_subject_ids),
+            StudentSubjectAverage.academic_term_id == academic_term_id,
+        )
+    )
+    subject_average_by_key = {
+        (row.student_id, row.class_subject_id): row for row in subject_averages_result.scalars().all()
+    }
+
+    term_averages_result = await db.execute(
+        select(StudentTermAverage).where(
+            StudentTermAverage.student_id.in_(student_ids),
+            StudentTermAverage.academic_term_id == academic_term_id,
+        )
+    )
+    term_average_by_student = {row.student_id: row for row in term_averages_result.scalars().all()}
+
+    rows: list[tuple] = []
+    for student in students:
+        term_average = term_average_by_student.get(student.id)
+        for class_subject, subject_name in class_subjects:
+            subject_average = subject_average_by_key.get((student.id, class_subject.id))
+            rows.append(
+                (
+                    student.matricule,
+                    student.last_name,
+                    student.first_name,
+                    subject_name,
+                    float(class_subject.coefficient),
+                    subject_average.average if subject_average else None,
+                    subject_average.rank if subject_average else None,
+                    subject_average.appreciation if subject_average else None,
+                    term_average.average if term_average else None,
+                    term_average.rank if term_average else None,
+                )
+            )
+    return rows
+
+
+def build_class_performance_workbook(rows: list[tuple]) -> bytes:
+    """Classeur en mémoire uniquement (`BytesIO`, jamais écrit sur disque ni via `StorageProvider`
+    — voir grades/router.py::export_class_performance) : un export est régénérable à volonté,
+    contrairement à un bulletin publié (document historique persistant, voir report_cards), le
+    persister n'apporterait aucun bénéfice et ajouterait un risque d'accès non désiré."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Notes et moyennes"
+    sheet.append(EXPORT_COLUMN_HEADERS)
+    for row in rows:
+        sheet.append(list(row))
+
+    for column_cells in sheet.columns:
+        content_lengths = [len(str(cell.value)) for cell in column_cells if cell.value is not None]
+        width = max(content_lengths, default=10)
+        sheet.column_dimensions[column_cells[0].column_letter].width = min(width + 2, 40)
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def safe_filename_component(value: str) -> str:
+    """Réduit une chaîne (nom de classe/période, saisie par un administrateur — pas une entrée
+    utilisateur non fiable, mais traitée avec la même prudence) à des caractères sûrs pour un nom
+    de fichier ET un en-tête HTTP `Content-Disposition` : jamais de guillemet, retour à la ligne,
+    ou caractère non-ASCII qui pourrait invalider l'en-tête ou son affichage selon le navigateur.
+    Les accents sont translittérés plutôt que simplement supprimés (ex. "Trimestre 1" ->
+    "Trimestre_1", "Année" -> "Annee") pour un nom de fichier encore lisible."""
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", normalized).strip("_")
+    return cleaned or "export"

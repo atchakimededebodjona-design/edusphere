@@ -7,7 +7,7 @@ import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { classPerformance, type ClassPerformance } from "@/lib/grades/client";
 import { students as studentsClient, type Student } from "@/lib/students/client";
 
-export function ClassPerformancePanel({ schoolId }: { schoolId: string }) {
+export function ClassPerformancePanel({ schoolId, canExport }: { schoolId: string; canExport: boolean }) {
   const [classes, setClasses] = useState<SchoolClass[] | null>(null);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [terms, setTerms] = useState<AcademicTerm[] | null>(null);
@@ -16,6 +16,8 @@ export function ClassPerformancePanel({ schoolId }: { schoolId: string }) {
   const [performance, setPerformance] = useState<ClassPerformance | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const loadClasses = useCallback(() => {
     setLoadError(null);
@@ -66,6 +68,26 @@ export function ClassPerformancePanel({ schoolId }: { schoolId: string }) {
       .sort((a, b) => (a.entry.rank ?? Infinity) - (b.entry.rank ?? Infinity));
   }, [performance, roster]);
 
+  async function handleExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { blob, filename } = await classPerformance.exportXlsx(selectedClassId, selectedTermId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClasses} />;
   if (classes === null) return <p className="text-sm text-slate-400">Chargement...</p>;
 
@@ -99,8 +121,21 @@ export function ClassPerformancePanel({ schoolId }: { schoolId: string }) {
             ))}
           </select>
         </label>
+        {canExport && selectedClassId && selectedTermId && (
+          <div className="flex flex-col justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => void handleExport()}
+              disabled={exporting}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            >
+              {exporting ? "Génération..." : "Exporter (.xlsx)"}
+            </button>
+          </div>
+        )}
       </div>
       {error && <p className="text-sm text-red-700">{error}</p>}
+      {exportError && <p className="text-sm text-red-700">{exportError}</p>}
 
       {selectedClassId && selectedTermId && (
         <div className="overflow-x-auto rounded border border-slate-200">

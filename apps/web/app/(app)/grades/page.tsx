@@ -73,6 +73,7 @@ type Tab = (typeof TABS)[number];
 export default function GradesPage() {
   const { currentSchoolId, permissions } = useAuth();
   const canManage = permissions.includes("grades.manage");
+  const canExport = permissions.includes("grades.read");
   const [tab, setTab] = useState<Tab>("Cahier de notes");
 
   if (!currentSchoolId) return <p className="text-sm text-slate-500">Chargement...</p>;
@@ -98,7 +99,7 @@ export default function GradesPage() {
 
       {tab === "Types d'évaluation" && <AssessmentTypesPanel schoolId={currentSchoolId} canManage={canManage} />}
       {tab === "Cahier de notes" && <GradeBookPanel schoolId={currentSchoolId} canManage={canManage} />}
-      {tab === "Performance de classe" && <ClassPerformancePanel schoolId={currentSchoolId} />}
+      {tab === "Performance de classe" && <ClassPerformancePanel schoolId={currentSchoolId} canExport={canExport} />}
     </div>
   );
 }
