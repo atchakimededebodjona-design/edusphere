@@ -46,6 +46,9 @@ export type Guardian = {
   email: string | null;
   address: string | null;
   is_emergency_contact: boolean;
+  // Sprint 1.11 — compte utilisateur PARENT lié (backend : GuardianOut.user_id, déjà renvoyé par
+  // l'API depuis la Phase 7 ; simplement jamais déclaré côté web jusqu'ici).
+  user_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -163,6 +166,11 @@ export const students = {
 export const guardians = {
   list: (schoolId: string) => getJson<Guardian[]>(`/api/v1/guardians?school_id=${schoolId}`),
   create: (payload: GuardianCreate) => postJson<Guardian>("/api/v1/guardians", payload),
+  // Sprint 1.11 — lie ce Guardian à un compte utilisateur PARENT existant. Endpoint backend déjà
+  // existant et validé (PATCH /guardians/{id}) : l'appelant doit déjà avoir un rôle PARENT dans
+  // cette école, sinon le backend refuse (400) — jamais vérifié ici, le backend reste l'autorité.
+  update: (guardianId: string, payload: { user_id: string }) =>
+    patchJson<Guardian>(`/api/v1/guardians/${guardianId}`, payload),
 };
 
 export const studentGuardians = {
