@@ -26,6 +26,11 @@ export default function StudentDetailPage() {
   const { permissions } = useAuth();
   const canManage = permissions.includes("students.manage");
   const canManageFees = permissions.includes("payments.manage");
+  // Sprint 1.11 hotfix — "Lier à un compte parent" appelle en plus GET /users (users.list), qui
+  // exige `users.read` (ex. un STAFF a `students.manage` mais pas `users.read`) : sans cette
+  // permission, l'action se solderait par un 403 dès l'ouverture du panneau. Les deux permissions
+  // sont donc requises pour PROPOSER l'action, jamais une nouvelle permission inventée.
+  const canLinkGuardianToParentAccount = canManage && permissions.includes("users.read");
 
   const [student, setStudent] = useState<Student | null>(null);
   const [form, setForm] = useState({
@@ -193,7 +198,12 @@ export default function StudentDetailPage() {
         {error && <p className="text-sm text-red-700">{error}</p>}
       </form>
 
-      <StudentGuardians studentId={studentId} schoolId={student.school_id} canManage={canManage} />
+      <StudentGuardians
+        studentId={studentId}
+        schoolId={student.school_id}
+        canManage={canManage}
+        canLinkParentAccount={canLinkGuardianToParentAccount}
+      />
       <StudentEnrollments studentId={studentId} schoolId={student.school_id} canManage={canManage} />
       <StudentDocuments studentId={studentId} canManage={canManage} />
       {permissions.includes("fees.read") && (

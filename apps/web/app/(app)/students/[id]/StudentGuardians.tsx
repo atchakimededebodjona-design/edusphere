@@ -151,10 +151,16 @@ export function StudentGuardians({
   studentId,
   schoolId,
   canManage,
+  canLinkParentAccount,
 }: {
   studentId: string;
   schoolId: string;
   canManage: boolean;
+  // Sprint 1.11 hotfix — distinct de `canManage` (students.manage) : la liaison à un compte
+  // parent appelle en plus GET /users, qui exige `users.read`. Calculé par l'appelant (page.tsx,
+  // déjà en possession de `permissions` via useAuth) plutôt que recalculé ici, pour ne pas
+  // dupliquer la lecture des permissions à deux endroits.
+  canLinkParentAccount: boolean;
 }) {
   const [directory, setDirectory] = useState<Guardian[] | null>(null);
   const [links, setLinks] = useState<StudentGuardian[] | null>(null);
@@ -294,7 +300,7 @@ export function StudentGuardians({
                   ) : (
                     <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">Sans compte</span>
                   )}
-                  {canManage && guardian && !guardian.user_id && (
+                  {canLinkParentAccount && guardian && !guardian.user_id && (
                     <button
                       type="button"
                       onClick={() => handleOpenLinkPanel(guardian.id)}
