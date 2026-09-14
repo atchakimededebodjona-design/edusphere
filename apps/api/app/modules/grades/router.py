@@ -249,6 +249,8 @@ async def update_subject_average_appreciation(
 
     class_subject = await _get_class_subject_or_404(db, average.class_subject_id)
     await _ensure_can_manage_class_subject_grades(db, current_user, class_subject)
+    # Sprint 1.9 — même verrou que pour les notes (voir service.apply_results_and_recompute).
+    await service.ensure_report_card_not_published(db, {average.student_id}, average.academic_term_id)
 
     average.appreciation = payload.appreciation
     await db.flush()

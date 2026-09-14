@@ -1,7 +1,7 @@
 from datetime import date
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import event
 
 from app.db.session import engine
@@ -905,3 +905,292 @@ async def test_bulk_grade_submission_query_count_does_not_scale_with_student_cou
         f"Le nombre de requêtes SQL croît avec le nombre d'élèves ({count_small} pour 2 élèves, "
         f"{count_large} pour 8 élèves, écart {growth}) — le correctif N+1 Phase 25 semble régressé."
     )
+
+
+# ==================================================================================================
+# Sprint 1.9 — verrou de cohérence bulletin/notes : une fois un ReportCard PUBLIÉ pour un élève et
+# une période, ni ses notes ni son appréciation pour cette période ne doivent plus être modifiables.
+# ==================================================================================================
+
+MINIMAL_REPORT_CARD_TEMPLATE = "<html><body><h1>{{ student.first_name }}</h1></body></html>"
+
+
+async def _create_report_card_template(client: AsyncClient, headers: dict, school_id: str) -> dict:
+    import uuid as uuid_module
+
+    response = await client.post(
+        "/api/v1/report-card-templates",
+        json={
+            "school_id": school_id,
+            "name": f"Std-lock-{uuid_module.uuid4().hex[:8]}",
+            "html_content": MINIMAL_REPORT_CARD_TEMPLATE,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def _generate_report_cards(client: AsyncClient, headers: dict, ctx: dict, template_id: str, term_id: str) -> list[dict]:
+    response = await client.post(
+        "/api/v1/report-cards/generate",
+        json={"class_id": ctx["class"]["id"], "academic_term_id": term_id, "template_id": template_id},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _publish_report_card(client: AsyncClient, headers: dict, report_card_id: str) -> dict:
+    response = await client.post(f"/api/v1/report-cards/{report_card_id}/publish", headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _publish_report_card_for_student(
+    client: AsyncClient, headers: dict, ctx: dict, school_id: str, student_id: str, term_id: str
+) -> dict:
+    """Génère les bulletins de toute la classe pour cette période puis ne publie QUE celui de
+    `student_id` — les autres élèves de la classe restent en DRAFT (non publiés), ce qui permet de
+    vérifier que le verrou ne s'applique jamais au-delà de l'élève réellement publié."""
+    template = await _create_report_card_template(client, headers, school_id)
+    report_cards = await _generate_report_cards(client, headers, ctx, template["id"], term_id)
+    report_card = next(rc for rc in report_cards if rc["student_id"] == student_id)
+    return await _publish_report_card(client, headers, report_card["id"])
+
+
+async def _submit_grade(client: AsyncClient, headers: dict, ctx: dict, term_id: str, student_id: str, score: float) -> Response:
+    assessment = (
+        await client.post(
+            "/api/v1/assessments",
+            json={
+                "class_subject_id": ctx["math_cs"]["id"],
+                "academic_term_id": term_id,
+                "assessment_type_id": ctx["assessment_type"]["id"],
+                "name": "Devoir verrou",
+                "assessment_date": str(date(2026, 10, 1)) if term_id == ctx["term"]["id"] else str(date(2027, 2, 1)),
+            },
+            headers=headers,
+        )
+    ).json()
+    return await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_id, "score": score}]},
+        headers=headers,
+    )
+
+
+async def _get_subject_average_id(client: AsyncClient, headers: dict, ctx: dict, student_id: str, term_id: str) -> str:
+    averages = (
+        await client.get(f"/api/v1/students/{student_id}/averages?academic_term_id={term_id}", headers=headers)
+    ).json()
+    return next(s for s in averages["subject_averages"] if s["class_subject_id"] == ctx["math_cs"]["id"])["id"]
+
+
+# --- 1/2/3 : note ------------------------------------------------------------------------------
+async def test_grade_modifiable_without_report_card(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock1")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student = ctx["students"][0]
+
+    response = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 14)
+    assert response.status_code == 201, response.text
+
+
+async def test_grade_modifiable_with_generated_but_unpublished_report_card(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock2")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student = ctx["students"][0]
+
+    template = await _create_report_card_template(client, headers, school_id)
+    await _generate_report_cards(client, headers, ctx, template["id"], ctx["term"]["id"])
+
+    response = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 14)
+    assert response.status_code == 201, response.text
+
+
+async def test_grade_rejected_when_report_card_published(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock3")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student = ctx["students"][0]
+
+    await _publish_report_card_for_student(client, headers, ctx, school_id, student["id"], ctx["term"]["id"])
+
+    response = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 14)
+    assert response.status_code == 409, response.text
+    assert "publié" in response.json()["detail"].lower()
+
+
+# --- 4/5/6 : appréciation -----------------------------------------------------------------------
+async def test_appreciation_modifiable_without_report_card(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock4")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student = ctx["students"][0]
+
+    submit = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 14)
+    assert submit.status_code == 201, submit.text
+    average_id = await _get_subject_average_id(client, headers, ctx, student["id"], ctx["term"]["id"])
+
+    response = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Bon travail."}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+
+
+async def test_appreciation_modifiable_with_generated_but_unpublished_report_card(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock5")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student = ctx["students"][0]
+
+    submit = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 14)
+    assert submit.status_code == 201, submit.text
+    average_id = await _get_subject_average_id(client, headers, ctx, student["id"], ctx["term"]["id"])
+
+    template = await _create_report_card_template(client, headers, school_id)
+    await _generate_report_cards(client, headers, ctx, template["id"], ctx["term"]["id"])
+
+    response = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Bon travail."}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+
+
+async def test_appreciation_rejected_when_report_card_published(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock6")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student = ctx["students"][0]
+
+    submit = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 14)
+    assert submit.status_code == 201, submit.text
+    average_id = await _get_subject_average_id(client, headers, ctx, student["id"], ctx["term"]["id"])
+
+    await _publish_report_card_for_student(client, headers, ctx, school_id, student["id"], ctx["term"]["id"])
+
+    response = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": "Correction tardive."}, headers=headers
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        "Le bulletin de cet élève est déjà publié pour cette période. Les notes et appréciations "
+        "ne peuvent plus être modifiées."
+    )
+
+
+# --- 7 : autre élève sans bulletin publié -> toujours modifiable --------------------------------
+async def test_other_student_without_published_report_card_remains_modifiable(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock7")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student_a, student_b = ctx["students"]
+
+    # Bulletins générés pour TOUTE la classe (donc aussi pour B), mais seul celui de A est publié.
+    await _publish_report_card_for_student(client, headers, ctx, school_id, student_a["id"], ctx["term"]["id"])
+
+    response_a = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student_a["id"], 10)
+    assert response_a.status_code == 409, response_a.text
+
+    response_b = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student_b["id"], 10)
+    assert response_b.status_code == 201, response_b.text
+
+
+# --- 8 : autre période sans bulletin publié -> toujours modifiable -----------------------------
+async def test_other_term_without_published_report_card_remains_modifiable(client: AsyncClient) -> None:
+    data = await register_school(client, "gradeslock8")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers, school_id)
+    student = ctx["students"][0]
+
+    await _publish_report_card_for_student(client, headers, ctx, school_id, student["id"], ctx["term"]["id"])
+
+    term_2 = (
+        await client.post(
+            "/api/v1/academic-terms",
+            json={
+                "academic_year_id": ctx["year"]["id"],
+                "name": "Trimestre 2",
+                "start_date": str(date(2027, 1, 5)),
+                "end_date": str(date(2027, 3, 31)),
+            },
+            headers=headers,
+        )
+    ).json()
+
+    # Trimestre 1 verrouillé pour cet élève...
+    response_term1 = await _submit_grade(client, headers, ctx, ctx["term"]["id"], student["id"], 10)
+    assert response_term1.status_code == 409, response_term1.text
+
+    # ...mais le Trimestre 2, sans bulletin publié, reste librement modifiable pour le même élève.
+    response_term2 = await _submit_grade(client, headers, ctx, term_2["id"], student["id"], 10)
+    assert response_term2.status_code == 201, response_term2.text
+
+
+# --- 9 : isolation tenant -------------------------------------------------------------------------
+async def test_report_card_lock_never_crosses_schools(client: AsyncClient) -> None:
+    school_a = await register_school(client, "gradeslock9a")
+    school_b = await register_school(client, "gradeslock9b")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+    headers_b = {"Authorization": f"Bearer {await _login(client, school_b['user']['email'])}"}
+
+    ctx_a = await _setup_class_with_two_subjects(client, headers_a, school_a["school"]["id"])
+    ctx_b = await _setup_class_with_two_subjects(client, headers_b, school_b["school"]["id"])
+    student_a = ctx_a["students"][0]
+    student_b = ctx_b["students"][0]
+
+    # Bulletin publié uniquement dans l'école B.
+    await _publish_report_card_for_student(client, headers_b, ctx_b, school_b["school"]["id"], student_b["id"], ctx_b["term"]["id"])
+
+    response_a = await _submit_grade(client, headers_a, ctx_a, ctx_a["term"]["id"], student_a["id"], 10)
+    assert response_a.status_code == 201, response_a.text
+
+    response_b = await _submit_grade(client, headers_b, ctx_b, ctx_b["term"]["id"], student_b["id"], 10)
+    assert response_b.status_code == 409, response_b.text
+
+
+# --- 10 : RBAC toujours respecté (403 avant 409) --------------------------------------------------
+async def test_rbac_permission_checked_before_report_card_lock(client: AsyncClient) -> None:
+    """Un enseignant non affecté à cette matière doit recevoir 403 — jamais 409 — même si le
+    bulletin est publié : la permission reste la première vérification, le verrou métier ne doit
+    jamais fuiter d'information (même indirectement, via le code d'erreur) à un appelant non
+    autorisé."""
+    data = await register_school(client, "gradeslock10")
+    headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    organization_id = data["organization"]["id"]
+    ctx = await _setup_class_with_two_subjects(client, headers_admin, school_id)
+    student = ctx["students"][0]
+
+    submit = await _submit_grade(client, headers_admin, ctx, ctx["term"]["id"], student["id"], 14)
+    assert submit.status_code == 201, submit.text
+    average_id = await _get_subject_average_id(client, headers_admin, ctx, student["id"], ctx["term"]["id"])
+
+    await _publish_report_card_for_student(client, headers_admin, ctx, school_id, student["id"], ctx["term"]["id"])
+
+    teacher_data = await register_school(client, "gradeslock10-teacher")
+    teacher_user_id = teacher_data["user"]["id"]
+    await assign_role(teacher_user_id, "TEACHER", organization_id=organization_id, school_id=school_id)
+    # Affecté uniquement au Français, jamais aux Maths.
+    await client.post(
+        f"/api/v1/classes/{ctx['class']['id']}/teachers",
+        json={"user_id": teacher_user_id, "subject_id": ctx["french_cs"]["subject_id"]},
+        headers=headers_admin,
+    )
+    headers_teacher = {"Authorization": f"Bearer {await _login(client, teacher_data['user']['email'])}"}
+
+    response = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}",
+        json={"appreciation": "Non autorisé."},
+        headers=headers_teacher,
+    )
+    assert response.status_code == 403, response.text

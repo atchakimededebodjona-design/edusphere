@@ -1,14 +1,52 @@
 import uuid
 from decimal import Decimal
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.academics.models import AcademicTerm, ClassSubject
 from app.modules.grades.models import Assessment, AssessmentResult, StudentSubjectAverage, StudentTermAverage
+from app.modules.report_cards.models import ReportCard
 from app.modules.students.models import Student, StudentEnrollment
 
 TARGET_SCALE = Decimal(20)
+
+REPORT_CARD_PUBLISHED_MESSAGE = (
+    "Le bulletin de cet élève est déjà publié pour cette période. Les notes et appréciations "
+    "ne peuvent plus être modifiées."
+)
+
+
+async def ensure_report_card_not_published(
+    db: AsyncSession, student_ids: set[uuid.UUID], academic_term_id: uuid.UUID
+) -> None:
+    """Sprint 1.9 — verrou de cohérence bulletin/notes : une fois qu'un `ReportCard` a été
+    PUBLIÉ (`published_at` non nul) pour un élève et une période donnés, ni ses notes
+    (`AssessmentResult`, via `apply_results_and_recompute`) ni son appréciation
+    (`StudentSubjectAverage.appreciation`, voir grades/router.py::update_subject_average_appreciation)
+    ne doivent plus être modifiables — le bulletin déjà généré est un document historique
+    (`report_cards/models.py::ReportCard`, `pdf_path` n'est jamais régénéré) qui a pu être
+    distribué à la famille ; le laisser diverger silencieusement des notes en base romprait sa
+    valeur de document officiel.
+
+    Vérifie TOUS les élèves concernés par un même appel (une soumission en masse peut viser
+    plusieurs élèves) avant toute écriture — un seul élève verrouillé rejette l'ensemble de
+    l'appel plutôt que d'écrire silencieusement une partie du lot. Le verrou est scopé
+    exactement à `(student_id, academic_term_id)` : un bulletin publié pour une autre période, ou
+    pour un autre élève, n'a aucun effet ici (`ReportCard` a une contrainte unique par élève+
+    période — voir son modèle)."""
+    if not student_ids:
+        return
+    result = await db.execute(
+        select(ReportCard.id).where(
+            ReportCard.student_id.in_(student_ids),
+            ReportCard.academic_term_id == academic_term_id,
+            ReportCard.published_at.isnot(None),
+        )
+    )
+    if result.first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=REPORT_CARD_PUBLISHED_MESSAGE)
 
 
 async def student_in_class_scope(db: AsyncSession, student: Student, class_id: uuid.UUID) -> bool:
@@ -237,6 +275,10 @@ async def apply_results_and_recompute(
     assert class_subject is not None
 
     entry_student_ids = [student_id for student_id, _, _ in entries]
+    # Sprint 1.9 — appelé ici (point de convergence unique de `submit_results` ET `update_result`,
+    # voir grades/router.py) pour garantir que TOUT chemin de modification d'une note passe par ce
+    # verrou, sans dupliquer la vérification dans chaque endpoint.
+    await ensure_report_card_not_published(db, set(entry_student_ids), assessment.academic_term_id)
     existing_results = await db.execute(
         select(AssessmentResult).where(
             AssessmentResult.assessment_id == assessment.id,
