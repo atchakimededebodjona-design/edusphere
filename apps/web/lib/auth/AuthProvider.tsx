@@ -5,59 +5,78 @@ import { ApiError, onSessionExpired } from "@/lib/api/client";
 import * as authClient from "@/lib/auth/client";
 import type { Me } from "@/lib/auth/client";
 import { getStoredTokens, setStoredTokens } from "@/lib/auth/session";
-import { listSchools, type School } from "@/lib/schools/client";
+import {
+  distinctOrganizationIds,
+  organizationIdForSchool,
+  readLegacySchoolId,
+  readStoredTenantContext,
+  resolveSchoolScopedFastPath,
+  schoolScopedIdsForOrganization,
+  writeTenantContext,
+} from "@/lib/auth/tenantContext";
+import { getOrganization, type Organization } from "@/lib/organizations/client";
+import { getSchool, listSchools, type School } from "@/lib/schools/client";
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous";
 
-// Phase 8.1 — un admin créé par /register n'a qu'un rôle scopé ORGANISATION (school_id null,
-// voir auth/service.py::register) : il n'a pas de "current school" évident. On le résout ici en
-// interrogeant les écoles de son organisation (GET /schools?organization_id=..., déjà existant
-// et déjà isolé par tenant — voir tests/test_tenant_isolation.py). Un rôle scopé école (compte
-// créé via la page Utilisateurs) reste prioritaire et inchangé.
-export type SchoolContextStatus = "loading" | "resolved" | "selection-needed" | "empty" | "error";
-
-const SELECTED_SCHOOL_STORAGE_KEY = "edulinkage.selected_school_id";
-// Phase 27 Sprint 1.1 — ancienne clé, avant la normalisation de marque (voir
-// docs/phases/PHASE_27_SPRINT_1_1_AUTH_SESSION_DISCOVERY.md §2/§6). Cette valeur n'a jamais été
-// une preuve d'autorisation (voir `stillValid` ci-dessous, qui revalide toujours contre la liste
-// réelle des écoles renvoyée par l'API) — la migrer d'une clé de stockage à une autre ne change
-// rien aux contrôles serveur.
-const LEGACY_SELECTED_SCHOOL_STORAGE_KEY = "edusphere.selected_school_id";
-
-function readSelectedSchoolId(): string | null {
-  const current = window.localStorage.getItem(SELECTED_SCHOOL_STORAGE_KEY);
-  if (current) return current;
-
-  const legacy = window.localStorage.getItem(LEGACY_SELECTED_SCHOOL_STORAGE_KEY);
-  if (legacy) {
-    window.localStorage.setItem(SELECTED_SCHOOL_STORAGE_KEY, legacy);
-    window.localStorage.removeItem(LEGACY_SELECTED_SCHOOL_STORAGE_KEY);
-  }
-  return legacy;
-}
+// Contexte tenant à deux niveaux (organisation -> école) — voir docs/mission "sélection
+// multi-organisation/multi-école". Un compte peut avoir accès à plusieurs organisations, et
+// plusieurs écoles au sein de chacune ; aucune des deux n'est jamais choisie arbitrairement
+// (jamais le premier rôle du tableau `roles`, jamais un ordre implicite) — voir
+// lib/auth/tenantContext.ts pour la logique de résolution pure.
+export type TenantContextStatus = "loading" | "resolved" | "selection-needed" | "empty" | "error";
 
 export type AuthContextValue = {
   status: AuthStatus;
   user: Me["user"] | null;
   roles: Me["roles"];
   permissions: string[];
+
+  currentOrganizationId: string | null;
+  organizationContextStatus: TenantContextStatus;
+  availableOrganizations: Organization[];
+  organizationContextError: string | null;
+  selectOrganization: (organizationId: string) => void;
+
   currentSchoolId: string | null;
-  schoolContextStatus: SchoolContextStatus;
+  schoolContextStatus: TenantContextStatus;
   availableSchools: School[];
   schoolContextError: string | null;
   selectSchool: (schoolId: string) => void;
-  retrySchoolContext: () => void;
+
+  retryTenantContext: () => void;
+
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
-function formatSchoolContextError(err: unknown): string {
+// Un contexte mémorisé {organizationId, schoolId} ne doit jamais être utilisé partiellement : si
+// l'organisation est accessible mais que l'école mémorisée ne lui appartient pas (ex. reliquat
+// d'un état antérieur incohérent, ou école déplacée/supprimée), le contexte entier est traité
+// comme invalide — jamais un simple recours à un nouvel écran d'école pour la même organisation
+// choisie implicitement.
+async function isSchoolAccessibleInOrganization(
+  organizationId: string,
+  schoolId: string,
+  roles: Me["roles"],
+): Promise<boolean> {
+  const roleSchoolIds = schoolScopedIdsForOrganization(roles, organizationId);
+  if (roleSchoolIds.length > 0) return roleSchoolIds.includes(schoolId);
+  try {
+    const schools = await listSchools(organizationId);
+    return schools.some((s) => s.id === schoolId);
+  } catch {
+    return false;
+  }
+}
+
+function formatTenantContextError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Votre session a expiré. Reconnectez-vous pour continuer.";
     if (err.status >= 500) return "Une erreur serveur est survenue. Réessayez.";
-    return err.message || "Impossible de déterminer votre école.";
+    return err.message || "Impossible de déterminer votre contexte de travail.";
   }
   return "Erreur réseau : vérifiez votre connexion et réessayez.";
 }
@@ -66,11 +85,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [me, setMe] = useState<Me | null>(null);
 
-  const [schoolContextStatus, setSchoolContextStatus] = useState<SchoolContextStatus>("loading");
+  const [currentOrganizationId, setCurrentOrganizationId] = useState<string | null>(null);
+  const [organizationContextStatus, setOrganizationContextStatus] = useState<TenantContextStatus>("loading");
+  const [availableOrganizations, setAvailableOrganizations] = useState<Organization[]>([]);
+  const [organizationContextError, setOrganizationContextError] = useState<string | null>(null);
+
+  const [currentSchoolId, setCurrentSchoolId] = useState<string | null>(null);
+  const [schoolContextStatus, setSchoolContextStatus] = useState<TenantContextStatus>("loading");
   const [availableSchools, setAvailableSchools] = useState<School[]>([]);
   const [schoolContextError, setSchoolContextError] = useState<string | null>(null);
-  const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
+
   const [resolveAttempt, setResolveAttempt] = useState(0);
+
+  const resetTenantState = useCallback(() => {
+    setCurrentOrganizationId(null);
+    setOrganizationContextStatus("loading");
+    setAvailableOrganizations([]);
+    setOrganizationContextError(null);
+    setCurrentSchoolId(null);
+    setSchoolContextStatus("loading");
+    setAvailableSchools([]);
+    setSchoolContextError(null);
+  }, []);
 
   const loadMe = useCallback(async () => {
     try {
@@ -91,22 +127,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadMe]);
 
-  // Phase 27 Sprint 1.1 — un 401 rencontré n'importe où dans l'app (pas seulement au chargement
-  // initial) peut révéler un refresh token expiré/révoqué. `apiFetch` vit hors de l'arbre React et
-  // ne peut pas modifier cet état directement ; il notifie via `onSessionExpired`, et c'est ici
-  // qu'on repasse réellement en "anonymous" — ce qui fait déclencher la redirection déjà existante
-  // dans AuthGate, sans aucun code de navigation supplémentaire (même pattern que
-  // apps/mobile/lib/auth/AuthProvider.tsx, voir Discovery §7/§15).
+  // Phase 27 Sprint 1.1 — un 401 rencontré n'importe où dans l'app peut révéler un refresh token
+  // expiré/révoqué ; `apiFetch` notifie via `onSessionExpired` (voir api/client.ts), et c'est ici
+  // qu'on repasse réellement en "anonymous" (déclenche la redirection déjà existante dans
+  // AuthGate, sans code de navigation supplémentaire).
   useEffect(() => {
     return onSessionExpired(() => {
       setMe(null);
       setStatus("anonymous");
-      setSchoolContextStatus("loading");
-      setAvailableSchools([]);
-      setSchoolContextError(null);
-      setSelectedSchoolId(null);
+      resetTenantState();
     });
-  }, []);
+  }, [resetTenantState]);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -117,90 +148,237 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadMe],
   );
 
+  // Contexte tenant nettoyé (état React remis à zéro) sur déconnexion — mais le choix mémorisé en
+  // localStorage n'est jamais effacé ici : une reconnexion ultérieure du même compte sur ce même
+  // navigateur doit pouvoir le restaurer (revalidé contre l'API, jamais fait confiance tel quel —
+  // voir resolveSchoolsForOrganization ci-dessous).
   const logout = useCallback(async () => {
     await authClient.logout();
     setMe(null);
     setStatus("anonymous");
-    setSchoolContextStatus("loading");
-    setAvailableSchools([]);
-    setSchoolContextError(null);
-    setSelectedSchoolId(null);
-  }, []);
+    resetTenantState();
+  }, [resetTenantState]);
 
-  const schoolScopedRoleId = useMemo(() => me?.roles.find((role) => role.school_id)?.school_id ?? null, [me]);
-  // Un seul rôle scopé organisation est réellement produit aujourd'hui (register()) — pas de
-  // support de plusieurs organisations simultanées, ce cas n'existe pas dans le produit actuel.
-  const orgScopedRole = useMemo(
-    () => me?.roles.find((role) => !role.school_id && role.organization_id) ?? null,
-    [me],
+  // Résout les écoles d'UNE organisation déjà déterminée (auto ou choisie explicitement) :
+  // - `GET /schools?organization_id=...` (existant) fonctionne pour un rôle org-wide
+  //   (SCHOOL_ADMIN/DIRECTOR-style, school_id NULL) ;
+  // - un rôle scopé à des écoles précises (ex. enseignant) n'a PAS `schools.read` au niveau
+  //   organisation (voir apps/api/app/core/permissions.py::get_scoped_permission_codes — un rôle
+  //   school_id non-null ne compte jamais pour un contrôle organization_id seul) : en cas
+  //   d'échec, on reconstitue la liste directement depuis les écoles auxquelles ce compte a
+  //   réellement un rôle (`GET /schools/{id}`, autorisé école par école).
+  const resolveSchoolsForOrganization = useCallback(
+    async (organizationId: string, roles: Me["roles"], cancelledRef: { current: boolean }) => {
+      setSchoolContextStatus("loading");
+      setSchoolContextError(null);
+
+      const roleSchoolIds = schoolScopedIdsForOrganization(roles, organizationId);
+      let schools: School[];
+      try {
+        schools = await listSchools(organizationId);
+      } catch (err) {
+        if (roleSchoolIds.length === 0) {
+          if (cancelledRef.current) return;
+          setSchoolContextError(formatTenantContextError(err));
+          setSchoolContextStatus("error");
+          return;
+        }
+        try {
+          schools = await Promise.all(roleSchoolIds.map((id) => getSchool(id)));
+        } catch (fallbackErr) {
+          if (cancelledRef.current) return;
+          setSchoolContextError(formatTenantContextError(fallbackErr));
+          setSchoolContextStatus("error");
+          return;
+        }
+      }
+      if (cancelledRef.current) return;
+
+      const scoped = roleSchoolIds.length > 0 ? schools.filter((s) => roleSchoolIds.includes(s.id)) : schools;
+      setAvailableSchools(scoped);
+
+      if (scoped.length === 0) {
+        setSchoolContextStatus("empty");
+        return;
+      }
+      if (scoped.length === 1) {
+        setCurrentSchoolId(scoped[0].id);
+        setSchoolContextStatus("resolved");
+        writeTenantContext({ organizationId, schoolId: scoped[0].id });
+        return;
+      }
+
+      // Plusieurs écoles pour cette organisation : jamais de sélection arbitraire. Un choix déjà
+      // fait explicitement sur ce navigateur (nouvelle clé, ou ancienne clé pré-migration) n'est
+      // réutilisé que s'il désigne une école qui existe réellement dans la liste ci-dessus.
+      const stored = readStoredTenantContext();
+      if (stored?.organizationId === organizationId && scoped.some((s) => s.id === stored.schoolId)) {
+        setCurrentSchoolId(stored.schoolId);
+        setSchoolContextStatus("resolved");
+        return;
+      }
+      const legacySchoolId = readLegacySchoolId();
+      if (legacySchoolId && scoped.some((s) => s.id === legacySchoolId)) {
+        setCurrentSchoolId(legacySchoolId);
+        setSchoolContextStatus("resolved");
+        writeTenantContext({ organizationId, schoolId: legacySchoolId });
+        return;
+      }
+
+      setSchoolContextStatus("selection-needed");
+    },
+    [],
   );
 
   useEffect(() => {
     if (status !== "authenticated" || !me) return;
+    const cancelledRef = { current: false };
 
-    if (schoolScopedRoleId) {
-      setSchoolContextStatus("resolved");
-      return;
-    }
+    async function run() {
+      const roles = me!.roles;
 
-    if (!orgScopedRole?.organization_id) {
-      // Ni rôle scopé école, ni rôle scopé organisation (ex. rôle plateforme SUPER_ADMIN /
-      // PLATFORM_SUPPORT, organization_id ET school_id nuls) : aucune "école courante" n'a de
-      // sens pour ce compte avec les écrans actuels.
-      setSchoolContextStatus("empty");
-      return;
-    }
+      // Compatibilité stricte : un compte explicitement lié à UNE SEULE école (jamais `roles[0]`
+      // — un ensemble dédupliqué de taille 1) reste résolu directement, sans le moindre écran de
+      // sélection, exactement comme avant cette phase.
+      const fastPath = resolveSchoolScopedFastPath(roles);
+      if (fastPath) {
+        setAvailableOrganizations([]);
+        setCurrentOrganizationId(fastPath.organizationId);
+        setOrganizationContextStatus("resolved");
+        setAvailableSchools([]);
+        setCurrentSchoolId(fastPath.schoolId);
+        setSchoolContextStatus("resolved");
+        return;
+      }
 
-    let cancelled = false;
-    setSchoolContextStatus("loading");
-    setSchoolContextError(null);
+      const orgIds = distinctOrganizationIds(roles);
+      if (orgIds.length === 0) {
+        // Ni rôle scopé école, ni rôle scopé organisation (ex. rôle plateforme, organization_id
+        // ET school_id nuls) : aucun contexte de travail n'a de sens pour ce compte ici.
+        setOrganizationContextStatus("empty");
+        setSchoolContextStatus("empty");
+        return;
+      }
 
-    listSchools(orgScopedRole.organization_id)
-      .then((schools) => {
-        if (cancelled) return;
-        setAvailableSchools(schools);
-        if (schools.length === 0) {
-          setSchoolContextStatus("empty");
-        } else if (schools.length === 1) {
-          setSelectedSchoolId(schools[0].id);
-          setSchoolContextStatus("resolved");
-        } else {
-          // Plusieurs écoles pour cette organisation : jamais de sélection arbitraire. On
-          // réutilise un choix déjà fait explicitement sur ce navigateur s'il est toujours
-          // valide, sinon on demande une sélection explicite (AuthGate).
-          const remembered = readSelectedSchoolId();
-          const stillValid = remembered && schools.some((s) => s.id === remembered);
-          if (stillValid) {
-            setSelectedSchoolId(remembered);
-            setSchoolContextStatus("resolved");
-          } else {
-            setSchoolContextStatus("selection-needed");
+      if (orgIds.length === 1) {
+        setAvailableOrganizations([]);
+        setCurrentOrganizationId(orgIds[0]);
+        setOrganizationContextStatus("resolved");
+        await resolveSchoolsForOrganization(orgIds[0], roles, cancelledRef);
+        return;
+      }
+
+      // Plusieurs organisations réellement accessibles : jamais de choix implicite, quel que
+      // soit l'ordre dans `roles`. La liste globale `GET /organizations` exige une permission
+      // vérifiée SANS contexte (voir app/core/permissions.py::get_scoped_permission_codes) et ne
+      // matche donc qu'un rôle réellement plateforme — jamais un rôle scopé à une organisation
+      // précise (le cas ici). On récupère donc chaque organisation individuellement via
+      // `GET /organizations/{id}` (déjà autorisé pour un rôle org-scoped), un appel par id connu
+      // de `roles`, jamais une liste devinée.
+      setOrganizationContextStatus("loading");
+      setOrganizationContextError(null);
+      const settled = await Promise.allSettled(orgIds.map((id) => getOrganization(id)));
+      if (cancelledRef.current) return;
+
+      const accessible: Organization[] = [];
+      let firstError: unknown = null;
+      for (const result of settled) {
+        if (result.status === "fulfilled") accessible.push(result.value);
+        else firstError ??= result.reason;
+      }
+
+      if (accessible.length === 0) {
+        setOrganizationContextError(formatTenantContextError(firstError));
+        setOrganizationContextStatus("error");
+        return;
+      }
+      setAvailableOrganizations(accessible);
+
+      if (accessible.length === 1) {
+        setCurrentOrganizationId(accessible[0].id);
+        setOrganizationContextStatus("resolved");
+        await resolveSchoolsForOrganization(accessible[0].id, roles, cancelledRef);
+        return;
+      }
+
+      // Choix déjà fait explicitement sur ce navigateur, revalidé contre les organisations
+      // réellement accessibles (jamais pris pour argent comptant) ET contre l'appartenance réelle
+      // de l'école mémorisée à cette organisation (un couple {organizationId, schoolId} incohérent
+      // n'est jamais réutilisé même partiellement — nouvelle sélection complète redemandée).
+      const stored = readStoredTenantContext();
+      if (stored && accessible.some((org) => org.id === stored.organizationId)) {
+        const schoolValid = await isSchoolAccessibleInOrganization(stored.organizationId, stored.schoolId, roles);
+        if (cancelledRef.current) return;
+        if (schoolValid) {
+          setCurrentOrganizationId(stored.organizationId);
+          setOrganizationContextStatus("resolved");
+          await resolveSchoolsForOrganization(stored.organizationId, roles, cancelledRef);
+          return;
+        }
+      }
+
+      // Ancienne clé (schoolId seul, sans organisation) : migration douce SEULEMENT si cette
+      // école existe toujours et appartient à une organisation réellement accessible — jamais
+      // devinée depuis les rôles seuls (un rôle org-wide ne mentionne aucun school_id précis),
+      // confirmée directement auprès de l'API.
+      const legacySchoolId = readLegacySchoolId();
+      if (legacySchoolId) {
+        const inferredOrgId = organizationIdForSchool(roles, legacySchoolId);
+        let migratedOrgId = inferredOrgId && accessible.some((org) => org.id === inferredOrgId) ? inferredOrgId : null;
+        if (!migratedOrgId) {
+          try {
+            const legacySchool = await getSchool(legacySchoolId);
+            if (accessible.some((org) => org.id === legacySchool.organization_id)) {
+              migratedOrgId = legacySchool.organization_id;
+            }
+          } catch {
+            // École inaccessible/supprimée : jamais utilisée comme preuve, ignorée silencieusement.
           }
         }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setSchoolContextError(formatSchoolContextError(err));
-        setSchoolContextStatus("error");
-      });
+        if (cancelledRef.current) return;
+        if (migratedOrgId) {
+          setCurrentOrganizationId(migratedOrgId);
+          setOrganizationContextStatus("resolved");
+          await resolveSchoolsForOrganization(migratedOrgId, roles, cancelledRef);
+          return;
+        }
+      }
 
+      setOrganizationContextStatus("selection-needed");
+    }
+
+    void run();
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, me, schoolScopedRoleId, orgScopedRole, resolveAttempt]);
+  }, [status, me, resolveAttempt, resolveSchoolsForOrganization]);
 
-  const selectSchool = useCallback((schoolId: string) => {
-    window.localStorage.setItem(SELECTED_SCHOOL_STORAGE_KEY, schoolId);
-    setSelectedSchoolId(schoolId);
-    setSchoolContextStatus("resolved");
-  }, []);
+  const selectOrganization = useCallback(
+    (organizationId: string) => {
+      if (!me) return;
+      setCurrentOrganizationId(organizationId);
+      setOrganizationContextStatus("resolved");
+      setCurrentSchoolId(null);
+      setAvailableSchools([]);
+      const cancelledRef = { current: false };
+      void resolveSchoolsForOrganization(organizationId, me.roles, cancelledRef);
+    },
+    [me, resolveSchoolsForOrganization],
+  );
 
-  const retrySchoolContext = useCallback(() => {
+  const selectSchool = useCallback(
+    (schoolId: string) => {
+      if (currentOrganizationId) writeTenantContext({ organizationId: currentOrganizationId, schoolId });
+      setCurrentSchoolId(schoolId);
+      setSchoolContextStatus("resolved");
+    },
+    [currentOrganizationId],
+  );
+
+  const retryTenantContext = useCallback(() => {
     setResolveAttempt((n) => n + 1);
   }, []);
-
-  const currentSchoolId = useMemo(() => schoolScopedRoleId ?? selectedSchoolId, [schoolScopedRoleId, selectedSchoolId]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -208,24 +386,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: me?.user ?? null,
       roles: me?.roles ?? [],
       permissions: me?.permissions ?? [],
+      currentOrganizationId,
+      organizationContextStatus,
+      availableOrganizations,
+      organizationContextError,
+      selectOrganization,
       currentSchoolId,
       schoolContextStatus,
       availableSchools,
       schoolContextError,
       selectSchool,
-      retrySchoolContext,
+      retryTenantContext,
       login,
       logout,
     }),
     [
       status,
       me,
+      currentOrganizationId,
+      organizationContextStatus,
+      availableOrganizations,
+      organizationContextError,
+      selectOrganization,
       currentSchoolId,
       schoolContextStatus,
       availableSchools,
       schoolContextError,
       selectSchool,
-      retrySchoolContext,
+      retryTenantContext,
       login,
       logout,
     ],

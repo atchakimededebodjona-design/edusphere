@@ -12,14 +12,48 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ErrorRetryScreen({
+  message,
+  onRetry,
+  onReconnect,
+}: {
+  message: string;
+  onRetry: () => void;
+  onReconnect: () => void;
+}) {
+  return (
+    <Centered>
+      <p role="alert" className="max-w-sm text-sm text-red-700">
+        {message}
+      </p>
+      <div className="flex gap-3">
+        <button type="button" onClick={onRetry} className="rounded bg-slate-900 px-4 py-2 text-sm text-white">
+          Réessayer
+        </button>
+        <button
+          type="button"
+          onClick={onReconnect}
+          className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700"
+        >
+          Se reconnecter
+        </button>
+      </div>
+    </Centered>
+  );
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const {
     status,
+    organizationContextStatus,
+    availableOrganizations,
+    organizationContextError,
+    selectOrganization,
     schoolContextStatus,
     availableSchools,
     schoolContextError,
     selectSchool,
-    retrySchoolContext,
+    retryTenantContext,
     logout,
   } = useAuth();
   const router = useRouter();
@@ -28,7 +62,65 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     if (status === "anonymous") router.push("/login");
   }, [status, router]);
 
-  if (status !== "authenticated" || schoolContextStatus === "loading") {
+  const reconnect = () => void logout().then(() => router.push("/login"));
+
+  if (status !== "authenticated" || organizationContextStatus === "loading") {
+    return (
+      <Centered>
+        <p className="text-sm text-slate-500">Chargement...</p>
+      </Centered>
+    );
+  }
+
+  if (organizationContextStatus === "error") {
+    return (
+      <ErrorRetryScreen
+        message={organizationContextError ?? "Une erreur est survenue."}
+        onRetry={retryTenantContext}
+        onReconnect={reconnect}
+      />
+    );
+  }
+
+  if (organizationContextStatus === "empty") {
+    return (
+      <Centered>
+        <p className="max-w-sm text-sm text-slate-600">Aucune organisation ou école accessible avec ce compte.</p>
+        <button type="button" onClick={reconnect} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700">
+          Se déconnecter
+        </button>
+      </Centered>
+    );
+  }
+
+  if (organizationContextStatus === "selection-needed") {
+    return (
+      <Centered>
+        <h1 className="text-lg font-semibold text-slate-900">Choisissez une organisation</h1>
+        <p className="max-w-sm text-sm text-slate-500">
+          Votre compte est rattaché à plusieurs organisations. Sélectionnez celle avec laquelle vous
+          souhaitez travailler.
+        </p>
+        <ul className="flex w-full max-w-sm flex-col gap-2">
+          {availableOrganizations.map((organization) => (
+            <li key={organization.id}>
+              <button
+                type="button"
+                onClick={() => selectOrganization(organization.id)}
+                className="w-full rounded border border-slate-300 px-4 py-2 text-left text-sm hover:bg-slate-100"
+              >
+                {organization.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Centered>
+    );
+  }
+
+  // organizationContextStatus === "resolved" à partir d'ici : passage au statut école.
+
+  if (schoolContextStatus === "loading") {
     return (
       <Centered>
         <p className="text-sm text-slate-500">Chargement...</p>
@@ -38,35 +130,19 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (schoolContextStatus === "error") {
     return (
-      <Centered>
-        <p role="alert" className="max-w-sm text-sm text-red-700">
-          {schoolContextError}
-        </p>
-        <div className="flex gap-3">
-          <button type="button" onClick={retrySchoolContext} className="rounded bg-slate-900 px-4 py-2 text-sm text-white">
-            Réessayer
-          </button>
-          <button
-            type="button"
-            onClick={() => void logout().then(() => router.push("/login"))}
-            className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700"
-          >
-            Se reconnecter
-          </button>
-        </div>
-      </Centered>
+      <ErrorRetryScreen
+        message={schoolContextError ?? "Une erreur est survenue."}
+        onRetry={retryTenantContext}
+        onReconnect={reconnect}
+      />
     );
   }
 
   if (schoolContextStatus === "empty") {
     return (
       <Centered>
-        <p className="max-w-sm text-sm text-slate-600">Aucune école accessible avec ce compte.</p>
-        <button
-          type="button"
-          onClick={() => void logout().then(() => router.push("/login"))}
-          className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700"
-        >
+        <p className="max-w-sm text-sm text-slate-600">Aucune organisation ou école accessible avec ce compte.</p>
+        <button type="button" onClick={reconnect} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700">
           Se déconnecter
         </button>
       </Centered>
