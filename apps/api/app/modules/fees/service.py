@@ -180,7 +180,7 @@ async def _refresh_student_fee_status(db: AsyncSession, student_fee: StudentFee)
 
 async def record_payment(
     db: AsyncSession, student: Student, payload: PaymentCreate, recorded_by: uuid.UUID
-) -> tuple[Payment, list[tuple[str, str, str]]]:
+) -> tuple[Payment, list[tuple[str, str, str, str | None, str | None, uuid.UUID | None]]]:
     """Enregistre un paiement manuel et ses allocations, dans une seule transaction verrouillée.
 
     Idempotence : une resoumission avec la même `idempotency_key` renvoie le paiement déjà créé
@@ -389,12 +389,18 @@ def _render_receipt_html(
 # --- Notifications (best-effort, motif identique à report_cards) ------------------------------
 
 
-async def _prepare_payment_notifications(db: AsyncSession, student: Student, payment: Payment) -> list[tuple[str, str, str]]:
+async def _prepare_payment_notifications(
+    db: AsyncSession, student: Student, payment: Payment
+) -> list[tuple[str, str, str, str | None, str | None, uuid.UUID | None]]:
     """Contenu volontairement minimal : jamais de lien cliquable vers le reçu — aucune vue web
     parent n'existe dans ce dépôt (parent = mobile uniquement) et aucun schéma de lien profond
     mobile n'est établi ; inventer l'un ou l'autre pour cette phase créerait une nouvelle surface
     non éprouvée. Le canal sécurisé réel est l'application mobile authentifiée elle-même — motif
-    identique à la notification de publication de bulletin (report_cards/service.py)."""
+    identique à la notification de publication de bulletin (report_cards/service.py).
+
+    Phase 24B — `School` résolue ici, une seule fois pour tous les tuteurs de cet élève, à partir
+    de `student.school_id` déjà validé côté serveur (jamais un `school_id` de payload) : identité
+    d'expéditeur = l'école de l'élève concerné."""
     result = await db.execute(
         select(Guardian.full_name, Guardian.email)
         .join(StudentGuardian, StudentGuardian.guardian_id == Guardian.id)
@@ -404,6 +410,10 @@ async def _prepare_payment_notifications(db: AsyncSession, student: Student, pay
             Guardian.email.isnot(None),
         )
     )
+    school = await db.get(School, student.school_id)
+    from_name = school.name if school else None
+    reply_to = school.email if school else None
+    school_id = school.id if school else None
     subject = f"Reçu de paiement — {student.first_name} {student.last_name}"
     return [
         (
@@ -414,16 +424,19 @@ async def _prepare_payment_notifications(db: AsyncSession, student: Student, pay
             f"{student.last_name} (reçu n° {payment.receipt_number}).\n\n"
             "Connectez-vous à l'application mobile EduLinkage pour consulter le reçu et le solde "
             "à jour.\n\n"
-            "— EduLinkage",
+            "Cet email a été envoyé via EduLinkage, plateforme de gestion scolaire.",
+            from_name,
+            reply_to,
+            school_id,
         )
         for full_name, email in result.all()
         if email is not None
     ]
 
 
-async def send_payment_notifications(notifications: list[tuple[str, str, str]]) -> None:
-    for to, subject, body in notifications:
-        await send_email_best_effort(to, subject, body)
+async def send_payment_notifications(notifications: list[tuple[str, str, str, str | None, str | None, uuid.UUID | None]]) -> None:
+    for to, subject, body, from_name, reply_to, school_id in notifications:
+        await send_email_best_effort(to, subject, body, from_name=from_name, reply_to=reply_to, school_id=school_id)
 
 
 # --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) -----------------------

@@ -244,6 +244,42 @@ async def _fetch_reminder_row(school_id: str, student_id: str, guardian_id: str,
         return result.scalar_one()
 
 
+# --- Phase 24B : identité d'expéditeur = l'école de l'élève absent ------------------------------
+async def test_absence_email_uses_school_name_as_from_name(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup(client, "absnfromname")
+    student = env["ctx"]["students"][0]
+    await _create_guardian_with_email(client, env, student["id"], "guardian.absnfromname")
+
+    await _submit_record(client, env["admin_headers"], env["session"]["id"], student["id"], "ABSENT")
+
+    emails = _absence_emails(tmp_path)
+    assert len(emails) == 1
+    assert "From-Name: absnfromname School" in emails[0]
+
+
+async def test_absence_email_uses_school_email_as_reply_to(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup(client, "absnreplyto")
+    school_email = unique_email("direction.absnreplyto")
+    patch = await client.patch(
+        f"/api/v1/schools/{env['school_id']}", json={"email": school_email}, headers=env["admin_headers"]
+    )
+    assert patch.status_code == 200, patch.text
+    student = env["ctx"]["students"][0]
+    await _create_guardian_with_email(client, env, student["id"], "guardian.absnreplyto")
+
+    await _submit_record(client, env["admin_headers"], env["session"]["id"], student["id"], "ABSENT")
+
+    emails = _absence_emails(tmp_path)
+    assert len(emails) == 1
+    assert f"Reply-To: {school_email}" in emails[0]
+
+
 # --- 1 : tuteur sans compte + email -> email envoyé ------------------------------------------------
 async def test_guardian_without_account_with_email_receives_absence_email(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -392,7 +428,9 @@ async def test_absence_on_different_date_sends_new_email(client: AsyncClient, mo
 # --- 10 : échec du provider SMTP -> l'absence reste enregistrée -------------------------------------
 async def test_provider_failure_does_not_prevent_absence_recording(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingProvider:
-        async def send(self, to: str, subject: str, body: str) -> None:
+        async def send(
+            self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+        ) -> None:
             raise RuntimeError("SMTP down (simulé)")
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())
@@ -428,7 +466,9 @@ async def test_tracking_row_becomes_transport_accepted_on_successful_send(
 # --- 12 : transport FAILED correctement enregistré --------------------------------------------------
 async def test_tracking_row_becomes_transport_failed_on_provider_exception(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingProvider:
-        async def send(self, to: str, subject: str, body: str) -> None:
+        async def send(
+            self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+        ) -> None:
             raise RuntimeError("SMTP down (simulé)")
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())

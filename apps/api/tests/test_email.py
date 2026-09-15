@@ -15,7 +15,7 @@ from httpx import AsyncClient
 import app.core.email as email_module
 from app.core.config import settings
 from app.core.email import LocalEmailProvider, SmtpEmailProvider, get_email_provider, send_email_best_effort
-from tests.conftest import register_school, unique_email
+from tests.conftest import assign_role, register_school, unique_email
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -39,6 +39,33 @@ async def test_local_email_provider_writes_a_file_with_expected_content(tmp_path
     assert "teacher@example.tg" in content
     assert "Sujet de test" in content
     assert "Corps du message" in content
+
+
+# --- Phase 24B : LocalEmailProvider représente from_name/reply_to (dev/tests) -------------------
+async def test_local_email_provider_writes_from_name_and_reply_to_when_provided(tmp_path: Path) -> None:
+    provider = LocalEmailProvider(str(tmp_path))
+    await provider.send(
+        "parent@example.tg", "Sujet", "Corps", from_name="Lycée de Tokoin", reply_to="direction@lyceedetokoin.tg"
+    )
+
+    files = list(tmp_path.glob("*.txt"))
+    assert len(files) == 1
+    content = files[0].read_text(encoding="utf-8")
+    assert "From-Name: Lycée de Tokoin" in content
+    assert "Reply-To: direction@lyceedetokoin.tg" in content
+
+
+async def test_local_email_provider_omits_from_name_and_reply_to_when_absent(tmp_path: Path) -> None:
+    """Comportement strictement inchangé pour un appel sans identité d'école (les 6 appelants
+    historiques avant la Phase 24B, ou le cas de repli EduLinkage) — pas de ligne vide ajoutée."""
+    provider = LocalEmailProvider(str(tmp_path))
+    await provider.send("teacher@example.tg", "Sujet de test", "Corps du message")
+
+    files = list(tmp_path.glob("*.txt"))
+    assert len(files) == 1
+    content = files[0].read_text(encoding="utf-8")
+    assert "From-Name:" not in content
+    assert "Reply-To:" not in content
 
 
 # --- Sélection du provider (Phase 14 — préparation configuration de production) ------------------
@@ -69,7 +96,9 @@ def test_get_email_provider_rejects_unknown_provider() -> None:
 
 async def test_send_email_best_effort_does_not_raise_on_provider_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingProvider:
-        async def send(self, to: str, subject: str, body: str) -> None:
+        async def send(
+            self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+        ) -> None:
             raise RuntimeError("SMTP down")
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())
@@ -104,6 +133,96 @@ async def test_forgot_password_triggers_a_real_email_send(
     assert len(emails) == 1
     assert email in emails[0]
     assert "reset-password?token=" in emails[0]
+
+
+# --- Phase 24B : reset-password — règle explicite 0/1/plusieurs écoles -------------------------
+async def test_forgot_password_uses_school_identity_when_user_has_exactly_one_school(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cas B — un utilisateur avec exactement un rattachement scolaire (ex. un enseignant)
+    reçoit son email de réinitialisation avec l'identité de CETTE école."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    data = await register_school(client, "resetoneschool")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    teacher_email = unique_email("teacher.resetoneschool")
+    created = await client.post(
+        "/api/v1/users",
+        json={
+            "email": teacher_email,
+            "full_name": "Prof Reset",
+            "school_id": data["school"]["id"],
+            "role_code": "TEACHER",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+
+    response = await client.post("/api/v1/auth/forgot-password", json={"email": teacher_email})
+    assert response.status_code == 202
+
+    emails = _read_emails(tmp_path)
+    # Le premier email (invitation) porte déjà l'identité école (voir tests dédiés ci-dessus) ;
+    # celui-ci est le second, produit par forgot-password.
+    reset_email = next(e for e in emails if "reset-password?token=" in e and "Bienvenue" not in e)
+    assert f"From-Name: {data['school']['name']}" in reset_email
+
+
+async def test_forgot_password_uses_platform_identity_when_user_has_no_school(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cas A — le SCHOOL_ADMIN créé par `register()` n'a qu'un rôle scopé ORGANISATION
+    (`school_id` NULL, voir auth/service.py::register) : aucune école unique n'est identifiable,
+    repli explicite sur l'identité plateforme (aucune ligne From-Name)."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    data = await register_school(client, "resetnoschool")
+    admin_email = data["user"]["email"]
+
+    response = await client.post("/api/v1/auth/forgot-password", json={"email": admin_email})
+    assert response.status_code == 202
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert "From-Name:" not in emails[0]
+
+
+async def test_forgot_password_uses_platform_identity_when_user_has_multiple_schools(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cas C — un utilisateur rattaché à PLUSIEURS écoles (ex. un enseignant intervenant dans
+    deux établissements) ne doit jamais voir l'une d'elles choisie arbitrairement : repli
+    explicite sur l'identité plateforme, jamais un choix ambigu."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    school_a = await register_school(client, "resetmultia")
+    school_b = await register_school(client, "resetmultib")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+    teacher_email = unique_email("teacher.resetmulti")
+
+    created = await client.post(
+        "/api/v1/users",
+        json={
+            "email": teacher_email,
+            "full_name": "Prof Multi",
+            "school_id": school_a["school"]["id"],
+            "role_code": "TEACHER",
+        },
+        headers=headers_a,
+    )
+    assert created.status_code == 201, created.text
+    teacher_id = created.json()["user"]["id"]
+
+    # Rattachement direct au second établissement (pas d'endpoint d'auto-invitation croisée dans
+    # ce produit — même contournement déjà utilisé par tests/conftest.py::assign_role pour ce cas).
+    await assign_role(teacher_id, "TEACHER", school_b["school"]["organization_id"], school_b["school"]["id"])
+
+    response = await client.post("/api/v1/auth/forgot-password", json={"email": teacher_email})
+    assert response.status_code == 202
+
+    emails = _read_emails(tmp_path)
+    reset_email = next(e for e in emails if "reset-password?token=" in e and "Bienvenue" not in e)
+    assert "From-Name:" not in reset_email
 
 
 async def test_forgot_password_unknown_email_sends_nothing(
@@ -145,6 +264,92 @@ async def test_create_user_triggers_invitation_email(
     assert len(emails) == 1
     assert teacher_email in emails[0]
     assert "reset-password?token=" in emails[0]
+
+
+# --- Phase 24B : identité d'expéditeur = l'école qui invite ------------------------------------
+async def test_invitation_email_uses_school_name_as_from_name(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    data = await register_school(client, "emailfromname")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    teacher_email = unique_email("teacher.emailfromname")
+
+    response = await client.post(
+        "/api/v1/users",
+        json={"email": teacher_email, "full_name": "Prof Test", "school_id": school_id, "role_code": "TEACHER"},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert f"From-Name: {data['school']['name']}" in emails[0]
+
+
+async def test_invitation_email_uses_school_email_as_reply_to(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    data = await register_school(client, "emailreplyto")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    school_email = unique_email("direction.emailreplyto")
+
+    patch = await client.patch(
+        f"/api/v1/schools/{school_id}",
+        json={"email": school_email},
+        headers=headers,
+    )
+    assert patch.status_code == 200, patch.text
+
+    response = await client.post(
+        "/api/v1/users",
+        json={
+            "email": unique_email("teacher.emailreplyto"),
+            "full_name": "Prof Test",
+            "school_id": school_id,
+            "role_code": "TEACHER",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert f"Reply-To: {school_email}" in emails[0]
+
+
+async def test_invitation_email_has_no_reply_to_when_school_email_absent(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repli explicite : une école qui n'a jamais renseigné son email (cas par défaut à
+    l'inscription, `School.email` nullable) ne produit aucun en-tête Reply-To — jamais une
+    valeur vide ou invalide."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    data = await register_school(client, "emailnoreply")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+
+    response = await client.post(
+        "/api/v1/users",
+        json={
+            "email": unique_email("teacher.emailnoreply"),
+            "full_name": "Prof Test",
+            "school_id": school_id,
+            "role_code": "TEACHER",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert "Reply-To:" not in emails[0]
 
 
 async def test_reattaching_existing_user_does_not_send_a_new_invitation(

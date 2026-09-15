@@ -20,8 +20,16 @@ logger = logging.getLogger(__name__)
 
 class EmailProvider(ABC):
     @abstractmethod
-    async def send(self, to: str, subject: str, body: str) -> None:
-        """Envoie un email texte brut à `to`."""
+    async def send(
+        self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+    ) -> None:
+        """Envoie un email texte brut à `to`.
+
+        Phase 24B — `from_name`/`reply_to` optionnels : identité d'expéditeur affichée résolue
+        par l'appelant (ex. `School.name`/`School.email`), jamais par ce provider — voir
+        `SmtpEmailProvider.send` pour la règle de repli exacte. `from_address` (l'adresse
+        technique réelle) reste hors de ce paramètre : elle est TOUJOURS celle de la
+        configuration serveur (`SMTP_FROM_ADDRESS`), jamais choisie par un appelant."""
 
 
 class LocalEmailProvider(EmailProvider):
@@ -34,9 +42,19 @@ class LocalEmailProvider(EmailProvider):
         self._base_path = Path(base_path)
         self._base_path.mkdir(parents=True, exist_ok=True)
 
-    async def send(self, to: str, subject: str, body: str) -> None:
+    async def send(
+        self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+    ) -> None:
+        # Phase 24B — `From-Name`/`Reply-To` écrits seulement quand fournis (jamais une ligne
+        # vide) : permet aux tests/dev d'inspecter l'identité résolue sans changer le format pour
+        # les emails qui n'en portent aucune (comportement strictement additif).
+        header_lines = f"To: {to}\nSubject: {subject}\n"
+        if from_name:
+            header_lines += f"From-Name: {from_name}\n"
+        if reply_to:
+            header_lines += f"Reply-To: {reply_to}\n"
         target = self._base_path / f"{uuid.uuid4().hex}.txt"
-        target.write_text(f"To: {to}\nSubject: {subject}\n\n{body}", encoding="utf-8")
+        target.write_text(f"{header_lines}\n{body}", encoding="utf-8")
 
 
 class SmtpEmailProvider(EmailProvider):
@@ -62,15 +80,31 @@ class SmtpEmailProvider(EmailProvider):
         self._timeout_seconds = timeout_seconds
         self._from_name = from_name
 
-    async def send(self, to: str, subject: str, body: str) -> None:
+    async def send(
+        self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+    ) -> None:
         message = EmailMessage()
         # Sprint 1.7.1 — `formataddr` (bibliothèque standard, RFC 2047) plutôt qu'une
         # concaténation manuelle : encode correctement un nom d'affichage contenant des
         # caractères non-ASCII, et échappe les caractères spéciaux (virgule, guillemets) si
-        # jamais présents. `from_name` vide (valeur par défaut) fait retomber sur l'adresse
-        # seule — comportement des environnements existants strictement inchangé.
-        message["From"] = formataddr((self._from_name, self._from_address))
+        # jamais présents.
+        #
+        # Phase 24B — `from_name` reçu ici (typiquement `School.name`, résolu par l'appelant,
+        # jamais par ce provider — voir EmailProvider.send) prime sur le nom configuré au niveau
+        # serveur ; un appelant qui ne fournit rien (`None`, ou une chaîne vide) retombe
+        # exactement sur `self._from_name` (SMTP_FROM_NAME) — comportement des 6 appelants
+        # historiques strictement inchangé tant qu'ils ne passent pas ce paramètre.
+        # `from_address` n'est JAMAIS paramétrable ici : toujours `self._from_address`
+        # (SMTP_FROM_ADDRESS, configuration serveur) — un appelant ne peut influencer que le nom
+        # affiché, jamais l'adresse technique réelle d'envoi.
+        effective_from_name = from_name if from_name else self._from_name
+        message["From"] = formataddr((effective_from_name, self._from_address))
         message["To"] = to
+        # Phase 24B — `Reply-To` posé uniquement quand une valeur non vide est fournie (jamais un
+        # en-tête vide/`None`) : un appelant sans `School.email` renseigné ne produit aucun
+        # changement de comportement par rapport à avant cette phase.
+        if reply_to:
+            message["Reply-To"] = reply_to
         message["Subject"] = subject
         message.set_content(body)
 
@@ -112,7 +146,15 @@ def get_email_provider(provider: str, local_path: str) -> EmailProvider:
 email_provider = get_email_provider(settings.email_provider, settings.email_local_path)
 
 
-async def send_email_best_effort(to: str, subject: str, body: str) -> bool:
+async def send_email_best_effort(
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    from_name: str | None = None,
+    reply_to: str | None = None,
+    school_id: uuid.UUID | None = None,
+) -> bool:
     """Envoie un email sans jamais faire échouer l'appelant (cohérent avec le principe déjà
     appliqué au rate limiting Redis — app/core/rate_limit.py — un incident d'envoi ne doit pas
     bloquer la création de compte ou la demande de réinitialisation, déjà commitées en base).
@@ -124,10 +166,25 @@ async def send_email_best_effort(to: str, subject: str, body: str) -> bool:
     de frais en retard, `fees/overdue_reminders.py`) l'utilise, pour distinguer
     `TRANSPORT_ACCEPTED` de `TRANSPORT_FAILED`. Le comportement best-effort (jamais d'exception
     levée à l'appelant) et le contenu du log restent inchangés — aucun secret n'y a jamais figuré
-    (adresse destinataire et nom du provider uniquement, jamais host/identifiants)."""
+    (adresse destinataire et nom du provider uniquement, jamais host/identifiants).
+
+    Phase 24B — `from_name`/`reply_to` optionnels, transmis tels quels au provider (voir
+    `EmailProvider.send` pour la règle de repli). `school_id` est UNIQUEMENT un paramètre de
+    corrélation pour le log d'échec ci-dessous (jamais utilisé pour résoudre quoi que ce soit ici
+    — l'identité `School` est toujours déjà résolue par l'appelant, jamais par cette fonction) :
+    comble le gap d'observabilité identifié en Discovery 24A pour les jobs planifiés (rappels de
+    frais/absences), qui n'ont pas de `request_id` de corrélation faute de passer par le
+    middleware HTTP. Ne journalise jamais le corps de l'email, un token, ou un identifiant de
+    compte au-delà de l'adresse destinataire déjà journalisée avant cette phase."""
     try:
-        await email_provider.send(to, subject, body)
+        await email_provider.send(to, subject, body, from_name=from_name, reply_to=reply_to)
         return True
     except Exception:  # best-effort volontaire, voir docstring.
-        logger.warning("Échec de l'envoi d'email à %s (fournisseur=%s)", to, settings.email_provider, exc_info=True)
+        logger.warning(
+            "Échec de l'envoi d'email à %s (fournisseur=%s, school_id=%s)",
+            to,
+            settings.email_provider,
+            school_id,
+            exc_info=True,
+        )
         return False

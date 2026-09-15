@@ -232,6 +232,30 @@ async def revoke_session(db: AsyncSession, user_id: uuid.UUID, session_id: uuid.
     await db.commit()
 
 
+async def _resolve_single_school_for_user(db: AsyncSession, user_id: uuid.UUID) -> School | None:
+    """Phase 24B — identité d'expéditeur pour l'email de réinitialisation de mot de passe.
+
+    Règle explicite et volontairement stricte (aucun choix arbitraire) : seule une école
+    UNIQUE et non ambiguë devient l'identité affichée. Un utilisateur sans rattachement scolaire
+    (rôle plateforme, ou rôle scopé uniquement à l'organisation — `school_id` NULL, ex. le
+    SCHOOL_ADMIN créé par `register()`) ou rattaché à PLUSIEURS écoles (ex. un enseignant
+    intervenant dans deux établissements) retombe sur l'identité plateforme (EduLinkage) —
+    jamais une école choisie au hasard parmi plusieurs possibles.
+
+    `user_roles` a une policy RLS scopée par tenant (migration 0002) : cette fonction doit être
+    appelée alors que `set_platform_wide_context` est déjà actif sur `db` (comme c'est déjà le
+    cas dans `request_password_reset` pour l'écriture du `PasswordResetToken`), et AVANT le
+    `db.commit()` qui suit — un commit réinitialise ce contexte (`SET LOCAL`), même piège déjà
+    documenté partout ailleurs dans ce projet pour cette même raison."""
+    result = await db.execute(
+        select(UserRole.school_id).where(UserRole.user_id == user_id, UserRole.school_id.isnot(None)).distinct()
+    )
+    school_ids = [row[0] for row in result.all()]
+    if len(school_ids) != 1:
+        return None
+    return await db.get(School, school_ids[0])
+
+
 async def request_password_reset(db: AsyncSession, email: str) -> str | None:
     """Retourne le token brut uniquement hors production (email non intégré en Phase 1).
 
@@ -267,6 +291,13 @@ async def request_password_reset(db: AsyncSession, email: str) -> str | None:
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
     )
     db.add(reset_token)
+    # Phase 24B — résolu AVANT le commit ci-dessous (voir docstring de
+    # `_resolve_single_school_for_user` : le contexte platform-wide déjà actif quelques lignes
+    # plus haut est nécessaire pour lire `user_roles` sous RLS, et un commit le réinitialise).
+    # Ne révèle rien sur l'existence du compte : cette résolution n'a lieu que sur la branche où
+    # `user` existe déjà, exactement comme l'écriture du token juste au-dessus — aucune nouvelle
+    # distinction observable par rapport au comportement déjà en place.
+    school = await _resolve_single_school_for_user(db, user.id)
     await db.commit()
 
     await send_email_best_effort(
@@ -275,6 +306,9 @@ async def request_password_reset(db: AsyncSession, email: str) -> str | None:
         f"Pour définir un nouveau mot de passe, ouvrez ce lien (valable "
         f"{PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes) :\n"
         f"{settings.public_web_base_url}/reset-password?token={raw_token}",
+        from_name=school.name if school else None,
+        reply_to=school.email if school else None,
+        school_id=school.id if school else None,
     )
 
     return None if settings.environment == "production" else raw_token

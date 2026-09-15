@@ -196,6 +196,40 @@ async def test_publish_notifies_only_guardians_with_email(client: AsyncClient, t
     assert email_with in emails[0]
 
 
+# --- Phase 24B : identité d'expéditeur = l'école du bulletin ------------------------------------
+async def test_publish_notification_uses_school_name_as_from_name(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    ctx = await _setup_school(client, "rcnfromname")
+    await _add_guardian(client, ctx, full_name="Maman Test", email=unique_email("guardian.rcnfromname"))
+    report_card = await _generate_report_card(client, ctx)
+
+    await client.post(f"/api/v1/report-cards/{report_card['id']}/publish", headers=ctx["headers"])
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert "From-Name: rcnfromname School" in emails[0]
+
+
+async def test_publish_notification_uses_school_email_as_reply_to(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    ctx = await _setup_school(client, "rcnreplyto")
+    school_email = unique_email("direction.rcnreplyto")
+    patch = await client.patch(f"/api/v1/schools/{ctx['school_id']}", json={"email": school_email}, headers=ctx["headers"])
+    assert patch.status_code == 200, patch.text
+    await _add_guardian(client, ctx, full_name="Maman Test", email=unique_email("guardian.rcnreplyto"))
+    report_card = await _generate_report_card(client, ctx)
+
+    await client.post(f"/api/v1/report-cards/{report_card['id']}/publish", headers=ctx["headers"])
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert f"Reply-To: {school_email}" in emails[0]
+
+
 # --- 5 — aucun tuteur ------------------------------------------------------------------------------
 async def test_publish_with_no_guardian_succeeds_without_email(client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
@@ -211,7 +245,9 @@ async def test_publish_with_no_guardian_succeeds_without_email(client: AsyncClie
 # --- 6/7/8 — succès/échec EmailProvider, best-effort ---------------------------------------------
 async def test_publish_succeeds_even_when_email_provider_fails(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingProvider:
-        async def send(self, to: str, subject: str, body: str) -> None:
+        async def send(
+            self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+        ) -> None:
             raise RuntimeError("SMTP down")
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())

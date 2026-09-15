@@ -97,6 +97,69 @@ async def _link_parent_with_guardian_email(client: AsyncClient, env: dict, prefi
     return parent
 
 
+# --- Phase 24B : identité d'expéditeur = l'école du frais, jamais une autre --------------------
+async def test_overdue_reminder_uses_school_name_as_from_name(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup_student(client, "overduefromname")
+    await _create_guardian_with_email(client, env, "guardian.overduefromname")
+    await _create_student_fee(client, env, PAST_DUE_DATE, amount="50000")
+
+    await _run_job_with_emails()
+
+    emails = _overdue_reminder_emails(tmp_path)
+    assert len(emails) == 1
+    assert "From-Name: overduefromname School" in emails[0]
+
+
+async def test_overdue_reminder_uses_school_email_as_reply_to(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env = await _setup_student(client, "overduereplyto")
+    school_email = unique_email("direction.overduereplyto")
+    patch = await client.patch(
+        f"/api/v1/schools/{env['school_id']}", json={"email": school_email}, headers=env["admin_headers"]
+    )
+    assert patch.status_code == 200, patch.text
+    await _create_guardian_with_email(client, env, "guardian.overduereplyto")
+    await _create_student_fee(client, env, PAST_DUE_DATE, amount="50000")
+
+    await _run_job_with_emails()
+
+    emails = _overdue_reminder_emails(tmp_path)
+    assert len(emails) == 1
+    assert f"Reply-To: {school_email}" in emails[0]
+
+
+# --- Phase 24B, item H : cross-tenant — un lot multi-écoles ne mélange jamais les identités -----
+async def test_overdue_reminder_batch_never_mixes_school_identities_across_tenants(
+    client: AsyncClient, monkeypatch, tmp_path
+) -> None:
+    """Ce job traite potentiellement des frais de PLUSIEURS écoles en une seule exécution (voir
+    `send_overdue_fee_reminders` — lookup groupé par `school_id`, jamais un `db.get` par frais
+    individuel). Démontre que le lookup groupé n'associe jamais l'identité de l'école A à un
+    email destiné à un tuteur de l'école B, même quand les deux sont traitées dans le même lot."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    env_a = await _setup_student(client, "overduecrossa")
+    env_b = await _setup_student(client, "overduecrossb")
+    guardian_a = await _create_guardian_with_email(client, env_a, "guardian.overduecrossa")
+    guardian_b = await _create_guardian_with_email(client, env_b, "guardian.overduecrossb")
+    await _create_student_fee(client, env_a, PAST_DUE_DATE, amount="10000")
+    await _create_student_fee(client, env_b, PAST_DUE_DATE, amount="20000")
+
+    await _run_job_with_emails()
+
+    emails = _overdue_reminder_emails(tmp_path)
+    assert len(emails) == 2
+    email_to_a = next(e for e in emails if guardian_a["email"] in e)
+    email_to_b = next(e for e in emails if guardian_b["email"] in e)
+    assert "From-Name: overduecrossa School" in email_to_a
+    assert "From-Name: overduecrossb School" in email_to_b
+    # Jamais l'identité de l'autre école, ni l'email de l'autre tuteur, dans le mauvais message.
+    assert "overduecrossb School" not in email_to_a
+    assert "overduecrossa School" not in email_to_b
+    assert guardian_b["email"] not in email_to_a
+    assert guardian_a["email"] not in email_to_b
+
+
 # --- A : tuteur sans compte + email + frais en retard -> email envoyé -------------------------------
 async def test_guardian_without_account_with_email_receives_reminder_email(client: AsyncClient, monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
@@ -243,7 +306,18 @@ async def test_send_overdue_fee_reminder_emails_writes_via_local_provider(monkey
 
     async with AsyncSessionLocal() as db:
         await send_overdue_fee_reminder_emails(
-            db, [(uuid.uuid4(), to, "Paiement en retard — Test Eleve", "Corps du message de test.")]
+            db,
+            [
+                (
+                    uuid.uuid4(),
+                    to,
+                    "Paiement en retard — Test Eleve",
+                    "Corps du message de test.",
+                    None,
+                    None,
+                    None,
+                )
+            ],
         )
 
     emails = _read_emails(tmp_path)
@@ -368,7 +442,9 @@ async def test_tracking_row_becomes_transport_failed_on_provider_exception(clien
     reste du lot — seule cette ligne de suivi doit refléter l'échec réel du transport."""
 
     class FailingProvider:
-        async def send(self, to: str, subject: str, body: str) -> None:
+        async def send(
+            self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+        ) -> None:
             raise RuntimeError("SMTP down (simulé)")
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())
@@ -453,7 +529,9 @@ async def test_multiple_failed_emails_all_transport_statuses_recorded_as_failed(
     contexte quel que soit le résultat de `send_email_best_effort`."""
 
     class FailingProvider:
-        async def send(self, to: str, subject: str, body: str) -> None:
+        async def send(
+            self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+        ) -> None:
             raise RuntimeError("SMTP down (simulé)")
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())

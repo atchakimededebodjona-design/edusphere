@@ -133,7 +133,10 @@ async def create_or_attach_user(
     # exception qui aurait pu survenir plus haut) ne peut plus jamais laisser un email pointer
     # vers un compte qui n'existe pas réellement.
     if welcome_email is not None:
-        await send_email_best_effort(*welcome_email)
+        # Phase 24B — identité d'expéditeur = l'école qui invite (déjà résolue et autorisée par
+        # l'appelant de cette fonction, jamais un `school_id` brut) ; `school.email` absent ne
+        # produit simplement aucun Reply-To (voir app/core/email.py).
+        await send_email_best_effort(*welcome_email, from_name=school.name, reply_to=school.email, school_id=school.id)
 
     return user, all_roles, dev_reset_token
 

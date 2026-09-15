@@ -268,6 +268,130 @@ def test_get_email_provider_wires_smtp_from_name_from_settings(monkeypatch: pyte
     assert provider._from_address == "no-reply@edulinkage.com"
 
 
+# --- Phase 24B : identité d'expéditeur dynamique (from_name/reply_to par appel) --------------
+async def test_smtp_provider_send_from_name_overrides_configured_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`from_name` passé à `.send()` (ex. `School.name`, résolu par l'appelant métier) prime sur
+    le `from_name` de construction (SMTP_FROM_NAME) — c'est le mécanisme central de la Phase 24B."""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="notifications@edulinkage.tg",
+        use_tls=True,
+        timeout_seconds=2,
+        from_name="EduLinkage",
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps", from_name="Lycee de Tokoin")
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "From: Lycee de Tokoin <notifications@edulinkage.tg>\n" in wire
+    from_line = wire.split("\n", 1)[0]
+    assert "EduLinkage" not in from_line  # le nom plateforme ne doit pas apparaître à côté du nom école
+
+
+async def test_smtp_provider_send_falls_back_to_configured_from_name_when_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aucune identité d'école disponible (`from_name=None`, comportement des 6 appelants
+    historiques avant la Phase 24B) -> repli exact sur le nom configuré au niveau serveur."""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="notifications@edulinkage.tg",
+        use_tls=True,
+        timeout_seconds=2,
+        from_name="EduLinkage",
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps")
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "From: EduLinkage <notifications@edulinkage.tg>\n" in wire
+
+
+async def test_smtp_provider_send_from_address_never_changes_with_from_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`from_address` (l'adresse technique) reste TOUJOURS celle de la configuration serveur,
+    quel que soit le `from_name` fourni par l'appelant — aucun appelant ne peut influencer
+    l'adresse technique réelle d'envoi (règle centrale Phase 24B)."""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="notifications@edulinkage.tg",
+        use_tls=True,
+        timeout_seconds=2,
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps", from_name="Collège de Bè")
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "notifications@edulinkage.tg" in wire.split("\n", 1)[0]
+
+
+async def test_smtp_provider_send_sets_reply_to_when_provided(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="notifications@edulinkage.tg",
+        use_tls=True,
+        timeout_seconds=2,
+    )
+    await provider.send(
+        "someone@example-test.invalid", "Sujet", "Corps", reply_to="direction@lyceedetokoin.tg"
+    )
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "Reply-To: direction@lyceedetokoin.tg" in wire
+
+
+async def test_smtp_provider_send_omits_reply_to_when_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="notifications@edulinkage.tg",
+        use_tls=True,
+        timeout_seconds=2,
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps")
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "Reply-To:" not in wire
+
+
+async def test_smtp_provider_send_omits_reply_to_when_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un `School.email` vide (chaîne vide, pas seulement `None`) ne doit jamais produire un
+    en-tête `Reply-To:` vide/invalide — même garantie que `None`."""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSmtpCapturingMessage)
+    provider = SmtpEmailProvider(
+        host="smtp.example-test.invalid",
+        port=587,
+        username="",
+        password="",
+        from_address="notifications@edulinkage.tg",
+        use_tls=True,
+        timeout_seconds=2,
+    )
+    await provider.send("someone@example-test.invalid", "Sujet", "Corps", reply_to="")
+
+    wire = _FakeSmtpCapturingMessage.captured_wire
+    assert wire is not None
+    assert "Reply-To:" not in wire
+
+
 # --- Aucun secret dans les logs, y compris en cas d'échec ------------------------------------
 async def test_send_email_best_effort_never_logs_the_smtp_password(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

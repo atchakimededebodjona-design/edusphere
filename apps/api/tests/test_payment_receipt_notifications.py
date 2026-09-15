@@ -65,6 +65,42 @@ async def test_payment_notifies_guardian_with_email_and_correct_content(
     assert ctx["student"]["first_name"] in body and ctx["student"]["last_name"] in body
 
 
+# --- Phase 24B : identité d'expéditeur = l'école de l'élève -------------------------------------
+async def test_payment_receipt_uses_school_name_as_from_name(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    ctx = await _full_fee_setup(client, "payfromname")
+    await _add_guardian_with_email(client, ctx, full_name="Maman Test", email=unique_email("guardian.payfromname"))
+
+    response = await client.post("/api/v1/payments", json=_payment_payload(ctx, 50000), headers=ctx["admin_headers"])
+    assert response.status_code == 201, response.text
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert f"From-Name: {ctx['school']['name']}" in emails[0]
+
+
+async def test_payment_receipt_uses_school_email_as_reply_to(
+    client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+    ctx = await _full_fee_setup(client, "payreplyto")
+    school_email = unique_email("direction.payreplyto")
+    patch = await client.patch(
+        f"/api/v1/schools/{ctx['school']['id']}", json={"email": school_email}, headers=ctx["admin_headers"]
+    )
+    assert patch.status_code == 200, patch.text
+    await _add_guardian_with_email(client, ctx, full_name="Maman Test", email=unique_email("guardian.payreplyto"))
+
+    response = await client.post("/api/v1/payments", json=_payment_payload(ctx, 50000), headers=ctx["admin_headers"])
+    assert response.status_code == 201, response.text
+
+    emails = _read_emails(tmp_path)
+    assert len(emails) == 1
+    assert f"Reply-To: {school_email}" in emails[0]
+
+
 # --- B : tuteur sans email -> aucun envoi, paiement toujours enregistré ------------------------------------
 async def test_payment_sends_nothing_for_guardian_without_email(
     client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -83,7 +119,9 @@ async def test_payment_sends_nothing_for_guardian_without_email(
 # --- C : échec du provider email -> le paiement reste enregistré (best-effort) -----------------------------
 async def test_payment_succeeds_even_when_email_provider_fails(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingProvider:
-        async def send(self, to: str, subject: str, body: str) -> None:
+        async def send(
+            self, to: str, subject: str, body: str, *, from_name: str | None = None, reply_to: str | None = None
+        ) -> None:
             raise RuntimeError("SMTP down (simulé)")
 
     monkeypatch.setattr(email_module, "email_provider", FailingProvider())

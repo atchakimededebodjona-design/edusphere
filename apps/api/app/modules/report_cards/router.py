@@ -184,7 +184,7 @@ async def publish_report_card(report_card_id: uuid.UUID, db: DbSession, current_
     # Lecture des destinataires AVANT le commit — le contexte RLS (SET LOCAL) est lié à la
     # transaction courante et ne verrait plus rien après (voir
     # report_cards/service.py::prepare_report_card_published_notifications).
-    notifications: list[tuple[str, str, str]] = []
+    notifications: list[tuple[str, str, str, str | None, str | None, uuid.UUID | None]] = []
     if not was_already_published:
         notifications = await service.prepare_report_card_published_notifications(db, report_card)
         # Phase 21 — notification in-app, en plus de l'email ci-dessus, créée dans la même

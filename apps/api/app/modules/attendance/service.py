@@ -20,7 +20,7 @@ from app.modules.students.models import Student, StudentEnrollment
 
 logger = logging.getLogger(__name__)
 
-EmailTuple = tuple[uuid.UUID, str, str, str]
+EmailTuple = tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]
 
 
 async def is_teacher_assigned_to_class(db: AsyncSession, user_id: uuid.UUID, class_id: uuid.UUID) -> bool:
@@ -85,6 +85,11 @@ async def _prepare_absence_emails(
     school_name = school.name if school is not None else ""
     subject = f"Absence signalée — {student.first_name} {student.last_name}"
     body = _format_absence_email_body(student, school_name, session.session_date)
+    # Phase 24B — réutilise `school` déjà chargé ci-dessus (aucun second accès DB) pour
+    # l'identité d'expéditeur, partagée par tous les tuteurs de cette même absence/école.
+    from_name = school.name if school is not None else None
+    reply_to = school.email if school is not None else None
+    email_school_id = school.id if school is not None else None
 
     emails: list[EmailTuple] = []
     for guardian_id, full_name, email in candidates:
@@ -115,7 +120,18 @@ async def _prepare_absence_emails(
                 session.session_date,
             )
             continue
-        emails.append((reminder_id, email, subject, f"Bonjour {full_name},\n\n{body}\n\n— EduLinkage"))
+        emails.append(
+            (
+                reminder_id,
+                email,
+                subject,
+                f"Bonjour {full_name},\n\n{body}\n\n"
+                "Cet email a été envoyé via EduLinkage, plateforme de gestion scolaire.",
+                from_name,
+                reply_to,
+                email_school_id,
+            )
+        )
 
     return emails
 
@@ -140,8 +156,10 @@ async def send_absence_reminder_emails(db: AsyncSession, current_user_id: uuid.U
 
     Commit PAR LIGNE (jamais un commit unique pour tout le lot) — même garantie que Sprint 1.6 :
     une interruption n'affecte donc jamais plus d'UNE ligne, qui reste alors à `ATTEMPTED`."""
-    for reminder_id, to, subject, body in emails:
-        accepted = await send_email_best_effort(to, subject, body)
+    for reminder_id, to, subject, body, from_name, reply_to, email_school_id in emails:
+        accepted = await send_email_best_effort(
+            to, subject, body, from_name=from_name, reply_to=reply_to, school_id=email_school_id
+        )
         await apply_tenant_context(db, current_user_id)
         await db.execute(
             update(AttendanceAbsenceEmailReminder)

@@ -212,16 +212,19 @@ async def generate_report_cards_for_class(
     return report_cards
 
 
-async def prepare_report_card_published_notifications(db: AsyncSession, report_card: ReportCard) -> list[tuple[str, str, str]]:
+async def prepare_report_card_published_notifications(
+    db: AsyncSession, report_card: ReportCard
+) -> list[tuple[str, str, str, str | None, str | None, uuid.UUID | None]]:
     """Notification email (Phase 11) — étape de LECTURE, à appeler AVANT le commit final de la
     publication (voir report_cards/router.py::publish_report_card), jamais après : le contexte
     RLS (SET LOCAL) est lié à la transaction courante et expire au commit — exactement le même
     piège déjà documenté ailleurs dans ce projet (ex. auth/service.py::register, "refresh() AVANT
     commit"). Après le commit, une nouvelle requête ici ne verrait plus aucune ligne.
 
-    Retourne les emails prêts à envoyer `(destinataire, sujet, corps)` — l'envoi réel
-    (`send_email_best_effort`, pur réseau, pas d'accès DB) peut ensuite se faire en toute
-    sécurité APRÈS le commit, sans jamais risquer de bloquer ou faire échouer la publication.
+    Retourne les emails prêts à envoyer `(destinataire, sujet, corps, from_name, reply_to,
+    school_id)` — l'envoi réel (`send_email_best_effort`, pur réseau, pas d'accès DB) peut ensuite
+    se faire en toute sécurité APRÈS le commit, sans jamais risquer de bloquer ou faire échouer la
+    publication.
 
     Contenu volontairement minimal — jamais de note, moyenne, classement ni appréciation dans
     l'email : le parent doit consulter le bulletin dans l'application, pas dans sa boîte mail
@@ -229,7 +232,11 @@ async def prepare_report_card_published_notifications(db: AsyncSession, report_c
 
     Tuteurs recherchés uniquement via `StudentGuardian.student_id` + `school_id` du bulletin
     (jamais de recherche globale de guardians) — cohérent avec l'isolation tenant déjà en place
-    partout ailleurs dans ce module."""
+    partout ailleurs dans ce module.
+
+    Phase 24B — `School` résolue via `report_card.school_id` (déjà le school_id validé du
+    bulletin, jamais un identifiant de payload), une seule fois pour tous les tuteurs de cet
+    élève."""
     student = await db.get(Student, report_card.student_id)
     term = await db.get(AcademicTerm, report_card.academic_term_id)
     if student is None or term is None:
@@ -245,6 +252,10 @@ async def prepare_report_card_published_notifications(db: AsyncSession, report_c
         )
     )
 
+    school = await db.get(School, report_card.school_id)
+    from_name = school.name if school else None
+    reply_to = school.email if school else None
+    school_id = school.id if school else None
     subject = f"Bulletin disponible — {student.first_name} {student.last_name}"
     return [
         (
@@ -254,19 +265,24 @@ async def prepare_report_card_published_notifications(db: AsyncSession, report_c
             f"Le bulletin de {student.first_name} {student.last_name} pour la période "
             f"{term.name} vient d'être publié.\n\n"
             "Connectez-vous à l'application mobile EduLinkage pour le consulter.\n\n"
-            "— EduLinkage",
+            "Cet email a été envoyé via EduLinkage, plateforme de gestion scolaire.",
+            from_name,
+            reply_to,
+            school_id,
         )
         for full_name, email in result.all()
         if email is not None
     ]
 
 
-async def send_report_card_published_notifications(notifications: list[tuple[str, str, str]]) -> None:
+async def send_report_card_published_notifications(
+    notifications: list[tuple[str, str, str, str | None, str | None, uuid.UUID | None]],
+) -> None:
     """Étape d'ENVOI — pur réseau, aucun accès DB, à appeler APRÈS le commit (voir
     `prepare_report_card_published_notifications`). Best-effort : `send_email_best_effort` ne
     lève jamais, un échec d'envoi n'affecte donc jamais l'appelant."""
-    for to, subject, body in notifications:
-        await send_email_best_effort(to, subject, body)
+    for to, subject, body, from_name, reply_to, school_id in notifications:
+        await send_email_best_effort(to, subject, body, from_name=from_name, reply_to=reply_to, school_id=school_id)
 
 
 async def get_report_card_by_verification_code(db: AsyncSession, code: str) -> ReportCard | None:
