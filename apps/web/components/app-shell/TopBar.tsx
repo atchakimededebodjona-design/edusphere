@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { TenantSwitcher } from "@/components/app-shell/TenantSwitcher";
 import { useAuth } from "@/lib/auth/useAuth";
 import { notifications } from "@/lib/notifications/client";
 
@@ -48,9 +49,10 @@ export function TopBar() {
   }
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6">
+    <header className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-6 py-3">
       <span className="text-lg font-bold text-slate-900">EduLinkage</span>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+        {user && <TenantSwitcher />}
         {user && (
           <Link href="/notifications" className="relative text-slate-600 hover:text-slate-900" aria-label="Notifications">
             <span aria-hidden="true">🔔</span>

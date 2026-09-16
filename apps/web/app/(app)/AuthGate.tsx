@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/useAuth";
 
@@ -58,11 +58,32 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   } = useAuth();
   const router = useRouter();
 
+  // Une fois l'application réellement entrée (organisation ET école résolues au moins une fois),
+  // un changement volontaire de contexte déclenché depuis le sélecteur permanent
+  // (components/app-shell/TenantSwitcher.tsx, via selectOrganization/selectSchool) fait
+  // transitoirement repasser schoolContextStatus par "loading"/"selection-needed" — ce n'est plus
+  // la résolution initiale et ne doit plus reprendre toute la page : le sélecteur affiche lui-même
+  // ce sous-état (liste d'écoles, chargement, erreur) dans son propre panneau, sans quitter le
+  // tableau de bord. Réinitialisé à la déconnexion pour qu'une reconnexion (même ou autre compte)
+  // retraverse normalement le flux de résolution initiale ci-dessous.
+  const hasEnteredAppRef = useRef(false);
+
   useEffect(() => {
-    if (status === "anonymous") router.push("/login");
+    if (status === "anonymous") {
+      hasEnteredAppRef.current = false;
+      router.push("/login");
+    }
   }, [status, router]);
 
   const reconnect = () => void logout().then(() => router.push("/login"));
+
+  if (status === "authenticated" && organizationContextStatus === "resolved" && schoolContextStatus === "resolved") {
+    hasEnteredAppRef.current = true;
+  }
+
+  if (hasEnteredAppRef.current && status === "authenticated") {
+    return <>{children}</>;
+  }
 
   if (status !== "authenticated" || organizationContextStatus === "loading") {
     return (

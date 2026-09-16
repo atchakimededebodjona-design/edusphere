@@ -33,12 +33,14 @@ export type AuthContextValue = {
   permissions: string[];
 
   currentOrganizationId: string | null;
+  currentOrganization: Organization | null;
   organizationContextStatus: TenantContextStatus;
   availableOrganizations: Organization[];
   organizationContextError: string | null;
   selectOrganization: (organizationId: string) => void;
 
   currentSchoolId: string | null;
+  currentSchool: School | null;
   schoolContextStatus: TenantContextStatus;
   availableSchools: School[];
   schoolContextError: string | null;
@@ -86,11 +88,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
 
   const [currentOrganizationId, setCurrentOrganizationId] = useState<string | null>(null);
+  // Objet complet (nom inclus) de l'organisation courante — jamais dérivable des `roles` seuls
+  // (qui ne portent qu'un `organization_id`) : nécessaire pour ne jamais afficher un UUID/slug à
+  // l'utilisateur (sélecteur de contexte, voir components/app-shell/TenantSwitcher.tsx).
+  const [currentOrganization, setCurrentOrganization] = useState<Organization | null>(null);
   const [organizationContextStatus, setOrganizationContextStatus] = useState<TenantContextStatus>("loading");
   const [availableOrganizations, setAvailableOrganizations] = useState<Organization[]>([]);
   const [organizationContextError, setOrganizationContextError] = useState<string | null>(null);
 
   const [currentSchoolId, setCurrentSchoolId] = useState<string | null>(null);
+  const [currentSchool, setCurrentSchool] = useState<School | null>(null);
   const [schoolContextStatus, setSchoolContextStatus] = useState<TenantContextStatus>("loading");
   const [availableSchools, setAvailableSchools] = useState<School[]>([]);
   const [schoolContextError, setSchoolContextError] = useState<string | null>(null);
@@ -99,10 +106,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resetTenantState = useCallback(() => {
     setCurrentOrganizationId(null);
+    setCurrentOrganization(null);
     setOrganizationContextStatus("loading");
     setAvailableOrganizations([]);
     setOrganizationContextError(null);
     setCurrentSchoolId(null);
+    setCurrentSchool(null);
     setSchoolContextStatus("loading");
     setAvailableSchools([]);
     setSchoolContextError(null);
@@ -198,11 +207,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAvailableSchools(scoped);
 
       if (scoped.length === 0) {
+        setCurrentSchool(null);
         setSchoolContextStatus("empty");
         return;
       }
       if (scoped.length === 1) {
         setCurrentSchoolId(scoped[0].id);
+        setCurrentSchool(scoped[0]);
         setSchoolContextStatus("resolved");
         writeTenantContext({ organizationId, schoolId: scoped[0].id });
         return;
@@ -214,17 +225,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const stored = readStoredTenantContext();
       if (stored?.organizationId === organizationId && scoped.some((s) => s.id === stored.schoolId)) {
         setCurrentSchoolId(stored.schoolId);
+        setCurrentSchool(scoped.find((s) => s.id === stored.schoolId) ?? null);
         setSchoolContextStatus("resolved");
         return;
       }
       const legacySchoolId = readLegacySchoolId();
       if (legacySchoolId && scoped.some((s) => s.id === legacySchoolId)) {
         setCurrentSchoolId(legacySchoolId);
+        setCurrentSchool(scoped.find((s) => s.id === legacySchoolId) ?? null);
         setSchoolContextStatus("resolved");
         writeTenantContext({ organizationId, schoolId: legacySchoolId });
         return;
       }
 
+      setCurrentSchool(null);
       setSchoolContextStatus("selection-needed");
     },
     [],
@@ -248,6 +262,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAvailableSchools([]);
         setCurrentSchoolId(fastPath.schoolId);
         setSchoolContextStatus("resolved");
+        // `roles` ne porte que des identifiants (jamais de nom) : les objets complets sont
+        // récupérés en tâche de fond, uniquement pour l'affichage (sélecteur de contexte) — sans
+        // retarder ni conditionner la résolution ci-dessus, déjà terminée.
+        void getOrganization(fastPath.organizationId)
+          .then((org) => {
+            if (!cancelledRef.current) setCurrentOrganization(org);
+          })
+          .catch(() => {});
+        void getSchool(fastPath.schoolId)
+          .then((school) => {
+            if (!cancelledRef.current) setCurrentSchool(school);
+          })
+          .catch(() => {});
         return;
       }
 
@@ -264,6 +291,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAvailableOrganizations([]);
         setCurrentOrganizationId(orgIds[0]);
         setOrganizationContextStatus("resolved");
+        // Même motif que ci-dessus : le nom de l'organisation n'est jamais nécessaire à la
+        // résolution elle-même, seulement à son affichage.
+        void getOrganization(orgIds[0])
+          .then((org) => {
+            if (!cancelledRef.current) setCurrentOrganization(org);
+          })
+          .catch(() => {});
         await resolveSchoolsForOrganization(orgIds[0], roles, cancelledRef);
         return;
       }
@@ -296,6 +330,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (accessible.length === 1) {
         setCurrentOrganizationId(accessible[0].id);
+        setCurrentOrganization(accessible[0]);
         setOrganizationContextStatus("resolved");
         await resolveSchoolsForOrganization(accessible[0].id, roles, cancelledRef);
         return;
@@ -311,6 +346,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelledRef.current) return;
         if (schoolValid) {
           setCurrentOrganizationId(stored.organizationId);
+          setCurrentOrganization(accessible.find((org) => org.id === stored.organizationId) ?? null);
           setOrganizationContextStatus("resolved");
           await resolveSchoolsForOrganization(stored.organizationId, roles, cancelledRef);
           return;
@@ -338,6 +374,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelledRef.current) return;
         if (migratedOrgId) {
           setCurrentOrganizationId(migratedOrgId);
+          setCurrentOrganization(accessible.find((org) => org.id === migratedOrgId) ?? null);
           setOrganizationContextStatus("resolved");
           await resolveSchoolsForOrganization(migratedOrgId, roles, cancelledRef);
           return;
@@ -357,23 +394,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const selectOrganization = useCallback(
     (organizationId: string) => {
       if (!me) return;
+      // Défense en profondeur : le sélecteur ne propose jamais que des organisations déjà
+      // vérifiées par l'API (`availableOrganizations`) — un id hors de cette liste (ne peut pas
+      // arriver depuis l'UI actuelle, qui ne fait que mapper cette liste) est refusé plutôt que
+      // d'être accepté tel quel.
+      const organization = availableOrganizations.find((org) => org.id === organizationId);
+      if (!organization) return;
       setCurrentOrganizationId(organizationId);
+      setCurrentOrganization(organization);
       setOrganizationContextStatus("resolved");
       setCurrentSchoolId(null);
+      setCurrentSchool(null);
       setAvailableSchools([]);
       const cancelledRef = { current: false };
       void resolveSchoolsForOrganization(organizationId, me.roles, cancelledRef);
     },
-    [me, resolveSchoolsForOrganization],
+    [me, availableOrganizations, resolveSchoolsForOrganization],
   );
 
   const selectSchool = useCallback(
     (schoolId: string) => {
+      // Même défense en profondeur que ci-dessus, côté école cette fois.
+      const school = availableSchools.find((s) => s.id === schoolId);
+      if (!school) return;
       if (currentOrganizationId) writeTenantContext({ organizationId: currentOrganizationId, schoolId });
       setCurrentSchoolId(schoolId);
+      setCurrentSchool(school);
       setSchoolContextStatus("resolved");
     },
-    [currentOrganizationId],
+    [currentOrganizationId, availableSchools],
   );
 
   const retryTenantContext = useCallback(() => {
@@ -387,11 +436,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       roles: me?.roles ?? [],
       permissions: me?.permissions ?? [],
       currentOrganizationId,
+      currentOrganization,
       organizationContextStatus,
       availableOrganizations,
       organizationContextError,
       selectOrganization,
       currentSchoolId,
+      currentSchool,
       schoolContextStatus,
       availableSchools,
       schoolContextError,
@@ -404,11 +455,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status,
       me,
       currentOrganizationId,
+      currentOrganization,
       organizationContextStatus,
       availableOrganizations,
       organizationContextError,
       selectOrganization,
       currentSchoolId,
+      currentSchool,
       schoolContextStatus,
       availableSchools,
       schoolContextError,
