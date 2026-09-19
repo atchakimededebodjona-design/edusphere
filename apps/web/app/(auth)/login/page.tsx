@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BrandFull } from "@/components/branding/BrandLogo";
 import { ApiError } from "@/lib/auth/client";
 import { isParentOnlyAccount } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -32,6 +33,7 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-50 p-8">
+      <BrandFull className="h-auto w-full max-w-[280px] sm:max-w-xs" priority />
       <h1 className="text-2xl font-bold text-slate-900">Connexion</h1>
       <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
         <input

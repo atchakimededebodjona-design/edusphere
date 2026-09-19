@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { useAuth } from "@/lib/auth/useAuth";
 
 type NavItem = {
@@ -35,6 +36,9 @@ export function Nav() {
 
   return (
     <nav className="flex w-56 flex-col gap-1 border-r border-slate-200 bg-white p-4">
+      <div className="mb-4 flex justify-center">
+        <BrandSymbol className="h-10 w-10" />
+      </div>
       {items.map((item) => {
         const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
         return (

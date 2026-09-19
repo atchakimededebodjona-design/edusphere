@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { useAuth } from "@/lib/auth/useAuth";
 import { notifications } from "@/lib/notifications/client";
 
@@ -49,8 +50,12 @@ export function ParentTopBar() {
 
   return (
     <header className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-      <Link href="/parent" className="text-lg font-bold text-slate-900">
-        EduLinkage
+      {/* Barre étroite (min-h-16) : le logo complet y devient illisible (nom/slogan trop
+          petits, vérifié visuellement) — symbole officiel + nom en texte, comme le prévoit la
+          consigne "symbole seul lorsque l'espace est limité". */}
+      <Link href="/parent" className="flex items-center gap-2">
+        <BrandSymbol className="h-9 w-9" priority />
+        <span className="text-lg font-bold text-slate-900">EduLinkage</span>
       </Link>
       <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         {user && (
