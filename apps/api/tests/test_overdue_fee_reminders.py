@@ -168,13 +168,13 @@ async def _link_parent(client: AsyncClient, env: dict, email_prefix: str) -> dic
     )
     assert reset.status_code == 204
 
-    guardian = (
-        await client.post(
-            "/api/v1/guardians",
-            json={"school_id": env["school_id"], "full_name": "Tuteur Test", "relationship_type": "father"},
-            headers=env["admin_headers"],
-        )
-    ).json()
+    guardian_response = await client.post(
+        "/api/v1/guardians",
+        json={"school_id": env["school_id"], "full_name": "Tuteur Test", "relationship_type": "father"},
+        headers=env["admin_headers"],
+    )
+    assert guardian_response.status_code == 201, guardian_response.text
+    guardian = guardian_response.json()
     link = await client.patch(
         f"/api/v1/guardians/{guardian['id']}", json={"user_id": parent_data["user"]["id"]}, headers=env["admin_headers"]
     )

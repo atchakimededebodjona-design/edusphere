@@ -172,6 +172,65 @@ async def resolve_guardian_emails_without_account_for_student(
     ]
 
 
+async def resolve_guardian_user_ids_for_students(
+    db: AsyncSession, student_school_pairs: set[tuple[uuid.UUID, uuid.UUID]]
+) -> dict[tuple[uuid.UUID, uuid.UUID], set[uuid.UUID]]:
+    """Version batchée de `resolve_guardian_user_ids_for_student` ci-dessus — Phase 27 Sprint
+    1.2bis, corrige un N+1 confirmé par mesure dans `fees/overdue_reminders.py::
+    send_overdue_fee_reminders` (une requête par élève, jusqu'à ~1400 élèves en une seule
+    exécution du job plateforme). Une seule requête pour TOUS les couples (student_id, school_id)
+    demandés plutôt qu'une par couple — le filtre `school_id` (pas exprimable proprement en une
+    seule clause SQL pour plusieurs couples distincts) est réappliqué en mémoire, résultat
+    strictement identique à N appels de la version non batchée. N'affecte aucun autre appelant :
+    `resolve_guardian_user_ids_for_student` (singulier) reste inchangée, toujours utilisée telle
+    quelle par `notify_report_card_published`/`notify_payment_recorded`/`notify_student_absent`."""
+    if not student_school_pairs:
+        return {}
+    student_ids = {student_id for student_id, _ in student_school_pairs}
+    result = await db.execute(
+        select(StudentGuardian.student_id, StudentGuardian.school_id, Guardian.user_id)
+        .join(Guardian, Guardian.id == StudentGuardian.guardian_id)
+        .where(
+            StudentGuardian.student_id.in_(student_ids),
+            Guardian.user_id.isnot(None),
+        )
+    )
+    by_pair: dict[tuple[uuid.UUID, uuid.UUID], set[uuid.UUID]] = {pair: set() for pair in student_school_pairs}
+    for student_id, school_id, user_id in result.all():
+        pair = (student_id, school_id)
+        if pair in by_pair:
+            by_pair[pair].add(user_id)
+    return by_pair
+
+
+async def resolve_guardian_emails_without_account_for_students(
+    db: AsyncSession, student_school_pairs: set[tuple[uuid.UUID, uuid.UUID]]
+) -> dict[tuple[uuid.UUID, uuid.UUID], list[tuple[uuid.UUID, str, str]]]:
+    """Version batchée de `resolve_guardian_emails_without_account_for_student` ci-dessus — même
+    motif et mêmes garanties que `resolve_guardian_user_ids_for_students`. N'affecte pas
+    `attendance/service.py`, seul autre appelant de la version singulière, qui reste inchangée."""
+    if not student_school_pairs:
+        return {}
+    student_ids = {student_id for student_id, _ in student_school_pairs}
+    result = await db.execute(
+        select(StudentGuardian.student_id, StudentGuardian.school_id, Guardian.id, Guardian.full_name, Guardian.email)
+        .join(Guardian, Guardian.id == StudentGuardian.guardian_id)
+        .where(
+            StudentGuardian.student_id.in_(student_ids),
+            Guardian.user_id.is_(None),
+            Guardian.email.isnot(None),
+        )
+    )
+    by_pair: dict[tuple[uuid.UUID, uuid.UUID], list[tuple[uuid.UUID, str, str]]] = {
+        pair: [] for pair in student_school_pairs
+    }
+    for student_id, school_id, guardian_id, full_name, email in result.all():
+        pair = (student_id, school_id)
+        if pair in by_pair and email is not None:
+            by_pair[pair].append((guardian_id, full_name, email))
+    return by_pair
+
+
 async def existing_fee_overdue_emailed_guardian_ids(db: AsyncSession, student_fee_id: uuid.UUID) -> set[uuid.UUID]:
     """Sprint 1.3 — pendant de `existing_fee_overdue_recipient_ids` ci-dessus pour le canal email :
     lit `fee_overdue_email_reminders` plutôt que `notifications` (un tuteur sans compte n'a
@@ -185,6 +244,44 @@ async def existing_fee_overdue_emailed_guardian_ids(db: AsyncSession, student_fe
         )
     )
     return {row[0] for row in result.all()}
+
+
+async def existing_fee_overdue_recipient_ids_for_fees(
+    db: AsyncSession, student_fee_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """Version batchée de `existing_fee_overdue_recipient_ids` ci-dessus — même motif que
+    `resolve_guardian_user_ids_for_students` (Phase 27 Sprint 1.2bis)."""
+    if not student_fee_ids:
+        return {}
+    await set_platform_wide_context(db)
+    result = await db.execute(
+        select(Notification.student_fee_id, Notification.recipient_user_id).where(
+            Notification.student_fee_id.in_(student_fee_ids), Notification.type == "FEE_OVERDUE"
+        )
+    )
+    by_fee: dict[uuid.UUID, set[uuid.UUID]] = {fee_id: set() for fee_id in student_fee_ids}
+    for fee_id, recipient_id in result.all():
+        by_fee[fee_id].add(recipient_id)
+    return by_fee
+
+
+async def existing_fee_overdue_emailed_guardian_ids_for_fees(
+    db: AsyncSession, student_fee_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """Version batchée de `existing_fee_overdue_emailed_guardian_ids` ci-dessus — même motif que
+    `resolve_guardian_user_ids_for_students` (Phase 27 Sprint 1.2bis)."""
+    if not student_fee_ids:
+        return {}
+    await set_platform_wide_context(db)
+    result = await db.execute(
+        select(FeeOverdueEmailReminder.student_fee_id, FeeOverdueEmailReminder.guardian_id).where(
+            FeeOverdueEmailReminder.student_fee_id.in_(student_fee_ids)
+        )
+    )
+    by_fee: dict[uuid.UUID, set[uuid.UUID]] = {fee_id: set() for fee_id in student_fee_ids}
+    for fee_id, guardian_id in result.all():
+        by_fee[fee_id].add(guardian_id)
+    return by_fee
 
 
 async def existing_absence_emailed_guardian_ids(

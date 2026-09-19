@@ -50,9 +50,11 @@ from app.core.tenancy import set_platform_wide_context
 from app.modules.fees.models import FeeOverdueEmailReminder, FeeSchedule, StudentFee
 from app.modules.fees.service import compute_remaining_balances
 from app.modules.notifications.service import (
-    existing_fee_overdue_emailed_guardian_ids,
-    notify_fee_overdue,
-    resolve_guardian_emails_without_account_for_student,
+    create_notifications,
+    existing_fee_overdue_emailed_guardian_ids_for_fees,
+    existing_fee_overdue_recipient_ids_for_fees,
+    resolve_guardian_emails_without_account_for_students,
+    resolve_guardian_user_ids_for_students,
 )
 from app.modules.schools.models import School
 from app.modules.students.models import Student
@@ -98,19 +100,32 @@ def _format_reminder_body(student: Student, schedule_name: str, balance: Decimal
 
 
 async def _prepare_overdue_emails(
-    db: AsyncSession, *, student: Student, fee: StudentFee, reminder_body: str, school: School | None
+    db: AsyncSession,
+    *,
+    student: Student,
+    fee: StudentFee,
+    reminder_body: str,
+    school: School | None,
+    candidates: list[tuple[uuid.UUID, str, str]],
+    already_emailed: set[uuid.UUID],
 ) -> list[tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]]:
-    """Sprint 1.3 — LECTURE + enregistrement du suivi d'idempotence (dans la transaction en
-    cours), pour les tuteurs SANS compte utilisateur de cet élève. L'envoi réseau réel n'a lieu
-    qu'après le commit de l'appelant (voir `send_overdue_fee_reminder_emails`) — même découplage
-    que `report_cards/service.py::prepare_report_card_published_notifications` /
+    """Sprint 1.3 — enregistrement du suivi d'idempotence (dans la transaction en cours), pour les
+    tuteurs SANS compte utilisateur de cet élève. L'envoi réseau réel n'a lieu qu'après le commit
+    de l'appelant (voir `send_overdue_fee_reminder_emails`) — même découplage que
+    `report_cards/service.py::prepare_report_card_published_notifications` /
     `send_report_card_published_notifications`.
 
     Phase 24B — `school` reçue déjà résolue par l'appelant (`send_overdue_fee_reminders`, via un
-    lookup groupé par `school_id`, voir plus bas) : ce job traite potentiellement des frais de
-    PLUSIEURS écoles en une seule exécution, un `db.get(School, ...)` par frais individuel ici
-    recréerait exactement le motif N+1 déjà corrigé ailleurs dans ce même fichier pour `Student`
-    (voir `students_by_id` dans `send_overdue_fee_reminders`).
+    lookup groupé par `school_id`) : ce job traite potentiellement des frais de PLUSIEURS écoles
+    en une seule exécution, un `db.get(School, ...)` par frais individuel ici recréerait le même
+    N+1 déjà évité pour `Student`.
+
+    Phase 27 Sprint 1.2bis — `candidates`/`already_emailed` reçus déjà résolus en LOT par
+    l'appelant (`resolve_guardian_emails_without_account_for_students`/
+    `existing_fee_overdue_emailed_guardian_ids_for_fees`, un seul aller-retour pour TOUS les frais
+    de cette exécution) plutôt que requêtés ici un frais à la fois — corrige un N+1 confirmé par
+    mesure (~1400 frais éligibles en pratique, jusqu'à 4 requêtes par frais). Comportement de cette
+    fonction strictement inchangé, seule la provenance des deux listes change.
 
     Chaque ligne de suivi est écrite dans un SAVEPOINT dédié (`db.begin_nested`) : une exécution
     réellement concurrente du job (hors usage normal — un seul timer, séquentiel) qui gagnerait la
@@ -123,11 +138,9 @@ async def _prepare_overdue_emails(
     modèle) ; l'identifiant de la ligne (déjà généré, nécessaire pour l'idempotence) est renvoyé
     avec chaque email pour que l'appelant puisse y reporter le résultat réel du transport après
     la tentative d'envoi (voir `send_overdue_fee_reminder_emails`)."""
-    candidates = await resolve_guardian_emails_without_account_for_student(db, student.id, fee.school_id)
     if not candidates:
         return []
 
-    already_emailed = await existing_fee_overdue_emailed_guardian_ids(db, fee.id)
     subject = f"Paiement en retard — {student.first_name} {student.last_name}"
     from_name = school.name if school is not None else None
     reply_to = school.email if school is not None else None
@@ -200,6 +213,19 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
     schools_result = await db.execute(select(School).where(School.id.in_(school_ids)))
     schools_by_id = {school.id: school for school in schools_result.scalars().all()}
 
+    # Phase 27 Sprint 1.2bis — les 4 lectures suivantes étaient auparavant refaites À CHAQUE frais
+    # (jusqu'à ~5600 requêtes SQL confirmées par mesure pour ~1400 frais éligibles en pratique) :
+    # un seul aller-retour par lookup, pour TOUS les frais de cette exécution, même discipline
+    # anti-N+1 que `students_by_id`/`schools_by_id` ci-dessus. Résultat métier strictement
+    # identique (mêmes destinataires, même idempotence) — seule la provenance des données change,
+    # jamais les règles de sélection ni le comportement multi-organisation/multi-école du job.
+    student_school_pairs = {(fee.student_id, fee.school_id) for fee, _, _ in overdue_rows}
+    fee_ids = {fee.id for fee, _, _ in overdue_rows}
+    guardian_user_ids_by_pair = await resolve_guardian_user_ids_for_students(db, student_school_pairs)
+    already_notified_by_fee = await existing_fee_overdue_recipient_ids_for_fees(db, fee_ids)
+    guardian_emails_by_pair = await resolve_guardian_emails_without_account_for_students(db, student_school_pairs)
+    already_emailed_by_fee = await existing_fee_overdue_emailed_guardian_ids_for_fees(db, fee_ids)
+
     notifications_created = 0
     fees_with_new_notifications = 0
     emails: list[tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]] = []
@@ -209,14 +235,21 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
             continue
         balance = balances[fee.id]
         reminder_body = _format_reminder_body(student, schedule_name, balance, currency)
-        created = await notify_fee_overdue(
+
+        # Même règle exacte que l'ancien `notify_fee_overdue` (désormais inlinée ici avec des
+        # lookups déjà en mémoire) : un seul rappel par (StudentFee, tuteur avec compte).
+        recipient_ids = guardian_user_ids_by_pair.get((fee.student_id, fee.school_id), set())
+        already_notified = already_notified_by_fee.get(fee.id, set())
+        to_notify = recipient_ids - already_notified
+        created = await create_notifications(
             db,
             organization_id=fee.organization_id,
             school_id=fee.school_id,
-            student_id=student.id,
-            student_fee_id=fee.id,
+            recipient_user_ids=to_notify,
+            type_="FEE_OVERDUE",
             title="Paiement en retard",
             body=reminder_body,
+            student_fee_id=fee.id,
         )
         notifications_created += created
         if created > 0:
@@ -224,7 +257,13 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
 
         emails.extend(
             await _prepare_overdue_emails(
-                db, student=student, fee=fee, reminder_body=reminder_body, school=schools_by_id.get(fee.school_id)
+                db,
+                student=student,
+                fee=fee,
+                reminder_body=reminder_body,
+                school=schools_by_id.get(fee.school_id),
+                candidates=guardian_emails_by_pair.get((fee.student_id, fee.school_id), []),
+                already_emailed=already_emailed_by_fee.get(fee.id, set()),
             )
         )
 

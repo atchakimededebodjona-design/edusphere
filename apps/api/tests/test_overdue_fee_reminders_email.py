@@ -26,10 +26,12 @@ from tests.test_overdue_fee_reminders import (
     FUTURE_DUE_DATE,
     PAST_DUE_DATE,
     _cancel_fee_directly,
+    _count_fee_overdue_notifications,
     _create_guardian_without_account,
     _create_student_fee,
     _link_parent,
     _list_fee_overdue_notifications,
+    _list_notifications,
     _pay,
     _setup_student,
 )
@@ -158,6 +160,58 @@ async def test_overdue_reminder_batch_never_mixes_school_identities_across_tenan
     assert "overduecrossa School" not in email_to_b
     assert guardian_b["email"] not in email_to_a
     assert guardian_a["email"] not in email_to_b
+
+
+# --- Non-régression Phase 27 Sprint 1.2bis : passage en lot des lectures du job ------------------
+async def test_batched_job_isolates_schools_and_channels_correctly(client: AsyncClient, monkeypatch, tmp_path) -> None:
+    """Non-régression du passage en lot des 4 lectures auparavant refaites À CHAQUE frais éligible
+    (`resolve_guardian_user_ids_for_students`, `existing_fee_overdue_recipient_ids_for_fees`,
+    `resolve_guardian_emails_without_account_for_students`,
+    `existing_fee_overdue_emailed_guardian_ids_for_fees` — voir `fees/overdue_reminders.py`,
+    corrige un N+1 confirmé par mesure : jusqu'à ~5600 requêtes SQL pour ~1400 frais éligibles en
+    pratique, ramenées à une poignée de requêtes fixes). Ces lookups indexent désormais leurs
+    résultats par couple (student_id, school_id) ou par student_fee_id en mémoire — ce test
+    vérifie que cette indexation ne mélange jamais deux écoles/organisations ni deux canaux
+    différents lorsqu'ils sont traités dans la MÊME exécution du job :
+    - école A : élève SANS AUCUN tuteur (ne doit produire ni erreur ni destinataire) ;
+    - école B : élève avec un tuteur AVEC compte (canal in-app uniquement) ;
+    - école C : élève avec un tuteur SANS compte mais avec email (canal email uniquement).
+    Une seconde exécution du job (toujours sur les trois écoles ensemble) ne doit rien dupliquer —
+    idempotence bout en bout à travers le chemin batché, pas seulement au sein d'une école."""
+    monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))
+
+    env_a = await _setup_student(client, "batchmixeda")
+    await _create_student_fee(client, env_a, PAST_DUE_DATE, amount="10000")
+
+    env_b = await _setup_student(client, "batchmixedb")
+    parent_b = await _link_parent(client, env_b, "parent.batchmixedb")
+    await _create_student_fee(client, env_b, PAST_DUE_DATE, amount="20000")
+
+    env_c = await _setup_student(client, "batchmixedc")
+    guardian_c = await _create_guardian_with_email(client, env_c, "guardian.batchmixedc")
+    await _create_student_fee(client, env_c, PAST_DUE_DATE, amount="30000")
+
+    await _run_job_with_emails()
+
+    # École A : aucun tuteur -> aucune notification, aucun email, aucune exception.
+    assert await _count_fee_overdue_notifications(env_a["school_id"]) == 0
+
+    # École B : canal in-app uniquement, exactement une notification.
+    items_b = await _list_notifications(client, parent_b["headers"])
+    assert len(items_b) == 1
+    assert items_b[0]["type"] == "FEE_OVERDUE"
+
+    # École C : canal email uniquement, exactement un email, jamais mélangé avec B.
+    emails = _overdue_reminder_emails(tmp_path)
+    assert len(emails) == 1
+    assert guardian_c["email"] in emails[0]
+    assert "30000" in emails[0]
+
+    # Deuxième exécution, toujours sur les trois écoles ensemble : idempotence bout en bout.
+    await _run_job_with_emails()
+    assert await _count_fee_overdue_notifications(env_a["school_id"]) == 0
+    assert len(await _list_notifications(client, parent_b["headers"])) == 1
+    assert len(_overdue_reminder_emails(tmp_path)) == 1
 
 
 # --- A : tuteur sans compte + email + frais en retard -> email envoyé -------------------------------
