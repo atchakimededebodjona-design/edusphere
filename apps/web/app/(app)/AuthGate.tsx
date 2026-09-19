@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { isParentOnlyAccount } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ function ErrorRetryScreen({
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const {
     status,
+    roles,
     organizationContextStatus,
     availableOrganizations,
     organizationContextError,
@@ -57,6 +59,17 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     logout,
   } = useAuth();
   const router = useRouter();
+
+  // Phase 28A — un compte PARENT n'a pas sa place dans l'espace admin, même atteint directement
+  // (URL tapée à la main, favori, rechargement de page) plutôt que via la connexion (déjà traitée
+  // dans app/(auth)/login/page.tsx). Vérifié dès que le rôle est connu, AVANT toute résolution
+  // organisation/école (qui n'a pas de sens pour ce compte — voir lib/auth/roles.ts) : un parent
+  // ne doit jamais se retrouver bloqué sur un écran "choisissez une école" qui ne le concerne pas.
+  const isParent = status === "authenticated" && isParentOnlyAccount(roles);
+
+  useEffect(() => {
+    if (isParent) router.replace("/parent");
+  }, [isParent, router]);
 
   // Une fois l'application réellement entrée (organisation ET école résolues au moins une fois),
   // un changement volontaire de contexte déclenché depuis le sélecteur permanent
@@ -76,6 +89,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [status, router]);
 
   const reconnect = () => void logout().then(() => router.push("/login"));
+
+  if (isParent) {
+    return (
+      <Centered>
+        <p className="text-sm text-slate-500">Redirection vers votre espace...</p>
+      </Centered>
+    );
+  }
 
   if (status === "authenticated" && organizationContextStatus === "resolved" && schoolContextStatus === "resolved") {
     hasEnteredAppRef.current = true;

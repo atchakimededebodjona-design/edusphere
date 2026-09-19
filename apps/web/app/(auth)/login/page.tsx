@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ApiError } from "@/lib/auth/client";
+import { isParentOnlyAccount } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 export default function LoginPage() {
@@ -19,8 +20,10 @@ export default function LoginPage() {
     setStatus("loading");
     setError(null);
     try {
-      await login(email, password);
-      router.push("/");
+      const me = await login(email, password);
+      // Phase 28A — un compte dont tous les rôles sont PARENT n'a rien à faire dans l'espace
+      // admin (voir lib/auth/roles.ts) : redirection directe vers son propre portail.
+      router.push(isParentOnlyAccount(me.roles) ? "/parent" : "/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");

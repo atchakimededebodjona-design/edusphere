@@ -48,7 +48,10 @@ export type AuthContextValue = {
 
   retryTenantContext: () => void;
 
-  login: (email: string, password: string) => Promise<void>;
+  // Renvoie `Me` (pas seulement void) depuis Phase 28A : la page de connexion doit décider
+  // immédiatement où rediriger (espace admin vs portail parent, voir lib/auth/roles.ts) sans
+  // dépendre d'un re-rendu ultérieur de ce contexte, qui accuserait un tour de retard.
+  login: (email: string, password: string) => Promise<Me>;
   logout: () => Promise<void>;
 };
 
@@ -122,9 +125,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await authClient.me();
       setMe(result);
       setStatus("authenticated");
+      return result;
     } catch {
       setMe(null);
       setStatus("anonymous");
+      return null;
     }
   }, []);
 
@@ -148,14 +153,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, [resetTenantState]);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const tokens = await authClient.login(email, password);
-      setStoredTokens({ access_token: tokens.access_token, refresh_token: tokens.refresh_token });
-      await loadMe();
-    },
-    [loadMe],
-  );
+  const login = useCallback(async (email: string, password: string): Promise<Me> => {
+    const tokens = await authClient.login(email, password);
+    setStoredTokens({ access_token: tokens.access_token, refresh_token: tokens.refresh_token });
+    // Appel direct (pas `loadMe`, qui avale toute erreur en "anonymous") : un échec de `me()`
+    // juste après une connexion réussie est une vraie erreur à remonter à l'appelant (écran de
+    // connexion), pas un simple retour à l'état déconnecté.
+    const result = await authClient.me();
+    setMe(result);
+    setStatus("authenticated");
+    return result;
+  }, []);
 
   // Contexte tenant nettoyé (état React remis à zéro) sur déconnexion — mais le choix mémorisé en
   // localStorage n'est jamais effacé ici : une reconnexion ultérieure du même compte sur ce même
