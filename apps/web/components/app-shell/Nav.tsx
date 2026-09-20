@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
+import { isPlatformAdmin } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 type NavItem = {
@@ -29,10 +30,17 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Nav() {
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
   const pathname = usePathname();
 
-  const items = NAV_ITEMS.filter((item) => !item.permission || permissions.includes(item.permission));
+  // Un compte plateforme (SUPER_ADMIN) cumule TOUTES les permissions du catalogue RBAC (voir
+  // rbac/seed.py) et verrait donc ici la quasi-totalité des liens de gestion scolaire — qui
+  // supposent tous une école courante (currentSchoolId), toujours nulle pour ce compte (aucune
+  // organisation/école, voir lib/auth/roles.ts::isPlatformAdmin). Seul le tableau de bord
+  // (qui bascule lui-même vers la vue plateforme, voir app/(app)/dashboard/page.tsx) a un sens ici.
+  const items = isPlatformAdmin(user)
+    ? NAV_ITEMS.filter((item) => item.href === "/dashboard")
+    : NAV_ITEMS.filter((item) => !item.permission || permissions.includes(item.permission));
 
   return (
     <nav className="flex w-56 flex-col gap-1 border-r border-slate-200 bg-white p-4">

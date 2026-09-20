@@ -23,6 +23,7 @@ from app.modules.grades.router import router as grades_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.parent.router import router as parent_router
+from app.modules.platform.router import router as platform_router
 from app.modules.rbac.router import router as rbac_router
 from app.modules.report_cards.router import router as report_cards_router
 from app.modules.schools.router import router as schools_router
@@ -148,3 +149,4 @@ app.include_router(attendance_router, prefix=settings.api_v1_prefix, tags=["atte
 app.include_router(fees_router, prefix=settings.api_v1_prefix, tags=["fees"])
 app.include_router(notifications_router, prefix=settings.api_v1_prefix, tags=["notifications"])
 app.include_router(parent_router, prefix=settings.api_v1_prefix, tags=["parent"])
+app.include_router(platform_router, prefix=settings.api_v1_prefix, tags=["platform"])

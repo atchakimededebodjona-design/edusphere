@@ -1,4 +1,4 @@
-import type { RoleAssignment } from "@/lib/auth/client";
+import type { Me, RoleAssignment } from "@/lib/auth/client";
 
 // Phase 28A — un compte PARENT ne reçoit jamais de rôle admin/staff en plus (voir
 // apps/api/app/modules/parent/router.py, "aucune permission RBAC vérifiée, seul le lien Guardian
@@ -17,4 +17,15 @@ export function isParentOnlyAccount(roles: RoleAssignment[]): boolean {
 // mixte qui a explicitement navigué vers `/parent`.
 export function hasAnyParentRole(roles: RoleAssignment[]): boolean {
   return roles.some((role) => role.role_code === "PARENT");
+}
+
+// Correction du flux super administrateur plateforme — un compte plateforme (SUPER_ADMIN,
+// PLATFORM_SUPPORT) n'a structurellement AUCUNE organisation/école (voir rbac/models.py,
+// docstring UserRole) : le flux normal de résolution tenant (lib/auth/tenantContext.ts) ne
+// peut donc jamais s'y appliquer. `is_platform_admin` est décidé côté serveur à la création du
+// compte (jamais dérivable des rôles), donc lu directement sur `Me.user` plutôt que recalculé
+// depuis les rôles — même source de vérité que le serveur pour tout endpoint qui le vérifie
+// (ex. app/core/permissions.py::require_platform_admin).
+export function isPlatformAdmin(user: Me["user"] | null): boolean {
+  return user?.is_platform_admin ?? false;
 }

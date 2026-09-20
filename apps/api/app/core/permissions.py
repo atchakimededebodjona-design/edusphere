@@ -117,6 +117,18 @@ def require_permission(code: str):
     return dependency
 
 
+async def require_platform_admin(current_user: CurrentUser) -> User:
+    """Dependency pour les endpoints réservés à un compte plateforme (ex. /platform/dashboard).
+
+    Vérifie directement la colonne `User.is_platform_admin` plutôt qu'un code de permission :
+    ce drapeau est décidé côté serveur à la création du compte (jamais via l'API), donc plus
+    direct et jamais tributaire du catalogue RBAC (voir modules/rbac/seed.py) pour ce contrôle
+    précis."""
+    if not current_user.is_platform_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+    return current_user
+
+
 async def is_teacher_only(db: AsyncSession, user: User, organization_id: uuid.UUID, school_id: uuid.UUID) -> bool:
     """True si, pour cette école, le seul rôle de l'utilisateur est TEACHER — cas où la règle
     métier « un enseignant ne voit que ses classes/matières » (cahier des charges §10)

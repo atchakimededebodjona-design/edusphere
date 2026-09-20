@@ -105,6 +105,44 @@ async def register_school(client: AsyncClient, org_prefix: str = "org") -> dict:
     return response.json()
 
 
+async def create_platform_admin(client: AsyncClient, prefix: str = "platformadmin") -> dict:
+    """Crée un compte plateforme pur (is_platform_admin=True, SUPER_ADMIN, aucune organisation/
+    école) et retourne ses tokens. Il n'existe pas de flux d'inscription public pour ce type de
+    compte (register() ne crée toujours qu'un SCHOOL_ADMIN rattaché à un nouveau tenant — voir
+    test_register_never_grants_platform_admin) : c'est un compte insensible-tenant seed en
+    production, reproduit ici directement en base, même motif que assign_role() ci-dessous."""
+    import uuid as uuid_module
+
+    from app.core.security import hash_password
+    from app.core.tenancy import set_platform_wide_context
+    from app.modules.users.models import User
+
+    password = "SuperSecret123"
+    email = unique_email(prefix)
+    user_id = uuid_module.uuid4()
+
+    async with AsyncSessionLocal() as db:
+        await set_platform_wide_context(db)
+        db.add(
+            User(
+                id=user_id,
+                email=email,
+                full_name=f"Platform Admin {prefix}",
+                hashed_password=hash_password(password),
+                is_active=True,
+                is_platform_admin=True,
+            )
+        )
+        await db.commit()
+
+    await assign_role(str(user_id), "SUPER_ADMIN", organization_id=None, school_id=None)
+
+    await _clear_shared_ip_rate_limits()
+    login = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
+    assert login.status_code == 200, login.text
+    return {"user_id": str(user_id), "email": email, "tokens": login.json()}
+
+
 async def assign_role(user_id: str, role_code: str, organization_id: str | None, school_id: str | None) -> None:
     """Attribue un rôle directement en base — il n'existe pas encore d'endpoint d'invitation
     d'utilisateur en Phase 1 (différé, cf. PHASE_1_AUTH_MULTITENANCY_PLAN.md §5)."""

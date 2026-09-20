@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { isParentOnlyAccount } from "@/lib/auth/roles";
+import { isParentOnlyAccount, isPlatformAdmin } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -46,6 +46,7 @@ function ErrorRetryScreen({
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const {
     status,
+    user,
     roles,
     organizationContextStatus,
     availableOrganizations,
@@ -70,6 +71,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isParent) router.replace("/parent");
   }, [isParent, router]);
+
+  // Correction du flux super administrateur plateforme — un compte is_platform_admin n'a
+  // structurellement aucune organisation/école (voir lib/auth/roles.ts::isPlatformAdmin) : la
+  // résolution tenant ci-dessous (organizationContextStatus/schoolContextStatus) ne le concerne
+  // jamais et finirait toujours en "empty". Contrairement au cas PARENT, pas de redirection —
+  // `{children}` reste rendu directement, `/dashboard` choisit lui-même la vue plateforme
+  // (voir app/(app)/dashboard/page.tsx) sans dépendre du contexte organisation/école.
+  const isPlatform = status === "authenticated" && isPlatformAdmin(user);
 
   // Une fois l'application réellement entrée (organisation ET école résolues au moins une fois),
   // un changement volontaire de contexte déclenché depuis le sélecteur permanent
@@ -96,6 +105,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         <p className="text-sm text-slate-500">Redirection vers votre espace...</p>
       </Centered>
     );
+  }
+
+  if (isPlatform) {
+    return <>{children}</>;
   }
 
   if (status === "authenticated" && organizationContextStatus === "resolved" && schoolContextStatus === "resolved") {
