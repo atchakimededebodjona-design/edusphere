@@ -27,6 +27,7 @@
 #
 # Usage : scripts/backup-all.sh [service-compose]   (défaut: db)
 set -euo pipefail
+export RCLONE_CONFIG="${RCLONE_CONFIG:-/home/edusphere/.config/rclone/rclone.conf}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE="${1:-db}"
