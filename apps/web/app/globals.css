@@ -1,3 +1,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Landing page publique — défilement doux pour les liens d'ancre de la navigation (#accueil,
+   #fonctionnalites, ...), pour laisser aux animations de révélation le temps de se terminer avant
+   que la section ciblée n'atteigne le viewport. Neutralisé sous prefers-reduced-motion : un saut
+   instantané reste alors le comportement, jamais un défilement animé imposé. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}

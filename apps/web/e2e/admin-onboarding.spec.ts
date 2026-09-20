@@ -39,7 +39,7 @@ test("CRITIQUE (réel, sans mock) — nouvel admin : register -> login -> dashbo
 
   // register() enchaîne déjà un login réel (voir apps/web/app/(auth)/register/page.tsx) : on est
   // donc immédiatement sur le dashboard, authentifié pour de vrai.
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   // Avant le correctif Phase 8.1 : ceci restait bloqué indéfiniment sur "Chargement..." (le rôle
   // scopé organisation de cet admin n'était jamais résolu en école courante).
@@ -76,7 +76,7 @@ test.describe("Plusieurs écoles pour la même organisation", () => {
     request,
   }) => {
     const { email, password } = await registerOrgAdmin(page, "multi");
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/dashboard");
 
     const secondSchool = await createSecondSchool(page, request, email, password);
 
@@ -118,7 +118,7 @@ test("erreur lors de la détermination du contexte école : message clair, jamai
   });
 
   await registerOrgAdmin(page, "resolveerr");
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   // getByRole("alert") remonterait aussi le route-announcer interne de Next.js
   // (#__next-route-announcer__, role="alert" lui aussi) — on cible donc le texte exact.

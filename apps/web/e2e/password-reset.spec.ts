@@ -26,7 +26,7 @@ async function registerSchool(page: Page, slugPrefix: string) {
   await page.getByPlaceholder("Votre email").fill(email);
   await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   return { email, password };
 }
@@ -82,7 +82,7 @@ test("réinitialisation réelle via l'UI : lien reçu -> nouveau mot de passe ->
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Mot de passe").fill("BrandNewPassword1");
   await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
   await expect(page.getByText(/Bienvenue sur l'espace de/)).toBeVisible();
 });
 

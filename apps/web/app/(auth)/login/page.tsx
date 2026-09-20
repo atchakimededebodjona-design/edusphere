@@ -24,7 +24,9 @@ export default function LoginPage() {
       const me = await login(email, password);
       // Phase 28A — un compte dont tous les rôles sont PARENT n'a rien à faire dans l'espace
       // admin (voir lib/auth/roles.ts) : redirection directe vers son propre portail.
-      router.push(isParentOnlyAccount(me.roles) ? "/parent" : "/");
+      // La landing page publique vivant désormais sur "/", un compte non-parent est envoyé vers
+      // son tableau de bord ("/dashboard") plutôt que vers la page marketing.
+      router.push(isParentOnlyAccount(me.roles) ? "/parent" : "/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");

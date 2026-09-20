@@ -112,7 +112,7 @@ async function registerOrgAdmin(page: Page, slugPrefix: string) {
   await page.getByPlaceholder("Votre email").fill(email);
   await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   return { slug, email, password };
 }

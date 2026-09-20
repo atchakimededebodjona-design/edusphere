@@ -34,7 +34,7 @@ async function registerRealAccount(page: Page, slugPrefix: string) {
   await page.getByPlaceholder("Votre email").fill(email);
   await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
   await expect(page.getByText(/Bienvenue sur l'espace de/)).toBeVisible();
 
   return { slug, email, password };
@@ -89,9 +89,11 @@ test("ancienne clé edusphere.session malformée : traité comme non authentifi�
   await page.goto("/login");
   await page.evaluate((key) => window.localStorage.setItem(key, "{ceci n'est pas du JSON"), LEGACY_KEY);
 
-  await page.goto("/");
+  await page.goto("/dashboard");
 
-  // Aucun bypass : un JSON invalide sous l'ancienne clé n'authentifie jamais personne.
+  // Aucun bypass : un JSON invalide sous l'ancienne clé n'authentifie jamais personne. "/" est
+  // désormais la landing page publique (jamais protégée) — "/dashboard" est la route protégée qui
+  // vérifie réellement cette propriété.
   await expect(page).toHaveURL(/\/login$/);
 });
 
@@ -172,10 +174,10 @@ test("plusieurs requêtes 401 simultanées (dashboard) : un seul appel réel à 
     { key: CURRENT_KEY, refresh_token: realSession!.refresh_token },
   );
 
-  // Le tableau de bord (page "/") déclenche deux appels API authentifiés en parallèle au montage
-  // (école + indicateurs, voir apps/web/app/(app)/page.tsx) — les deux reçoivent 401 quasi
-  // simultanément avec le token invalide ci-dessus.
-  await page.goto("/");
+  // Le tableau de bord (page "/dashboard") déclenche deux appels API authentifiés en parallèle au
+  // montage (école + indicateurs, voir apps/web/app/(app)/dashboard/page.tsx) — les deux reçoivent
+  // 401 quasi simultanément avec le token invalide ci-dessus.
+  await page.goto("/dashboard");
   await expect(page.getByText(/Bienvenue sur l'espace de/)).toBeVisible();
 
   expect(refreshCallCount).toBe(1);

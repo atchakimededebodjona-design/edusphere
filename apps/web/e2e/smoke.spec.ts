@@ -1,7 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-test("unauthenticated visitor to / is redirected to /login, not a static placeholder", async ({ page }) => {
+test("visitor to / sees the public landing page, not a redirect to login", async ({ page }) => {
   await page.goto("/");
+  await expect(page).toHaveURL("/");
+  await expect(page.getByRole("heading", { level: 1, name: /pensée pour elle/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Se connecter" }).first()).toHaveAttribute("href", "/login");
+});
+
+test("unauthenticated visitor to /dashboard is redirected to /login, not a static placeholder", async ({ page }) => {
+  await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("heading", { name: "Connexion" })).toBeVisible();
 });

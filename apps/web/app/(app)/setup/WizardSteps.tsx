@@ -657,7 +657,7 @@ export function StepSummary({
         );
         return;
       }
-      router.push("/");
+      router.push("/dashboard");
     } catch (err) {
       // Une session expirée ici emprunte exactement le même chemin que partout ailleurs dans le
       // wizard (apiFetch -> refresh -> AuthProvider -> redirection /login, Phase 27 Sprint 1.1) —

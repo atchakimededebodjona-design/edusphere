@@ -198,7 +198,7 @@ async function registerOrgAdmin(page: Page, slugPrefix: string) {
   await page.getByPlaceholder("Votre email").fill(email);
   await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   return { slug, email, password };
 }
@@ -578,7 +578,7 @@ test("régression dashboard : getSchool()/getSchoolDashboard() sont bien appelé
     if (req.url().includes(`/api/v1/schools/${school.id}`)) calledSchoolUrls.push(req.url());
   });
 
-  await page.goto("/");
+  await page.goto("/dashboard");
   await expect(page.getByText(/Bienvenue sur l'espace de/)).toBeVisible();
   await expect(page.getByText("Chargement des indicateurs...")).toHaveCount(0, { timeout: 10_000 });
 

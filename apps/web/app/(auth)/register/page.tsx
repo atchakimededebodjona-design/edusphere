@@ -37,7 +37,10 @@ export default function RegisterPage() {
       // register() ne persiste pas la session (voir lib/auth/client.ts) — on ré-authentifie via
       // le contexte pour hydrater la session et /me avec les mêmes identifiants.
       await login(form.admin_email, form.admin_password);
-      router.push("/");
+      // La landing page publique vit désormais sur "/" — un compte créé par ce formulaire est
+      // toujours un admin d'organisation (jamais un parent), direction directe vers le tableau de
+      // bord (voir aussi lib/auth/roles.ts pour le cas parent, non applicable ici).
+      router.push("/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");

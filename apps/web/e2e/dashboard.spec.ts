@@ -24,7 +24,7 @@ async function registerSchool(page: Page, request: APIRequestContext, slugPrefix
   await page.getByPlaceholder("Votre email").fill(orgAdminEmail);
   await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   // Contournement du bug d'onboarding organisationnel documenté en Phase 8.1 (currentSchoolId) :
   // même mécanisme que setup-wizard.spec.ts / admin-onboarding.spec.ts — un second compte admin
@@ -57,7 +57,7 @@ async function registerSchool(page: Page, request: APIRequestContext, slugPrefix
   await page.getByPlaceholder("Email").fill(schoolAdminEmail);
   await page.getByPlaceholder("Mot de passe").fill(password);
   await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   return { slug, email: schoolAdminEmail, password, schoolId, orgAdminToken };
 }
@@ -181,7 +181,7 @@ test("tableau de bord : métriques réelles pour une école peuplée", async ({ 
   ).json();
   await request.post(`${API_BASE_URL}/api/v1/report-cards/${generated[0].id}/publish`, { headers });
 
-  await page.goto("/");
+  await page.goto("/dashboard");
   await expect(page.getByText("Chargement des indicateurs...")).toHaveCount(0, { timeout: 10_000 });
 
   // 2 élèves actifs, 1 présent/1 absent (50%), 1 résultat saisi sur 2 attendus (50%), 1 bulletin
@@ -197,7 +197,7 @@ test("tableau de bord : métriques réelles pour une école peuplée", async ({ 
 
 test("tableau de bord : école vide affiche zéro et « Aucune donnée », jamais de blocage", async ({ page, request }) => {
   await registerSchool(page, request, "dashempty");
-  await page.goto("/");
+  await page.goto("/dashboard");
 
   await expect(page.getByText("Chargement des indicateurs...")).toHaveCount(0, { timeout: 10_000 });
   await expect(page.getByText("Élèves actifs")).toBeVisible();
@@ -224,7 +224,7 @@ test("tableau de bord : permission refusée affiche un message clair, pas un blo
   await page.getByPlaceholder("Email").fill(accountantEmail);
   await page.getByPlaceholder("Mot de passe").fill("AccountantPass123");
   await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   // getByRole("alert") remonterait aussi le route-announcer interne de Next.js
   // (#__next-route-announcer__, role="alert" lui aussi) — on cible donc le texte exact.

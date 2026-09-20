@@ -12,7 +12,7 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Tableau de bord" },
+  { href: "/dashboard", label: "Tableau de bord" },
   { href: "/setup", label: "Mise en place", permission: "academics.manage" },
   { href: "/school", label: "École", permission: "schools.read" },
   { href: "/academics", label: "Académique", permission: "academics.read" },
@@ -40,7 +40,7 @@ export function Nav() {
         <BrandSymbol className="h-10 w-10" />
       </div>
       {items.map((item) => {
-        const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         return (
           <Link
             key={item.href}

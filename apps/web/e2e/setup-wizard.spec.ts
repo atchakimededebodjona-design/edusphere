@@ -36,7 +36,7 @@ async function registerSchool(page: Page, request: APIRequestContext, slugPrefix
   await page.getByPlaceholder("Votre email").fill(orgAdminEmail);
   await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   // L'admin d'organisation ci-dessus a un rôle scopé organisation (currentSchoolId cassé, voir
   // le commentaire en tête de fichier) : on récupère son token pour créer, via l'API, un second
@@ -72,7 +72,7 @@ async function registerSchool(page: Page, request: APIRequestContext, slugPrefix
   await page.getByPlaceholder("Email").fill(schoolAdminEmail);
   await page.getByPlaceholder("Mot de passe").fill(password);
   await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   return { slug, email: schoolAdminEmail, password, schoolId, orgAdminToken };
 }
@@ -166,7 +166,7 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     await expect(finishButton).toBeVisible();
     await expect(finishButton).toBeEnabled();
     await finishButton.click();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/dashboard");
     await expect(page.getByText(/Bienvenue sur l'espace de/)).toBeVisible();
 
     // Données conservées, retour vers /setup toujours possible après la finalisation. Un
@@ -239,7 +239,7 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     await expect(finishButton).toBeDisabled();
     await finishButton.click({ force: true });
 
-    await expect(page).toHaveURL("/", { timeout: 10_000 });
+    await expect(page).toHaveURL("/dashboard", { timeout: 10_000 });
   });
 
   test("bouton « Terminer la configuration » : configuration incomplète correctement refusée", async ({
@@ -371,7 +371,7 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     await page.getByPlaceholder("Email").fill(email);
     await page.getByPlaceholder("Mot de passe").fill(password);
     await page.getByRole("button", { name: "Se connecter" }).click();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/dashboard");
   });
 });
 
@@ -394,7 +394,7 @@ test("un enseignant (sans permission académique) n'a pas accès à l'assistant"
   await page.getByPlaceholder("Email").fill(teacherEmail);
   await page.getByPlaceholder("Mot de passe").fill(teacherPassword);
   await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 
   // Le lien "Mise en place" n'apparaît pas dans la navigation pour un enseignant...
   await expect(page.getByRole("link", { name: "Mise en place" })).toHaveCount(0);
