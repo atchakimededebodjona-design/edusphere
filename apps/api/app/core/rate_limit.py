@@ -130,50 +130,6 @@ async def register_forgot_password_attempt(email: str) -> None:
         logger.warning("Rate limiting Redis indisponible — demande non comptabilisée (forgot-password).")
 
 
-# --- Inscription / création d'organisation (Phase 20) -----------------------------------------
-#
-# Clé IP, volontairement différente du choix "par email" du login : /auth/register ne représente
-# jamais un trafic légitime récurrent partagé par toute une école (contrairement au login, où de
-# nombreux utilisateurs réels d'une même école se connectent en continu depuis la même IP) — créer
-# une nouvelle organisation est un événement rare, une seule fois par client réel. Une même IP
-# dépassant le seuil est donc un signal d'abus (création automatisée de comptes), pas un usage
-# scolaire normal. Compte CHAQUE tentative (comme forgot-password), succès ou échec : le volume de
-# tentatives est le signal, pas seulement les échecs.
-
-
-def _register_key(ip: str) -> str:
-    return f"register_attempts:{ip}"
-
-
-async def ensure_register_not_rate_limited(ip: str | None) -> None:
-    """À appeler AVANT `auth/service.py::register`."""
-    key = _register_key(ip or "unknown")
-    try:
-        client = _get_client()
-        count = await client.get(key)
-        if count is not None and int(count) >= settings.register_rate_limit_max_attempts:
-            ttl = await client.ttl(key)
-            retry_after = max(ttl, 1)
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many registration attempts from this network. Please try again later.",
-                headers={"Retry-After": str(retry_after)},
-            )
-    except RedisError:
-        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (register).")
-
-
-async def register_registration_attempt(ip: str | None) -> None:
-    key = _register_key(ip or "unknown")
-    try:
-        client = _get_client()
-        count = await client.incr(key)
-        if count == 1:
-            await client.expire(key, settings.register_rate_limit_window_seconds)
-    except RedisError:
-        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (register).")
-
-
 # --- Refresh de token (Phase 20) ---------------------------------------------------------------
 #
 # Clé user_id, PAS le refresh token lui-même : le token tourne à chaque appel (rotation déjà en

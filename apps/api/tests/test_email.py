@@ -171,7 +171,7 @@ async def test_forgot_password_uses_school_identity_when_user_has_exactly_one_sc
 async def test_forgot_password_uses_platform_identity_when_user_has_no_school(
     client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Cas A — le SCHOOL_ADMIN créé par `register()` n'a qu'un rôle scopé ORGANISATION
+    """Cas A — le SCHOOL_ADMIN créé par `create_organization_with_admin` n'a qu'un rôle scopé ORGANISATION
     (`school_id` NULL, voir auth/service.py::register) : aucune école unique n'est identifiable,
     repli explicite sur l'identité plateforme (aucune ligne From-Name)."""
     monkeypatch.setattr(email_module, "email_provider", LocalEmailProvider(str(tmp_path)))

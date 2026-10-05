@@ -9,17 +9,6 @@ export type TokenPair = {
   token_type: string;
 };
 
-export type RegisterPayload = {
-  organization_name: string;
-  organization_slug: string;
-  country_code: string;
-  school_name: string;
-  school_slug: string;
-  admin_full_name: string;
-  admin_email: string;
-  admin_password: string;
-};
-
 export type RoleAssignment = {
   role_code: string;
   organization_id: string | null;
@@ -44,16 +33,6 @@ export async function login(email: string, password: string): Promise<TokenPair>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
-  });
-  if (!response.ok) throw new ApiError(await parseErrorDetail(response), response.status);
-  return response.json();
-}
-
-export async function register(payload: RegisterPayload): Promise<{ tokens: TokenPair }> {
-  const response = await fetch(`${API_URL}/api/v1/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
   });
   if (!response.ok) throw new ApiError(await parseErrorDetail(response), response.status);
   return response.json();

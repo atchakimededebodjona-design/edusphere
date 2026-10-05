@@ -1,4 +1,14 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  clearResetPasswordRateLimit,
+  createOrganizationViaPlatform,
+  loginInBrowser,
+  registerOrgAdminInBrowser,
+} from "./helpers/tenants";
+
+test.beforeEach(() => {
+  clearResetPasswordRateLimit();
+});
 
 // Phase 10 — tableau de bord opérationnel admin. Exécuté contre l'API + Postgres réels, sans
 // mock. Les métriques exactes attendues ici sont les mêmes que celles vérifiées côté backend
@@ -11,20 +21,7 @@ function unique(prefix: string): string {
 }
 
 async function registerSchool(page: Page, request: APIRequestContext, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const orgAdminEmail = `${slug}-org@wizard-e2e.example`;
-  const password = "SuperSecret123";
-
-  await page.goto("/register");
-  await page.getByPlaceholder("Nom de l'organisation").fill(`Org ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'organisation").fill(slug);
-  await page.getByPlaceholder("Nom de l'école").fill(`Ecole ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'école").fill(slug);
-  await page.getByPlaceholder("Votre nom complet").fill("Org Admin");
-  await page.getByPlaceholder("Votre email").fill(orgAdminEmail);
-  await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
-  await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/dashboard");
+  const { slug, orgAdminEmail, password } = await createOrganizationViaPlatform(request, slugPrefix);
 
   // Contournement du bug d'onboarding organisationnel documenté en Phase 8.1 (currentSchoolId) :
   // même mécanisme que setup-wizard.spec.ts / admin-onboarding.spec.ts — un second compte admin

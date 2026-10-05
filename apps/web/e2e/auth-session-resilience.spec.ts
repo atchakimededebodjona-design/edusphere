@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { registerOrgAdminInBrowser } from "./helpers/tenants";
 
 // Phase 27 Sprint 1.1 — Auth & Session Resilience (voir
 // docs/phases/PHASE_27_SPRINT_1_1_AUTH_SESSION_DISCOVERY.md). Ce projet n'a pas de runner de test
@@ -21,23 +22,10 @@ function unique(prefix: string): string {
 }
 
 async function registerRealAccount(page: Page, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const email = `${slug}@auth-e2e.example`;
-  const password = "SuperSecret123";
-
-  await page.goto("/register");
-  await page.getByPlaceholder("Nom de l'organisation").fill(`Org ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'organisation").fill(slug);
-  await page.getByPlaceholder("Nom de l'école").fill(`Ecole ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'école").fill(slug);
-  await page.getByPlaceholder("Votre nom complet").fill("Auth E2E Admin");
-  await page.getByPlaceholder("Votre email").fill(email);
-  await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
-  await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/dashboard");
+  const tenant = await registerOrgAdminInBrowser(page, slugPrefix);
   await expect(page.getByText(/Bienvenue sur l'espace de/)).toBeVisible();
 
-  return { slug, email, password };
+  return { slug: tenant.slug, email: tenant.orgAdminEmail, password: tenant.password };
 }
 
 async function readSession(page: Page, key: string): Promise<{ access_token: string; refresh_token: string } | null> {

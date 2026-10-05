@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { createOrganizationViaPlatform } from "./helpers/tenants";
 
 // Phase 28A — Portail Parent Web. Exécuté contre l'API + Postgres réels, sans mock. Le contexte
 // élève/notes/présence/bulletin/frais est construit directement via l'API (comme
@@ -11,36 +12,15 @@ function unique(prefix: string): string {
   return `${prefix}${Date.now()}${Math.floor(Math.random() * 10000)}`;
 }
 
-// À la différence de apps/web/e2e/dashboard.spec.ts::registerSchool (qui passe par la page
-// /register), la création d'organisation/école/admin se fait ici en API directe : une régression
-// pré-existante et hors périmètre de cette phase (bug confirmé indépendant de Phase 28A — reproduit
-// à l'identique sur dashboard.spec.ts non modifié, avec ou sans les changements de cette phase,
-// via `git stash`) bloque actuellement le flux register->login de la page /register elle-même dans
-// cet environnement. Ce test vise le portail PARENT, pas cette page : passer par l'API pour la
-// seule mise en place évite de dépendre d'un chemin déjà cassé avant même Phase 28A, sans le
-// masquer ni le corriger (voir le rapport final pour le signalement complet).
+// Création d'organisation/école/admin via l'API du platform admin (voir e2e/helpers/tenants.ts) :
+// ce test vise le portail PARENT, la mise en place passe donc directement par l'API.
 async function registerSchool(request: APIRequestContext, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const orgAdminEmail = `${slug}-org@wizard-e2e.example`;
-  const password = "SuperSecret123";
-
-  const registerResponse = await request.post(`${API_BASE_URL}/api/v1/auth/register`, {
-    data: {
-      organization_name: `Org ${slug}`,
-      organization_slug: slug,
-      country_code: "TG",
-      school_name: `Ecole ${slug}`,
-      school_slug: slug,
-      admin_full_name: "Org Admin",
-      admin_email: orgAdminEmail,
-      admin_password: password,
-    },
-  });
-  const registered = await registerResponse.json();
-  const orgAdminToken: string = registered.tokens.access_token;
-  const schoolId: string = registered.school.id;
-
-  return { slug, schoolId, orgAdminHeaders: { Authorization: `Bearer ${orgAdminToken}` } };
+  const tenant = await createOrganizationViaPlatform(request, slugPrefix);
+  return {
+    slug: tenant.slug,
+    schoolId: tenant.schoolId,
+    orgAdminHeaders: { Authorization: `Bearer ${tenant.orgAdminToken}` },
+  };
 }
 
 async function apiHeaders(request: APIRequestContext, email: string, password: string) {

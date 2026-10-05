@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { registerOrgAdminInBrowser } from "./helpers/tenants";
 
 // Phase 8.1 — parcours d'onboarding admin réel : REGISTER -> LOGIN -> détermination du contexte
 // école -> DASHBOARD -> SETUP WIZARD. Couvre le bug corrigé : un admin créé par /register a un
@@ -15,21 +16,8 @@ function unique(prefix: string): string {
 }
 
 async function registerOrgAdmin(page: Page, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const email = `${slug}@wizard-e2e.example`;
-  const password = "SuperSecret123";
-
-  await page.goto("/register");
-  await page.getByPlaceholder("Nom de l'organisation").fill(`Org ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'organisation").fill(slug);
-  await page.getByPlaceholder("Nom de l'école").fill(`Ecole ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'école").fill(slug);
-  await page.getByPlaceholder("Votre nom complet").fill("Org Admin");
-  await page.getByPlaceholder("Votre email").fill(email);
-  await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
-  await page.getByRole("button", { name: "Créer mon compte" }).click();
-
-  return { slug, email, password };
+  const tenant = await registerOrgAdminInBrowser(page, slugPrefix);
+  return { slug: tenant.slug, email: tenant.orgAdminEmail, password: tenant.password };
 }
 
 test("CRITIQUE (réel, sans mock) — nouvel admin : register -> login -> dashboard -> setup wizard", async ({
@@ -37,8 +25,8 @@ test("CRITIQUE (réel, sans mock) — nouvel admin : register -> login -> dashbo
 }) => {
   await registerOrgAdmin(page, "onboard");
 
-  // register() enchaîne déjà un login réel (voir apps/web/app/(auth)/register/page.tsx) : on est
-  // donc immédiatement sur le dashboard, authentifié pour de vrai.
+  // registerOrgAdmin() ouvre déjà une session réelle via /login (voir e2e/helpers/tenants.ts) : on
+  // est donc immédiatement sur le dashboard, authentifié pour de vrai.
   await expect(page).toHaveURL("/dashboard");
 
   // Avant le correctif Phase 8.1 : ceci restait bloqué indéfiniment sur "Chargement..." (le rôle

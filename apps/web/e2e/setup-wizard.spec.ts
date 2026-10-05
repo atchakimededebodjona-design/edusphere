@@ -1,4 +1,14 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  clearResetPasswordRateLimit,
+  createOrganizationViaPlatform,
+  loginInBrowser,
+  registerOrgAdminInBrowser,
+} from "./helpers/tenants";
+
+test.beforeEach(() => {
+  clearResetPasswordRateLimit();
+});
 
 // Assistant de mise en place académique (Phase 8). Exécuté contre l'API + Postgres réels
 // (docker compose) — pas de mock, cohérent avec e2e/smoke.spec.ts. Chaque test crée sa propre
@@ -23,20 +33,7 @@ function unique(prefix: string): string {
 }
 
 async function registerSchool(page: Page, request: APIRequestContext, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const orgAdminEmail = `${slug}-org@wizard-e2e.example`;
-  const password = "SuperSecret123";
-
-  await page.goto("/register");
-  await page.getByPlaceholder("Nom de l'organisation").fill(`Org ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'organisation").fill(slug);
-  await page.getByPlaceholder("Nom de l'école").fill(`Ecole ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'école").fill(slug);
-  await page.getByPlaceholder("Votre nom complet").fill("Org Admin");
-  await page.getByPlaceholder("Votre email").fill(orgAdminEmail);
-  await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
-  await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/dashboard");
+  const { slug, orgAdminEmail, password } = await createOrganizationViaPlatform(request, slugPrefix);
 
   // L'admin d'organisation ci-dessus a un rôle scopé organisation (currentSchoolId cassé, voir
   // le commentaire en tête de fichier) : on récupère son token pour créer, via l'API, un second

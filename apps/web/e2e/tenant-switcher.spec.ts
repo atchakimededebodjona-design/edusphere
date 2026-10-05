@@ -3,6 +3,7 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { registerOrgAdminInBrowser } from "./helpers/tenants";
 
 // Sélecteur de contexte organisation/école permanent dans le header (components/app-shell/
 // TenantSwitcher.tsx), qui permet de changer de contexte sans déconnexion une fois déjà entré
@@ -25,31 +26,6 @@ function unique(prefix: string): string {
   return `${prefix}${Date.now()}${uniqueCounter}${Math.floor(Math.random() * 10000)}`;
 }
 
-function clearRegisterRateLimit(): void {
-  try {
-    execFileSync(
-      "docker",
-      [
-        "compose",
-        "-p",
-        COMPOSE_PROJECT_NAME,
-        "exec",
-        "-T",
-        "redis",
-        "sh",
-        "-c",
-        "redis-cli --scan --pattern 'register_attempts:*' | xargs -r redis-cli del",
-      ],
-      { cwd: REPO_ROOT },
-    );
-  } catch {
-    // Best-effort : voir tenant-context.spec.ts pour la même justification.
-  }
-}
-
-test.beforeEach(() => {
-  clearRegisterRateLimit();
-});
 
 /** Reproduit un compte rattaché à une seconde organisation — état qu'aucun flux produit ne permet
  * de créer lui-même (email unique à l'inscription, `POST /users` limité à l'organisation de
@@ -99,22 +75,8 @@ function assignOrganizationScopedRole(userId: string, roleCode: string, organiza
 }
 
 async function registerOrgAdmin(page: Page, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const email = `${slug}@tenant-switcher-e2e.example`;
-  const password = "SuperSecret123";
-
-  await page.goto("/register");
-  await page.getByPlaceholder("Nom de l'organisation").fill(`Org ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'organisation").fill(slug);
-  await page.getByPlaceholder("Nom de l'école").fill(`Ecole ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'école").fill(slug);
-  await page.getByPlaceholder("Votre nom complet").fill("Tenant Switcher E2E Admin");
-  await page.getByPlaceholder("Votre email").fill(email);
-  await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
-  await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/dashboard");
-
-  return { slug, email, password };
+  const tenant = await registerOrgAdminInBrowser(page, slugPrefix);
+  return { slug: tenant.slug, email: tenant.orgAdminEmail, password: tenant.password };
 }
 
 async function apiHeaders(request: APIRequestContext, email: string, password: string) {

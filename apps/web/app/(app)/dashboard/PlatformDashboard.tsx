@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import { getPlatformDashboard, type PlatformDashboard as PlatformDashboardData } from "@/lib/platform/client";
@@ -34,6 +35,17 @@ export function PlatformDashboard() {
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold text-slate-900">Administration de la plateforme</h1>
       <p className="text-slate-600">Bienvenue dans l&apos;espace d&apos;administration EduLinkage.</p>
+
+      {/* Seul point d'entrée d'inscription d'une organisation : réservé à ce tableau de bord
+          (PlatformDashboard n'est rendu que pour un platform admin, voir dashboard/page.tsx). */}
+      <div>
+        <Link
+          href="/dashboard/organizations/new"
+          className="inline-flex rounded-lg bg-gradient-to-r from-brand-blue to-brand-cyan px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+        >
+          + Inscrire une organisation
+        </Link>
+      </div>
 
       {error && <ErrorRetry message={error} onRetry={load} />}
       {!error && dashboard === null && <p className="text-sm text-slate-400">Chargement des indicateurs...</p>}

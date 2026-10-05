@@ -11,6 +11,7 @@ import uuid
 from httpx import AsyncClient
 
 from app.core.log_context import generate_request_id, is_acceptable_request_id, request_id_var
+from tests.conftest import create_platform_admin
 
 
 # === Unitaire — génération / validation, sans HTTP =============================================
@@ -92,7 +93,11 @@ async def test_404_response_contains_x_request_id(client: AsyncClient) -> None:
 
 
 async def test_422_validation_error_response_contains_x_request_id(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/auth/register", json={"organization_name": "Incomplet"})
+    admin = await create_platform_admin(client, "reqidadmin")
+    headers = {"Authorization": f"Bearer {admin['tokens']['access_token']}"}
+    response = await client.post(
+        "/api/v1/platform/organizations", json={"organization": {"name": "Incomplet"}}, headers=headers
+    )
     assert response.status_code == 422
     assert "x-request-id" in response.headers
 
