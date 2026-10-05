@@ -75,11 +75,10 @@ password — Redis reste une dépendance non critique de l'authentification elle
 
 | Endpoint | Clé Redis | Fenêtre par défaut | Réponse au dépassement |
 |---|---|---|---|
-| `POST /auth/register` | IP (`register_attempts:{ip}`) | 20 tentatives / 3600s | `429` + `Retry-After` |
 | `POST /auth/refresh` | `user_id` résolu après validation du jeton (`refresh_attempts:{user_id}`) | 30 tentatives / 300s | `429` + `Retry-After` |
 | `GET /report-cards/verify/{code}` | IP (`report_card_verify_attempts:{ip}`) | 30 tentatives / 60s | `429` + `Retry-After` |
 
-Justification des clés (détail dans `apps/api/app/core/rate_limit.py`) : `register` par IP —
+Note : `POST /auth/register` n'existe plus (organisation créée uniquement par un platform admin via `POST /platform/organizations`, authentifié) ; son rate limit par IP a été retiré avec la route. Justification des clés (détail dans `apps/api/app/core/rate_limit.py`) :
 contrairement au login, créer une organisation n'est jamais un trafic légitime récurrent partagé
 par une école entière. `refresh` par `user_id`, pas par le jeton lui-même — le jeton tourne à
 chaque appel (rotation déjà en place depuis la Phase 1), une clé basée sur le jeton ne verrait

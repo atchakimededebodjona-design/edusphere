@@ -3,6 +3,7 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { registerOrgAdminInBrowser } from "./helpers/tenants";
 
 // Sélection multi-organisation/multi-école (correctif du choix arbitraire du premier rôle
 // scopé organisation, voir lib/auth/AuthProvider.tsx + lib/auth/tenantContext.ts). Ce projet n'a
@@ -10,7 +11,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 // donc couverts ici en E2E réel, contre l'API + Postgres (docker compose), même convention.
 //
 // Un compte réellement rattaché à DEUX organisations (le bug rapporté) n'est atteignable par
-// AUCUN flux produit légitime : `POST /auth/register` crée toujours un NOUVEL utilisateur (email
+// AUCUN flux produit légitime : `POST /platform/organizations` crée toujours un NOUVEL utilisateur (email
 // unique, 409 sur un email déjà pris) et `POST /users` ne peut attribuer qu'un rôle scopé à une
 // école de l'organisation de l'appelant, jamais un second rôle scopé organisation pour une AUTRE
 // organisation. C'est exactement l'état de données rapporté (anomalie historique, pas un parcours
@@ -37,39 +38,6 @@ function unique(prefix: string): string {
   return `${prefix}${Date.now()}${uniqueCounter}${Math.floor(Math.random() * 10000)}`;
 }
 
-// Ce fichier enregistre plusieurs comptes par test (organisation "de départ" + une seconde
-// organisation jetable pour simuler le cas multi-organisation) — largement plus que la suite e2e
-// existante qui avait déjà motivé le seuil actuel de /auth/register (20/heure par IP, voir
-// docs/deployment/PRODUCTION_CONFIGURATION.md "Phase 20" : toutes les requêtes Playwright
-// partagent la même IP apparente). Vidé avant CHAQUE test, même motif que
-// apps/api/tests/conftest.py::_clear_register_rate_limit côté backend — jamais une modification
-// du seuil applicatif lui-même, seulement un nettoyage de l'état de test.
-function clearRegisterRateLimit(): void {
-  try {
-    execFileSync(
-      "docker",
-      [
-        "compose",
-        "-p",
-        COMPOSE_PROJECT_NAME,
-        "exec",
-        "-T",
-        "redis",
-        "sh",
-        "-c",
-        "redis-cli --scan --pattern 'register_attempts:*' | xargs -r redis-cli del",
-      ],
-      { cwd: REPO_ROOT },
-    );
-  } catch {
-    // Best-effort : si Redis est momentanément indisponible, le rate limiting fail-open déjà en
-    // place côté backend (voir app/core/rate_limit.py) reste la garantie réelle, pas ce nettoyage.
-  }
-}
-
-test.beforeEach(() => {
-  clearRegisterRateLimit();
-});
 
 /** Attribue directement un rôle scopé organisation (ou plateforme, si `organizationId` est
  * `null`) à un utilisateur déjà existant — reproduit un état que le produit ne permet pas de
@@ -185,22 +153,8 @@ function removeAllRolesForUser(userId: string): void {
 }
 
 async function registerOrgAdmin(page: Page, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const email = `${slug}@tenant-e2e.example`;
-  const password = "SuperSecret123";
-
-  await page.goto("/register");
-  await page.getByPlaceholder("Nom de l'organisation").fill(`Org ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'organisation").fill(slug);
-  await page.getByPlaceholder("Nom de l'école").fill(`Ecole ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'école").fill(slug);
-  await page.getByPlaceholder("Votre nom complet").fill("Tenant E2E Admin");
-  await page.getByPlaceholder("Votre email").fill(email);
-  await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
-  await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/dashboard");
-
-  return { slug, email, password };
+  const tenant = await registerOrgAdminInBrowser(page, slugPrefix);
+  return { slug: tenant.slug, email: tenant.orgAdminEmail, password: tenant.password };
 }
 
 async function apiHeaders(request: APIRequestContext, email: string, password: string) {

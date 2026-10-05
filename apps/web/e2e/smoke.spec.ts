@@ -13,12 +13,10 @@ test("unauthenticated visitor to /dashboard is redirected to /login, not a stati
   await expect(page.getByRole("heading", { name: "Connexion" })).toBeVisible();
 });
 
-test("register page renders the school signup form", async ({ page }) => {
+test("public /register page no longer exists (organization creation is platform-admin only)", async ({ page }) => {
   await page.goto("/register");
-  await expect(page.getByRole("heading", { name: "Inscrire mon école" })).toBeVisible();
-  await expect(page.getByPlaceholder("Nom de l'organisation")).toBeVisible();
-  await expect(page.getByPlaceholder("Votre email")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Créer mon compte" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Inscrire mon école" })).toHaveCount(0);
+  await expect(page.getByPlaceholder("Votre email")).toHaveCount(0);
 });
 
 test("login page renders and rejects bad credentials with a visible error", async ({ page }) => {

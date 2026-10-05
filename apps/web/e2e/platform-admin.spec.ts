@@ -4,6 +4,7 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { createOrganizationViaPlatform } from "./helpers/tenants";
 
 // Correction du flux super administrateur plateforme — un compte is_platform_admin=true n'a
 // structurellement aucune organisation/école (voir lib/auth/roles.ts::isPlatformAdmin,
@@ -146,20 +147,8 @@ test("GET /platform/dashboard : accessible à un compte plateforme, refusé à u
   expect(typeof body.user_count).toBe("number");
   expect(typeof body.student_count).toBe("number");
 
-  const registerResponse = await request.post(`${API_BASE_URL}/api/v1/auth/register`, {
-    data: {
-      organization_name: "Not Platform Org",
-      organization_slug: unique("notplatform").toLowerCase(),
-      country_code: "TG",
-      school_name: "Not Platform School",
-      school_slug: "principale",
-      admin_full_name: "Not Platform Admin",
-      admin_email: `${unique("notplatform").toLowerCase()}@platform-e2e.example`,
-      admin_password: "SuperSecret123",
-    },
-  });
-  const registered = await registerResponse.json();
-  const schoolAdminHeaders = { Authorization: `Bearer ${registered.tokens.access_token}` };
+  const tenant = await createOrganizationViaPlatform(request, "notplatform");
+  const schoolAdminHeaders = { Authorization: `Bearer ${tenant.orgAdminToken}` };
 
   const forbiddenResponse = await request.get(`${API_BASE_URL}/api/v1/platform/dashboard`, {
     headers: schoolAdminHeaders,

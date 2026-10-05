@@ -35,19 +35,6 @@ class Settings(BaseSettings):
     forgot_password_rate_limit_max_attempts: int = 3
     forgot_password_rate_limit_window_seconds: int = 900
 
-    # Rate limiting register (Phase 20 — durcissement pré-pilote). Clé IP, pas email : contrairement
-    # au login (une école légitime se connecte en continu depuis la même IP), /auth/register ne
-    # crée une NOUVELLE organisation qu'une seule fois par client réel dans l'usage normal — mais
-    # une même IP peut légitimement en créer plusieurs dans une même heure (QA/E2E, un partenaire
-    # onboardant plusieurs écoles dans une même session, un réseau NAT partagé) : la suite
-    # Playwright de ce dépôt elle-même déclenche plus de 5 inscriptions réelles depuis la même IP
-    # de boucle locale en une seule exécution (constaté réellement en Phase 20 — voir
-    # PHASE_20_IMPLEMENTATION.md). 20/heure reste largement supérieur à ce cas réel tout en
-    # bloquant un volume réellement automatisé (voir app/core/rate_limit.py::
-    # ensure_register_not_rate_limited).
-    register_rate_limit_max_attempts: int = 20
-    register_rate_limit_window_seconds: int = 3600
-
     # Rate limiting refresh (Phase 20). Clé user_id (résolu après validation du refresh token,
     # avant toute mutation) : le token de refresh tourne à chaque appel (rotation déjà en place
     # depuis la Phase 1), donc une clé basée sur le token lui-même ne verrait jamais plus d'une

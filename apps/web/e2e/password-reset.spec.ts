@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { registerOrgAdminInBrowser } from "./helpers/tenants";
 
 // Phase 9 — infrastructure d'email transactionnel : exécuté contre l'API + Postgres réels
 // (docker compose), sans mock. `dev_token`/`dev_reset_token` restent, comme dans les specs
@@ -13,22 +14,8 @@ function unique(prefix: string): string {
 }
 
 async function registerSchool(page: Page, slugPrefix: string) {
-  const slug = unique(slugPrefix).toLowerCase();
-  const email = `${slug}@wizard-e2e.example`;
-  const password = "SuperSecret123";
-
-  await page.goto("/register");
-  await page.getByPlaceholder("Nom de l'organisation").fill(`Org ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'organisation").fill(slug);
-  await page.getByPlaceholder("Nom de l'école").fill(`Ecole ${slug}`);
-  await page.getByPlaceholder("Identifiant (slug) de l'école").fill(slug);
-  await page.getByPlaceholder("Votre nom complet").fill("Admin Test");
-  await page.getByPlaceholder("Votre email").fill(email);
-  await page.getByPlaceholder("Mot de passe (8 caractères min.)").fill(password);
-  await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page).toHaveURL("/dashboard");
-
-  return { email, password };
+  const tenant = await registerOrgAdminInBrowser(page, slugPrefix);
+  return { email: tenant.orgAdminEmail, password: tenant.password };
 }
 
 test("mot de passe oublié : message générique, jamais de fuite d'existence de compte", async ({ page }) => {

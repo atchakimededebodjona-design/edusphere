@@ -26,24 +26,21 @@ async def test_register_never_grants_platform_admin(client: AsyncClient) -> None
     assert "PLATFORM_SUPPORT" not in role_codes
 
 
-async def test_register_duplicate_email_conflicts(client: AsyncClient) -> None:
-    email = unique_email("dup")
+async def test_public_register_route_no_longer_exists(client: AsyncClient) -> None:
+    """Une personne non authentifiée ne peut plus créer d'organisation via /auth/register : la
+    route a été retirée, la création passe par POST /platform/organizations (platform admin)."""
     payload = {
-        "organization_name": "Dup Group",
-        "organization_slug": unique_slug("dup"),
+        "organization_name": "Public Org",
+        "organization_slug": unique_slug("publicorg"),
         "country_code": "TG",
-        "school_name": "Dup School",
+        "school_name": "Public School",
         "school_slug": "principale",
-        "admin_full_name": "Dup Admin",
-        "admin_email": email,
+        "admin_full_name": "Public Admin",
+        "admin_email": unique_email("public.admin"),
         "admin_password": "SuperSecret123",
     }
-    first = await client.post("/api/v1/auth/register", json=payload)
-    assert first.status_code == 201
-
-    payload["organization_slug"] = unique_slug("dup2")
-    second = await client.post("/api/v1/auth/register", json=payload)
-    assert second.status_code == 409
+    response = await client.post("/api/v1/auth/register", json=payload)
+    assert response.status_code == 404
 
 
 async def test_login_success(client: AsyncClient) -> None:
@@ -159,7 +156,7 @@ async def test_sessions_list_and_remote_revoke(client: AsyncClient) -> None:
     sessions_response = await client.get("/api/v1/auth/sessions", headers=headers)
     assert sessions_response.status_code == 200
     sessions = sessions_response.json()
-    assert len(sessions) >= 2  # la session du register() + celle du login()
+    assert len(sessions) >= 2  # la session de création + celle du login()
 
     session_id = sessions[0]["id"]
     delete_response = await client.delete(f"/api/v1/auth/sessions/{session_id}", headers=headers)

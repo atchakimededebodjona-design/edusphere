@@ -7,11 +7,9 @@ from app.core.permissions import CurrentUser, DbSession, get_all_permission_code
 from app.core.rate_limit import (
     ensure_forgot_password_not_rate_limited,
     ensure_login_not_rate_limited,
-    ensure_register_not_rate_limited,
     ensure_reset_password_not_rate_limited,
     register_failed_login_attempt,
     register_forgot_password_attempt,
-    register_registration_attempt,
     register_reset_password_attempt,
     reset_login_attempts,
 )
@@ -22,8 +20,6 @@ from app.modules.auth.schemas import (
     LogoutRequest,
     MeOut,
     RefreshRequest,
-    RegisterRequest,
-    RegisterResponse,
     ResetPasswordRequest,
     RoleAssignmentOut,
     SessionOut,
@@ -38,21 +34,8 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterRequest, request: Request, db: DbSession) -> RegisterResponse:
-    ip = _client_ip(request)
-    await ensure_register_not_rate_limited(ip)
-    # Comptée avant toute validation métier (slug/email déjà pris, etc.) : le volume de tentatives
-    # est le signal recherché (création automatisée), pas seulement les échecs — voir
-    # app/core/rate_limit.py.
-    await register_registration_attempt(ip)
-    organization, school, user, tokens = await service.register(db, payload)
-    return RegisterResponse(
-        organization=organization,  # type: ignore[arg-type]
-        school=school,  # type: ignore[arg-type]
-        user=user,  # type: ignore[arg-type]
-        tokens=tokens,
-    )
+# Pas de POST /register : la création d'une organisation est réservée aux platform admins, voir
+# app/modules/platform/router.py::create_platform_organization.
 
 
 @router.post("/login", response_model=TokenPair)

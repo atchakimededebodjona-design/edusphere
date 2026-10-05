@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 import app.core.rate_limit as rate_limit_module
 from app.core.config import settings
 from app.core.rate_limit import _get_client
-from tests.conftest import register_school, unique_email, unique_slug
+from tests.conftest import register_school
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -31,67 +31,15 @@ async def _clear_pattern(pattern: str) -> None:
         await client.delete(key)
 
 
-def _register_payload(prefix: str) -> dict:
-    return {
-        "organization_name": f"{prefix} Group",
-        "organization_slug": unique_slug(prefix),
-        "country_code": "TG",
-        "school_name": f"{prefix} School",
-        "school_slug": "principale",
-        "admin_full_name": f"Admin {prefix}",
-        "admin_email": unique_email(f"admin.{prefix}"),
-        "admin_password": "SuperSecret123",
-    }
+# === A. Création d'organisation — plus de route publique =======================================
+async def test_anonymous_organization_creation_is_impossible(client: AsyncClient) -> None:
+    """Aucune création d'organisation sans platform admin : /auth/register n'existe plus (404) et
+    POST /platform/organizations exige un token plateforme (401 sans token)."""
+    legacy = await client.post("/api/v1/auth/register", json={"organization_name": "Incomplet"})
+    assert legacy.status_code == 404
 
-
-# === A. Rate limiting — /auth/register =========================================================
-async def test_register_below_threshold_allowed(client: AsyncClient) -> None:
-    await _clear_pattern("register_attempts:*")
-    for _ in range(settings.register_rate_limit_max_attempts):
-        response = await client.post("/api/v1/auth/register", json=_register_payload("regrl"))
-        assert response.status_code == 201, response.text
-
-
-async def test_register_threshold_exceeded_returns_429(client: AsyncClient) -> None:
-    await _clear_pattern("register_attempts:*")
-    for _ in range(settings.register_rate_limit_max_attempts):
-        await client.post("/api/v1/auth/register", json=_register_payload("regrlmax"))
-
-    blocked = await client.post("/api/v1/auth/register", json=_register_payload("regrlmax"))
-    assert blocked.status_code == 429
-    assert "Retry-After" in blocked.headers
-
-
-async def test_register_rate_limit_window_expires(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "register_rate_limit_max_attempts", 2)
-    monkeypatch.setattr(settings, "register_rate_limit_window_seconds", 1)
-    await _clear_pattern("register_attempts:*")
-
-    for _ in range(2):
-        await client.post("/api/v1/auth/register", json=_register_payload("regrlwin"))
-    blocked = await client.post("/api/v1/auth/register", json=_register_payload("regrlwin"))
-    assert blocked.status_code == 429
-
-    await asyncio.sleep(1.5)
-
-    recovered = await client.post("/api/v1/auth/register", json=_register_payload("regrlwin"))
-    assert recovered.status_code == 201
-
-
-async def test_register_redis_unavailable_fails_open(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    unreachable_client = Redis.from_url("redis://localhost:1/0", decode_responses=True, socket_connect_timeout=1)
-    monkeypatch.setattr(rate_limit_module, "_redis_client", unreachable_client)
-
-    response = await client.post("/api/v1/auth/register", json=_register_payload("regrldown"))
-    assert response.status_code == 201
-
-
-async def test_register_invalid_payload_returns_422_not_blocked_by_rate_limit(client: AsyncClient) -> None:
-    """Une requête mal formée (validation Pydantic) échoue avant même d'atteindre la logique
-    métier — ne doit ni planter ni être confondue avec un 429."""
-    await _clear_pattern("register_attempts:*")
-    response = await client.post("/api/v1/auth/register", json={"organization_name": "Incomplet"})
-    assert response.status_code == 422
+    anonymous = await client.post("/api/v1/platform/organizations", json={"organization": {}})
+    assert anonymous.status_code == 401
 
 
 # === B. Rate limiting — /auth/refresh ===========================================================

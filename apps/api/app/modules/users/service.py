@@ -22,7 +22,7 @@ PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
 
 
 class RoleData(NamedTuple):
-    """UserRole n'a pas de relationship() ORM vers Role (cf. auth/service.py::register()) —
+    """UserRole n'a pas de relationship() ORM vers Role (cf. platform/service.py::create_organization_with_admin) —
     porte le code déjà résolu par jointure plutôt que l'objet UserRole brut."""
 
     role_code: str
@@ -119,7 +119,7 @@ async def create_or_attach_user(
     await db.refresh(user)
 
     # UserRole n'a pas de relationship() ORM vers Role (cf. commentaire dans auth/service.py
-    # register()) — jointure explicite pour récupérer le code, même pattern que
+    # create_organization_with_admin()) — jointure explicite pour récupérer le code, même pattern que
     # auth/router.py::me().
     roles_result = await db.execute(
         select(UserRole, Role.code).join(Role, Role.id == UserRole.role_id).where(UserRole.user_id == user.id)

@@ -26,7 +26,7 @@ def event_loop():
 
 async def _clear_shared_ip_rate_limits() -> None:
     """Sous httpx `ASGITransport`, toutes les requêtes de toute la suite de tests partagent la
-    même IP factice (127.0.0.1). Les endpoints rate-limités PAR IP (register, reset-password,
+    même IP factice (127.0.0.1). Les endpoints rate-limités PAR IP (reset-password,
     report-card-verify — voir app/core/rate_limit.py) accumulent donc un compteur unique et
     partagé entre des dizaines de tests indépendants qui les appellent incidemment (ex.
     `reset-password` est appelé par la quasi-totalité des helpers de fixtures qui créent un
@@ -39,7 +39,7 @@ async def _clear_shared_ip_rate_limits() -> None:
 
     try:
         redis_client = _get_rate_limit_client()
-        for pattern in ("register_attempts:*", "reset_password_attempts:*", "report_card_verify_attempts:*"):
+        for pattern in ("reset_password_attempts:*", "report_card_verify_attempts:*"):
             async for key in redis_client.scan_iter(match=pattern):
                 await redis_client.delete(key)
     except RedisError:
@@ -64,51 +64,61 @@ def unique_email(prefix: str) -> str:
     return f"{prefix}.{uuid.uuid4().hex[:10]}@edusphere-pytest.tg"
 
 
-async def _clear_register_rate_limit() -> None:
-    """Le rate limiting de /auth/register (Phase 20) est volontairement basé sur l'IP (voir
-    app/core/rate_limit.py) — une seule IP peut légitimement créer très peu d'organisations dans
-    la vraie vie, contrairement au login. Sous httpx `ASGITransport`, toutes les requêtes de toute
-    la suite de tests partagent la même IP factice : sans ce nettoyage, `register_school()` (appelé
-    des dizaines de fois par fichier de test, dans toute la suite) finirait par se heurter à cette
-    limite bien avant qu'aucun des tests dédiés au rate limiting ne s'exécute. Motif équivalent au
-    `_clear_key(email)` déjà utilisé dans test_auth_rate_limit.py, appliqué ici une fois pour
-    toutes dans le helper partagé plutôt que dans chaque test individuel. Tolérant à un Redis
-    injoignable (certains tests le rendent délibérément injoignable via monkeypatch) — un échec
-    ici ne doit jamais faire échouer `register_school()` elle-même."""
-    from redis.exceptions import RedisError
+_PLATFORM_ADMIN_EMAIL: str | None = None
+_TEST_PASSWORD = "SuperSecret123"
 
-    from app.core.rate_limit import _get_client as _get_rate_limit_client
 
-    try:
-        redis_client = _get_rate_limit_client()
-        async for key in redis_client.scan_iter(match="register_attempts:*"):
-            await redis_client.delete(key)
-    except RedisError:
-        pass
+async def _platform_admin_headers(client: AsyncClient) -> dict[str, str]:
+    """Headers d'un compte plateforme partagé pour toute la suite (créé une seule fois, puis
+    reconnecté à chaque appel pour un token frais — le token d'accès expire après 15 minutes)."""
+    global _PLATFORM_ADMIN_EMAIL
+    if _PLATFORM_ADMIN_EMAIL is None:
+        admin = await create_platform_admin(client, "tenantfactory")
+        _PLATFORM_ADMIN_EMAIL = admin["email"]
+    login = await client.post(
+        "/api/v1/auth/login", json={"email": _PLATFORM_ADMIN_EMAIL, "password": _TEST_PASSWORD}
+    )
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 async def register_school(client: AsyncClient, org_prefix: str = "org") -> dict:
-    """Crée une organisation + école + SCHOOL_ADMIN via l'API et retourne la réponse complète."""
-    await _clear_register_rate_limit()
+    """Crée une organisation + école + SCHOOL_ADMIN via POST /api/v1/platform/organizations (seul
+    point d'entrée de création, réservé aux platform admins), puis connecte le SCHOOL_ADMIN créé
+    pour obtenir ses tokens. Retourne {organization, school, user, tokens}."""
+    headers = await _platform_admin_headers(client)
+    admin_email = unique_email(f"admin.{org_prefix}")
     payload = {
-        "organization_name": f"{org_prefix} Group",
-        "organization_slug": unique_slug(org_prefix),
-        "country_code": "TG",
-        "school_name": f"{org_prefix} School",
-        "school_slug": "principale",
-        "admin_full_name": f"Admin {org_prefix}",
-        "admin_email": unique_email(f"admin.{org_prefix}"),
-        "admin_password": "SuperSecret123",
+        "organization": {
+            "name": f"{org_prefix} Group",
+            "slug": unique_slug(org_prefix),
+            "country_code": "TG",
+        },
+        "school": {"name": f"{org_prefix} School", "slug": "principale"},
+        "admin": {
+            "full_name": f"Admin {org_prefix}",
+            "email": admin_email,
+            "password": _TEST_PASSWORD,
+        },
     }
-    response = await client.post("/api/v1/auth/register", json=payload)
+    response = await client.post("/api/v1/platform/organizations", json=payload, headers=headers)
     assert response.status_code == 201, response.text
-    return response.json()
+    created = response.json()
+
+    login = await client.post("/api/v1/auth/login", json={"email": admin_email, "password": _TEST_PASSWORD})
+    assert login.status_code == 200, login.text
+    return {
+        "organization": created["organization"],
+        "school": created["school"],
+        "user": created["admin"],
+        "tokens": login.json(),
+    }
 
 
 async def create_platform_admin(client: AsyncClient, prefix: str = "platformadmin") -> dict:
     """Crée un compte plateforme pur (is_platform_admin=True, SUPER_ADMIN, aucune organisation/
     école) et retourne ses tokens. Il n'existe pas de flux d'inscription public pour ce type de
-    compte (register() ne crée toujours qu'un SCHOOL_ADMIN rattaché à un nouveau tenant — voir
+    compte (la création d'organisation ne produit qu'un SCHOOL_ADMIN rattaché à un nouveau tenant — voir
     test_register_never_grants_platform_admin) : c'est un compte insensible-tenant seed en
     production, reproduit ici directement en base, même motif que assign_role() ci-dessous."""
     import uuid as uuid_module
@@ -154,7 +164,7 @@ async def assign_role(user_id: str, role_code: str, organization_id: str | None,
     async with AsyncSessionLocal() as db:
         # user_roles a RLS activé (voir migration 0002) : un insert direct hors requête HTTP
         # authentifiée n'a pas de contexte tenant — on l'accorde explicitement ici, comme le
-        # fait le service register() pour la même raison.
+        # fait le service de création d'organisation pour la même raison.
         await set_platform_wide_context(db)
         result = await db.execute(select(Role).where(Role.code == role_code))
         role = result.scalar_one()

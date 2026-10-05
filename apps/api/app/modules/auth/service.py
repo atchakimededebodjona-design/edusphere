@@ -3,7 +3,6 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -19,9 +18,8 @@ from app.core.security import (
 )
 from app.core.tenancy import set_platform_wide_context
 from app.modules.auth.models import PasswordResetToken, UserSession
-from app.modules.auth.schemas import RegisterRequest, TokenPair
-from app.modules.organizations.models import Organization
-from app.modules.rbac.models import Role, UserRole
+from app.modules.auth.schemas import TokenPair
+from app.modules.rbac.models import UserRole
 from app.modules.schools.models import School
 from app.modules.users.models import User
 
@@ -33,81 +31,6 @@ PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
 # mot de passe d'origine n'a aucune importance — ce hash n'est jamais comparé à une vraie entrée
 # utilisateur avec l'intention de réussir.
 _DUMMY_PASSWORD_HASH = hash_password("edusphere-timing-mitigation-placeholder")
-
-
-async def register(db: AsyncSession, payload: RegisterRequest) -> tuple[Organization, School, User, TokenPair]:
-    """Crée une nouvelle organisation, sa première école et son premier SCHOOL_ADMIN.
-
-    Il n'existe aucun contexte tenant authentifié à ce stade (l'utilisateur n'existe pas
-    encore) : on crée explicitement un nouveau tenant, ce qui n'expose aucune donnée d'un
-    tenant existant. C'est le seul endroit de l'application où ce bypass RLS est légitime.
-    """
-    result = await db.execute(select(Role).where(Role.code == "SCHOOL_ADMIN"))
-    school_admin_role = result.scalar_one_or_none()
-    if school_admin_role is None:
-        raise RuntimeError("SCHOOL_ADMIN role is missing — RBAC seed data was not applied")
-
-    await set_platform_wide_context(db)
-
-    try:
-        # Flush (pas commit) après CHAQUE ajout : sans relationship() ORM entre ces modules,
-        # l'unit-of-work de SQLAlchemy ne connaît pas la dépendance user -> user_role et peut
-        # tenter de les insérer dans le mauvais ordre. Un flush par objet force l'ordre.
-        #
-        # `refresh()` doit aussi se faire AVANT le commit final : la ligne `schools` n'est
-        # visible que le temps de la transaction courante (SET LOCAL app.is_platform_wide=
-        # 'true' expire au commit) ; un refresh après coup, sans contexte tenant, ne
-        # verrait plus la ligne (RLS).
-        organization = Organization(
-            id=uuid.uuid4(),
-            name=payload.organization_name,
-            slug=payload.organization_slug,
-            country_code=payload.country_code.upper(),
-        )
-        db.add(organization)
-        await db.flush()
-
-        school = School(
-            id=uuid.uuid4(),
-            organization_id=organization.id,
-            name=payload.school_name,
-            slug=payload.school_slug,
-        )
-        db.add(school)
-        await db.flush()
-
-        user = User(
-            id=uuid.uuid4(),
-            email=payload.admin_email.lower(),
-            full_name=payload.admin_full_name,
-            hashed_password=hash_password(payload.admin_password),
-        )
-        db.add(user)
-        await db.flush()
-
-        user_role = UserRole(
-            id=uuid.uuid4(),
-            user_id=user.id,
-            role_id=school_admin_role.id,
-            organization_id=organization.id,
-            school_id=None,
-        )
-        db.add(user_role)
-        await db.flush()
-
-        await db.refresh(organization)
-        await db.refresh(school)
-        await db.refresh(user)
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Organization slug or admin email already in use",
-        ) from exc
-
-    tokens = await _issue_tokens(db, user, device_id=None, ip=None, user_agent=None)
-    return organization, school, user, tokens
 
 
 async def authenticate(db: AsyncSession, email: str, password: str) -> User:
@@ -141,7 +64,7 @@ async def _issue_tokens(
     # app.current_user_id` (voir migration 0012). Ce point d'appel (login/register/refresh) crée
     # toujours la ligne dans une transaction qui vient de démarrer après un commit précédent (le
     # SET LOCAL d'un contexte tenant antérieur, s'il existait, a déjà expiré) : bypass explicite
-    # et légitime, même motif que `register()`/`get_report_card_by_verification_code` — `user`
+    # et légitime, même motif que `create_organization_with_admin`/`get_report_card_by_verification_code` — `user`
     # est déjà authentifié à ce stade (mot de passe vérifié ou refresh token valide résolu),
     # créer sa propre session ne peut exposer aucune donnée d'un autre utilisateur.
     await set_platform_wide_context(db)
@@ -238,7 +161,7 @@ async def _resolve_single_school_for_user(db: AsyncSession, user_id: uuid.UUID) 
     Règle explicite et volontairement stricte (aucun choix arbitraire) : seule une école
     UNIQUE et non ambiguë devient l'identité affichée. Un utilisateur sans rattachement scolaire
     (rôle plateforme, ou rôle scopé uniquement à l'organisation — `school_id` NULL, ex. le
-    SCHOOL_ADMIN créé par `register()`) ou rattaché à PLUSIEURS écoles (ex. un enseignant
+    SCHOOL_ADMIN créé par `create_organization_with_admin`) ou rattaché à PLUSIEURS écoles (ex. un enseignant
     intervenant dans deux établissements) retombe sur l'identité plateforme (EduLinkage) —
     jamais une école choisie au hasard parmi plusieurs possibles.
 
