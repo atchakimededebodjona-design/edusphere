@@ -2,9 +2,19 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 AttendanceStatusValue = Literal["PRESENT", "ABSENT", "LATE"]
+
+
+def _refuse_explicit_null(data: object, field_names: tuple[str, ...]) -> object:
+    """PATCH : un champ présent mais à `null` est refusé (422) ; un champ absent reste inchangé.
+    Évite d'écrire NULL dans une colonne NOT NULL, ou d'ignorer silencieusement la demande."""
+    if isinstance(data, dict):
+        for field_name in field_names:
+            if field_name in data and data[field_name] is None:
+                raise ValueError(f"{field_name} cannot be null; omit the field to leave it unchanged")
+    return data
 
 
 # --- Sessions ------------------------------------------------------------------
@@ -33,6 +43,11 @@ class AttendanceSessionCreate(BaseModel):
 class AttendanceSessionUpdate(BaseModel):
     locked: bool | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_explicit_null(cls, data: object) -> object:
+        return _refuse_explicit_null(data, ("locked",))
+
 
 # --- Records ---------------------------------------------------------------------
 class AttendanceRecordOut(BaseModel):
@@ -59,11 +74,26 @@ class AttendanceRecordsBulkCreate(BaseModel):
     session_id: uuid.UUID
     records: list[AttendanceRecordEntry] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def _each_student_once(self) -> "AttendanceRecordsBulkCreate":
+        student_ids = [entry.student_id for entry in self.records]
+        if len(student_ids) != len(set(student_ids)):
+            raise ValueError("Each student may appear only once per submission")
+        return self
+
 
 class AttendanceRecordUpdate(BaseModel):
+    """Champ omis = inchangé. `status` et `justified` (NOT NULL en base) refusent `null` (422) ;
+    `reason` est nullable et accepte `null` pour effacer le motif."""
+
     status: AttendanceStatusValue | None = None
     justified: bool | None = None
     reason: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_explicit_null(cls, data: object) -> object:
+        return _refuse_explicit_null(data, ("status", "justified"))
 
 
 # --- Statistics ------------------------------------------------------------------
