@@ -86,6 +86,51 @@ async def _ensure_can_manage_class_subject_grades(
             )
 
 
+async def _teacher_assignment_scope(
+    db: AsyncSession, current_user: User, organization_id: uuid.UUID, school_id: uuid.UUID
+) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
+    """None = rôle administratif, aucune restriction de lecture. Sinon (class_subject_ids,
+    class_ids) des affectations TeacherAssignment de cet enseignant dans cette école."""
+    if not await is_teacher_only(db, current_user, organization_id, school_id):
+        return None
+    result = await db.execute(
+        select(ClassSubject.id, ClassSubject.class_id)
+        .join(TeacherAssignment, TeacherAssignment.class_subject_id == ClassSubject.id)
+        .where(TeacherAssignment.user_id == current_user.id, TeacherAssignment.school_id == school_id)
+    )
+    pairs = result.all()
+    return {pair[0] for pair in pairs}, {pair[1] for pair in pairs}
+
+
+async def _ensure_teacher_can_read_class_subject(
+    db: AsyncSession, current_user: User, class_subject: ClassSubject
+) -> None:
+    scope = await _teacher_assignment_scope(db, current_user, class_subject.organization_id, class_subject.school_id)
+    if scope is not None and class_subject.id not in scope[0]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class subject")
+
+
+async def _teacher_allowed_class_subjects_for_class(
+    db: AsyncSession, current_user: User, school_class: SchoolClass
+) -> set[uuid.UUID] | None:
+    """Vérifie qu'un enseignant est affecté à au moins une matière de cette classe, puis renvoie
+    les class_subject_id qu'il peut voir (None = aucune restriction, rôle administratif)."""
+    scope = await _teacher_assignment_scope(db, current_user, school_class.organization_id, school_class.school_id)
+    if scope is None:
+        return None
+    if school_class.id not in scope[1]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class")
+    return scope[0]
+
+
+def _ensure_score_within_max(score: float | None, max_score: float, student_id: uuid.UUID) -> None:
+    if score is not None and score > max_score:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Score for student {student_id} exceeds the assessment maximum ({max_score:g})",
+        )
+
+
 # --- Assessment types ------------------------------------------------------------
 @router.get("/assessment-types", response_model=list[AssessmentTypeOut])
 async def list_assessment_types(
@@ -128,6 +173,7 @@ async def list_assessments(
     await ensure_permission(
         db, current_user, "grades.read", organization_id=class_subject.organization_id, school_id=class_subject.school_id
     )
+    await _ensure_teacher_can_read_class_subject(db, current_user, class_subject)
     stmt = select(Assessment).where(Assessment.class_subject_id == class_subject_id)
     if academic_term_id:
         stmt = stmt.where(Assessment.academic_term_id == academic_term_id)
@@ -139,6 +185,23 @@ async def list_assessments(
 async def create_assessment(payload: AssessmentCreate, db: DbSession, current_user: CurrentUser) -> Assessment:
     class_subject = await _get_class_subject_or_404(db, payload.class_subject_id)
     await _ensure_can_manage_class_subject_grades(db, current_user, class_subject)
+
+    # Référentiels doivent appartenir au même tenant que la classe-matière (sinon 404, sans
+    # écriture). Les clés étrangères seules ne suffisent pas : leur vérification ignore la RLS.
+    academic_term = await db.get(AcademicTerm, payload.academic_term_id)
+    if (
+        academic_term is None
+        or academic_term.school_id != class_subject.school_id
+        or academic_term.organization_id != class_subject.organization_id
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Academic term not found")
+    assessment_type = await db.get(AssessmentType, payload.assessment_type_id)
+    if (
+        assessment_type is None
+        or assessment_type.school_id != class_subject.school_id
+        or assessment_type.organization_id != class_subject.organization_id
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment type not found")
 
     assessment = Assessment(
         id=uuid.uuid4(),
@@ -166,6 +229,8 @@ async def list_results(db: DbSession, current_user: CurrentUser, assessment_id: 
     await ensure_permission(
         db, current_user, "grades.read", organization_id=assessment.organization_id, school_id=assessment.school_id
     )
+    class_subject = await _get_class_subject_or_404(db, assessment.class_subject_id)
+    await _ensure_teacher_can_read_class_subject(db, current_user, class_subject)
     result = await db.execute(select(AssessmentResult).where(AssessmentResult.assessment_id == assessment_id))
     return list(result.scalars().all())
 
@@ -177,7 +242,9 @@ async def submit_results(payload: AssessmentResultsBulkCreate, db: DbSession, cu
     await _ensure_can_manage_class_subject_grades(db, current_user, class_subject)
 
     entries = []
+    max_score = float(assessment.max_score)
     for entry in payload.results:
+        _ensure_score_within_max(entry.score, max_score, entry.student_id)
         student = await _get_student_or_404(db, entry.student_id)
         # Vérification explicite École + Classe (pas seulement École) — corrige un IDOR confirmé
         # en Phase 22 : avant ce contrôle, `grades.manage` sur l'école de l'appelant suffisait à
@@ -202,6 +269,7 @@ async def update_result(result_id: uuid.UUID, payload: AssessmentResultUpdate, d
     assessment = await _get_assessment_or_404(db, result_row.assessment_id)
     class_subject = await _get_class_subject_or_404(db, assessment.class_subject_id)
     await _ensure_can_manage_class_subject_grades(db, current_user, class_subject)
+    _ensure_score_within_max(payload.score, float(assessment.max_score), result_row.student_id)
 
     entries = [
         (
@@ -230,12 +298,35 @@ async def get_student_averages(
         subject_stmt = subject_stmt.where(StudentSubjectAverage.academic_term_id == academic_term_id)
         term_stmt = term_stmt.where(StudentTermAverage.academic_term_id == academic_term_id)
 
+    scope = await _teacher_assignment_scope(db, current_user, student.organization_id, student.school_id)
+    include_term_averages = True
+    if scope is not None:
+        # Enseignant : moyennes matière limitées à ses affectations ; moyenne générale visible
+        # uniquement s'il est affecté à une classe où cet élève est inscrit (même granularité que
+        # « performance de classe »).
+        subject_stmt = subject_stmt.where(StudentSubjectAverage.class_subject_id.in_(scope[0]))
+        enrolled_class_ids = set(
+            (
+                await db.execute(
+                    select(StudentEnrollment.class_id).where(
+                        StudentEnrollment.student_id == student_id, StudentEnrollment.status == "ACTIVE"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        include_term_averages = bool(enrolled_class_ids & scope[1])
+
     subject_result = await db.execute(subject_stmt)
-    term_result = await db.execute(term_stmt)
+    term_averages: list[StudentTermAverage] = []
+    if include_term_averages:
+        term_result = await db.execute(term_stmt)
+        term_averages = list(term_result.scalars().all())
 
     return StudentAveragesOut(
         subject_averages=[StudentSubjectAverageOut.model_validate(row) for row in subject_result.scalars().all()],
-        term_averages=[StudentTermAverageOut.model_validate(row) for row in term_result.scalars().all()],
+        term_averages=[StudentTermAverageOut.model_validate(row) for row in term_averages],
     )
 
 
@@ -269,6 +360,7 @@ async def get_class_performance(
     await ensure_permission(
         db, current_user, "grades.read", organization_id=school_class.organization_id, school_id=school_class.school_id
     )
+    await _teacher_allowed_class_subjects_for_class(db, current_user, school_class)
 
     result = await db.execute(
         select(StudentTermAverage)
@@ -306,7 +398,10 @@ async def export_class_performance(
         db, current_user, "grades.read", organization_id=school_class.organization_id, school_id=school_class.school_id
     )
 
-    rows = await service.build_class_performance_export_rows(db, school_class, academic_term_id)
+    allowed_class_subject_ids = await _teacher_allowed_class_subjects_for_class(db, current_user, school_class)
+    rows = await service.build_class_performance_export_rows(
+        db, school_class, academic_term_id, allowed_class_subject_ids
+    )
     content = service.build_class_performance_workbook(rows)
 
     # Terme utilisé uniquement pour un nom de fichier lisible — même motif que
