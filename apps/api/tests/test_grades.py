@@ -1,4 +1,5 @@
 import io
+import uuid
 from datetime import date
 
 import openpyxl
@@ -1501,3 +1502,419 @@ async def test_export_preserves_accented_student_names(client: AsyncClient) -> N
     row = next(r for r in data_rows if r[0] == "S003" and r[3] == "Mathématiques")
     assert row[1] == "Créspin"
     assert row[2] == "Amélie"
+
+
+# ==================================================================================================
+# P9.4 — validation des scores, doublons, cohérence tenant, export XLSX, lectures TEACHER.
+# ==================================================================================================
+
+
+async def _create_assessment(
+    client: AsyncClient, headers: dict, ctx: dict, class_subject: dict, term_id: str, name: str = "Devoir P94"
+) -> dict:
+    response = await client.post(
+        "/api/v1/assessments",
+        json={
+            "class_subject_id": class_subject["id"],
+            "academic_term_id": term_id,
+            "assessment_type_id": ctx["assessment_type"]["id"],
+            "name": name,
+            "max_score": 20,
+            "assessment_date": str(date(2026, 10, 1)),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def _list_result_rows(client: AsyncClient, headers: dict, assessment_id: str) -> list[dict]:
+    response = await client.get(f"/api/v1/results?assessment_id={assessment_id}", headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+# --- A. Validation des scores ----------------------------------------------------------------------
+async def test_submit_rejects_negative_score_without_writing(client: AsyncClient) -> None:
+    data = await register_school(client, "p94negscore")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a, student_b = ctx["students"]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+
+    response = await client.post(
+        "/api/v1/results",
+        json={
+            "assessment_id": assessment["id"],
+            "results": [
+                {"student_id": student_a["id"], "score": 12},
+                {"student_id": student_b["id"], "score": -3},
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422, response.text
+    assert await _list_result_rows(client, headers, assessment["id"]) == []
+
+
+async def test_submit_rejects_score_above_max_without_writing(client: AsyncClient) -> None:
+    data = await register_school(client, "p94highscore")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a, student_b = ctx["students"]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+
+    response = await client.post(
+        "/api/v1/results",
+        json={
+            "assessment_id": assessment["id"],
+            "results": [
+                {"student_id": student_a["id"], "score": 12},
+                {"student_id": student_b["id"], "score": 25},
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422, response.text
+    assert await _list_result_rows(client, headers, assessment["id"]) == []
+
+
+async def test_submit_accepts_score_equal_to_max(client: AsyncClient) -> None:
+    data = await register_school(client, "p94maxscore")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a = ctx["students"][0]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+
+    response = await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 20}]},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+
+
+async def test_patch_rejects_score_above_max_and_keeps_previous_score(client: AsyncClient) -> None:
+    data = await register_school(client, "p94patchhigh")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a = ctx["students"][0]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+    created = (
+        await client.post(
+            "/api/v1/results",
+            json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 12}]},
+            headers=headers,
+        )
+    ).json()[0]
+
+    response = await client.patch(f"/api/v1/results/{created['id']}", json={"score": 21}, headers=headers)
+    assert response.status_code == 422, response.text
+    rows = await _list_result_rows(client, headers, assessment["id"])
+    assert float(rows[0]["score"]) == pytest.approx(12.0)
+
+
+async def test_patch_rejects_negative_score(client: AsyncClient) -> None:
+    data = await register_school(client, "p94patchneg")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a = ctx["students"][0]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+    created = (
+        await client.post(
+            "/api/v1/results",
+            json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 12}]},
+            headers=headers,
+        )
+    ).json()[0]
+
+    response = await client.patch(f"/api/v1/results/{created['id']}", json={"score": -1}, headers=headers)
+    assert response.status_code == 422, response.text
+
+
+# --- B. Doublons dans un même envoi ---------------------------------------------------------------
+async def test_submit_rejects_duplicate_student_without_partial_write(client: AsyncClient) -> None:
+    data = await register_school(client, "p94dup")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a, student_b = ctx["students"]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+
+    response = await client.post(
+        "/api/v1/results",
+        json={
+            "assessment_id": assessment["id"],
+            "results": [
+                {"student_id": student_a["id"], "score": 12},
+                {"student_id": student_b["id"], "score": 10},
+                {"student_id": student_a["id"], "score": 15},
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422, response.text
+    assert await _list_result_rows(client, headers, assessment["id"]) == []
+
+
+# --- C. Cohérence tenant à la création d'évaluation ---------------------------------------------
+async def test_create_assessment_rejects_term_from_another_school(client: AsyncClient) -> None:
+    school_a = await register_school(client, "p94termxa")
+    school_b = await register_school(client, "p94termxb")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+    headers_b = {"Authorization": f"Bearer {await _login(client, school_b['user']['email'])}"}
+    ctx_a = await _setup_class_with_two_subjects(client, headers_a, school_a["school"]["id"])
+    ctx_b = await _setup_class_with_two_subjects(client, headers_b, school_b["school"]["id"])
+
+    response = await client.post(
+        "/api/v1/assessments",
+        json={
+            "class_subject_id": ctx_a["math_cs"]["id"],
+            "academic_term_id": ctx_b["term"]["id"],
+            "assessment_type_id": ctx_a["assessment_type"]["id"],
+            "name": "Devoir étranger",
+            "assessment_date": str(date(2026, 10, 1)),
+        },
+        headers=headers_a,
+    )
+    assert response.status_code == 404, response.text
+    listed = await client.get(f"/api/v1/assessments?class_subject_id={ctx_a['math_cs']['id']}", headers=headers_a)
+    assert listed.json() == []
+
+
+async def test_create_assessment_rejects_assessment_type_from_another_school(client: AsyncClient) -> None:
+    school_a = await register_school(client, "p94typexa")
+    school_b = await register_school(client, "p94typexb")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+    headers_b = {"Authorization": f"Bearer {await _login(client, school_b['user']['email'])}"}
+    ctx_a = await _setup_class_with_two_subjects(client, headers_a, school_a["school"]["id"])
+    ctx_b = await _setup_class_with_two_subjects(client, headers_b, school_b["school"]["id"])
+
+    response = await client.post(
+        "/api/v1/assessments",
+        json={
+            "class_subject_id": ctx_a["math_cs"]["id"],
+            "academic_term_id": ctx_a["term"]["id"],
+            "assessment_type_id": ctx_b["assessment_type"]["id"],
+            "name": "Devoir étranger",
+            "assessment_date": str(date(2026, 10, 1)),
+        },
+        headers=headers_a,
+    )
+    assert response.status_code == 404, response.text
+    listed = await client.get(f"/api/v1/assessments?class_subject_id={ctx_a['math_cs']['id']}", headers=headers_a)
+    assert listed.json() == []
+
+
+# --- D. PATCH : null explicite refusé, jamais d'effacement silencieux ----------------------------
+async def test_patch_rejects_explicit_null_score_and_keeps_grade(client: AsyncClient) -> None:
+    data = await register_school(client, "p94nullscore")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a = ctx["students"][0]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+    created = (
+        await client.post(
+            "/api/v1/results",
+            json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 12}]},
+            headers=headers,
+        )
+    ).json()[0]
+
+    response = await client.patch(f"/api/v1/results/{created['id']}", json={"score": None}, headers=headers)
+    assert response.status_code == 422, response.text
+    rows = await _list_result_rows(client, headers, assessment["id"])
+    assert float(rows[0]["score"]) == pytest.approx(12.0)
+
+
+async def test_patch_rejects_explicit_null_is_absent(client: AsyncClient) -> None:
+    data = await register_school(client, "p94nullabsent")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a = ctx["students"][0]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+    created = (
+        await client.post(
+            "/api/v1/results",
+            json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 12}]},
+            headers=headers,
+        )
+    ).json()[0]
+
+    response = await client.patch(f"/api/v1/results/{created['id']}", json={"is_absent": None}, headers=headers)
+    assert response.status_code == 422, response.text
+
+
+# --- E. Export XLSX : aucune cellule texte transformée en formule -------------------------------
+async def test_export_writes_text_starting_with_equals_as_text_not_formula(client: AsyncClient) -> None:
+    data = await register_school(client, "p94formula")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers, data["school"]["id"])
+    student_a = ctx["students"][0]
+    assessment = await _create_assessment(client, headers, ctx, ctx["math_cs"], ctx["term"]["id"])
+    await client.post(
+        "/api/v1/results",
+        json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": 14}]},
+        headers=headers,
+    )
+    averages = (
+        await client.get(f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers)
+    ).json()
+    average_id = next(s for s in averages["subject_averages"] if s["class_subject_id"] == ctx["math_cs"]["id"])["id"]
+    malicious = '=HYPERLINK("https://example.invalid/x","cliquez")'
+    patch = await client.patch(
+        f"/api/v1/student-subject-averages/{average_id}", json={"appreciation": malicious}, headers=headers
+    )
+    assert patch.status_code == 200, patch.text
+
+    response = await _export_class_performance(client, headers, ctx["class"]["id"], ctx["term"]["id"])
+    assert response.status_code == 200, response.text
+    workbook = openpyxl.load_workbook(io.BytesIO(response.content))
+    sheet = workbook.active
+    appreciation_cells = [
+        cell for row in sheet.iter_rows(min_row=2) for cell in row if cell.value == malicious
+    ]
+    assert len(appreciation_cells) == 1
+    assert appreciation_cells[0].data_type != "f"
+
+
+# --- F. Lectures TEACHER limitées à leurs affectations (TeacherAssignment) ----------------------
+async def _setup_teacher_scope(client: AsyncClient, headers_admin: dict, data: dict, ctx: dict) -> dict:
+    """Crée une 2e classe (B) dans la même école, un enseignant TEACHER affecté UNIQUEMENT aux
+    Maths de la classe A, et un 2e élève inscrit dans la classe B (hors périmètre enseignant)."""
+    school_id = data["school"]["id"]
+    organization_id = data["organization"]["id"]
+    class_b = (
+        await client.post(
+            "/api/v1/classes",
+            json={"academic_year_id": ctx["year"]["id"], "education_level_id": ctx["level"]["id"], "name": "B"},
+            headers=headers_admin,
+        )
+    ).json()
+    math_b = (
+        await client.post(
+            f"/api/v1/classes/{class_b['id']}/subjects",
+            json={"subject_id": ctx["math_cs"]["subject_id"], "coefficient": 3},
+            headers=headers_admin,
+        )
+    ).json()
+    student_c = (
+        await client.post(
+            "/api/v1/students",
+            json={
+                "school_id": school_id,
+                "matricule": "S777",
+                "first_name": "Gamma",
+                "last_name": "Hors",
+                "date_of_birth": str(date(2015, 1, 1)),
+                "sex": "M",
+            },
+            headers=headers_admin,
+        )
+    ).json()
+    await client.post(
+        f"/api/v1/students/{student_c['id']}/enrollments",
+        json={"class_id": class_b["id"], "enrollment_date": str(date(2026, 9, 1))},
+        headers=headers_admin,
+    )
+
+    teacher_data = await register_school(client, f"p94teacher{uuid.uuid4().hex[:6]}")
+    await assign_role(teacher_data["user"]["id"], "TEACHER", organization_id=organization_id, school_id=school_id)
+    assign = await client.post(
+        f"/api/v1/classes/{ctx['class']['id']}/teachers",
+        json={"user_id": teacher_data["user"]["id"], "subject_id": ctx["math_cs"]["subject_id"]},
+        headers=headers_admin,
+    )
+    assert assign.status_code == 201, assign.text
+    headers_teacher = {"Authorization": f"Bearer {await _login(client, teacher_data['user']['email'])}"}
+    return {"class_b": class_b, "math_b": math_b, "student_c": student_c, "headers_teacher": headers_teacher}
+
+
+async def test_teacher_assessments_list_restricted_to_assigned_subjects(client: AsyncClient) -> None:
+    data = await register_school(client, "p94tlistasmt")
+    headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers_admin, data["school"]["id"])
+    scope = await _setup_teacher_scope(client, headers_admin, data, ctx)
+    headers_teacher = scope["headers_teacher"]
+
+    assert (await client.get(f"/api/v1/assessments?class_subject_id={ctx['math_cs']['id']}", headers=headers_teacher)).status_code == 200
+    assert (await client.get(f"/api/v1/assessments?class_subject_id={ctx['french_cs']['id']}", headers=headers_teacher)).status_code == 403
+    assert (await client.get(f"/api/v1/assessments?class_subject_id={scope['math_b']['id']}", headers=headers_teacher)).status_code == 403
+    # Les rôles administratifs conservent leur accès à toutes les matières.
+    assert (await client.get(f"/api/v1/assessments?class_subject_id={ctx['french_cs']['id']}", headers=headers_admin)).status_code == 200
+
+
+async def test_teacher_results_list_restricted_to_assigned_subjects(client: AsyncClient) -> None:
+    data = await register_school(client, "p94tlistres")
+    headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers_admin, data["school"]["id"])
+    scope = await _setup_teacher_scope(client, headers_admin, data, ctx)
+    headers_teacher = scope["headers_teacher"]
+    french_assessment = await _create_assessment(client, headers_admin, ctx, ctx["french_cs"], ctx["term"]["id"], "Français")
+    math_assessment = await _create_assessment(client, headers_admin, ctx, ctx["math_cs"], ctx["term"]["id"], "Maths")
+
+    assert (await client.get(f"/api/v1/results?assessment_id={french_assessment['id']}", headers=headers_teacher)).status_code == 403
+    assert (await client.get(f"/api/v1/results?assessment_id={math_assessment['id']}", headers=headers_teacher)).status_code == 200
+
+
+async def test_teacher_student_averages_limited_to_assigned_scope(client: AsyncClient) -> None:
+    data = await register_school(client, "p94tavg")
+    headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers_admin, data["school"]["id"])
+    scope = await _setup_teacher_scope(client, headers_admin, data, ctx)
+    headers_teacher = scope["headers_teacher"]
+    student_a = ctx["students"][0]
+    for cs, score in [(ctx["math_cs"], 16), (ctx["french_cs"], 8)]:
+        assessment = await _create_assessment(client, headers_admin, ctx, cs, ctx["term"]["id"], f"Devoir {cs['id'][:4]}")
+        await client.post(
+            "/api/v1/results",
+            json={"assessment_id": assessment["id"], "results": [{"student_id": student_a["id"], "score": score}]},
+            headers=headers_admin,
+        )
+
+    teacher_view = (
+        await client.get(f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers_teacher)
+    ).json()
+    assert [s["class_subject_id"] for s in teacher_view["subject_averages"]] == [ctx["math_cs"]["id"]]
+
+    admin_view = (
+        await client.get(f"/api/v1/students/{student_a['id']}/averages?academic_term_id={ctx['term']['id']}", headers=headers_admin)
+    ).json()
+    assert len(admin_view["subject_averages"]) == 2
+
+    # Élève d'une autre classe, hors affectation de l'enseignant : aucune moyenne visible.
+    student_c_view = (
+        await client.get(
+            f"/api/v1/students/{scope['student_c']['id']}/averages?academic_term_id={ctx['term']['id']}",
+            headers=headers_teacher,
+        )
+    ).json()
+    assert student_c_view["subject_averages"] == []
+    assert student_c_view["term_averages"] == []
+
+
+async def test_teacher_performance_and_export_limited_to_assigned_class(client: AsyncClient) -> None:
+    data = await register_school(client, "p94tperf")
+    headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_two_subjects(client, headers_admin, data["school"]["id"])
+    scope = await _setup_teacher_scope(client, headers_admin, data, ctx)
+    headers_teacher = scope["headers_teacher"]
+    class_b_id = scope["class_b"]["id"]
+
+    perf_b = await client.get(
+        f"/api/v1/classes/{class_b_id}/performance?academic_term_id={ctx['term']['id']}", headers=headers_teacher
+    )
+    assert perf_b.status_code == 403, perf_b.text
+    export_b = await _export_class_performance(client, headers_teacher, class_b_id, ctx["term"]["id"])
+    assert export_b.status_code == 403, export_b.text
+
+    perf_a = await client.get(
+        f"/api/v1/classes/{ctx['class']['id']}/performance?academic_term_id={ctx['term']['id']}", headers=headers_teacher
+    )
+    assert perf_a.status_code == 200, perf_a.text
+
+    export_a = await _export_class_performance(client, headers_teacher, ctx["class"]["id"], ctx["term"]["id"])
+    assert export_a.status_code == 200, export_a.text
+    data_rows = _read_xlsx_rows(export_a.content)[1:]
+    # Seules les Maths (affectation) sont exportées : 2 élèves x 1 matière.
+    assert len(data_rows) == 2
+    assert {row[3] for row in data_rows} == {"Mathématiques"}

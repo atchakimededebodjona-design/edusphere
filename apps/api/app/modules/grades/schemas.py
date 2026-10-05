@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # --- Assessment types --------------------------------------------------------
@@ -61,7 +61,7 @@ class AssessmentResultOut(BaseModel):
 
 class AssessmentResultEntry(BaseModel):
     student_id: uuid.UUID
-    score: float | None = None
+    score: float | None = Field(default=None, ge=0)
     is_absent: bool = False
 
 
@@ -69,10 +69,29 @@ class AssessmentResultsBulkCreate(BaseModel):
     assessment_id: uuid.UUID
     results: list[AssessmentResultEntry] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def _each_student_once(self) -> "AssessmentResultsBulkCreate":
+        student_ids = [entry.student_id for entry in self.results]
+        if len(student_ids) != len(set(student_ids)):
+            raise ValueError("Each student may appear only once per submission")
+        return self
+
 
 class AssessmentResultUpdate(BaseModel):
-    score: float | None = None
+    """Champ omis = inchangé. Une valeur explicitement `null` est refusée (422) : elle était
+    auparavant ignorée en silence, ce qui laissait croire qu'une note pouvait être effacée."""
+
+    score: float | None = Field(default=None, ge=0)
     is_absent: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_explicit_null(cls, data: object) -> object:
+        if isinstance(data, dict):
+            for field_name in ("score", "is_absent"):
+                if field_name in data and data[field_name] is None:
+                    raise ValueError(f"{field_name} cannot be null; omit the field to leave it unchanged")
+        return data
 
 
 # --- Averages --------------------------------------------------------------------

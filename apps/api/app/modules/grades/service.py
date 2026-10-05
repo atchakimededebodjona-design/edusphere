@@ -175,7 +175,8 @@ async def recompute_term_averages(db: AsyncSession, student_ids: set[uuid.UUID],
         return
 
     term = await db.get(AcademicTerm, academic_term_id)
-    assert term is not None
+    if term is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Academic term not found")
 
     enrollments_result = await db.execute(
         select(StudentEnrollment).where(
@@ -276,7 +277,8 @@ async def apply_results_and_recompute(
     calcul strictement identiques à la version précédente — seul le nombre d'aller-retours SQL
     change."""
     class_subject = await db.get(ClassSubject, assessment.class_subject_id)
-    assert class_subject is not None
+    if class_subject is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class subject not found")
 
     entry_student_ids = [student_id for student_id, _, _ in entries]
     # Sprint 1.9 — appelé ici (point de convergence unique de `submit_results` ET `update_result`,
@@ -305,6 +307,7 @@ async def apply_results_and_recompute(
                 student_id=student_id,
             )
             db.add(row)
+            existing_by_student[student_id] = row
         row.score = score
         row.is_absent = is_absent
         saved_results.append(row)
@@ -367,6 +370,8 @@ async def compute_school_completeness(db: AsyncSession, school_id: uuid.UUID, ac
 
 # --- Sprint 1.10 — export XLSX des notes et moyennes d'une classe pour une période --------------
 
+FORMULA_TRIGGER_PREFIXES = ("=", "+", "-", "@")
+
 EXPORT_COLUMN_HEADERS = (
     "Matricule",
     "Nom",
@@ -382,7 +387,10 @@ EXPORT_COLUMN_HEADERS = (
 
 
 async def build_class_performance_export_rows(
-    db: AsyncSession, school_class: SchoolClass, academic_term_id: uuid.UUID
+    db: AsyncSession,
+    school_class: SchoolClass,
+    academic_term_id: uuid.UUID,
+    allowed_class_subject_ids: set[uuid.UUID] | None = None,
 ) -> list[tuple]:
     """Une ligne par (élève actif de la classe) x (matière de la classe), pour la période donnée.
 
@@ -416,6 +424,8 @@ async def build_class_performance_export_rows(
         .order_by(Subject.name)
     )
     class_subjects = list(class_subjects_result.all())
+    if allowed_class_subject_ids is not None:
+        class_subjects = [pair for pair in class_subjects if pair[0].id in allowed_class_subject_ids]
     if not class_subjects:
         return []
 
@@ -474,6 +484,14 @@ def build_class_performance_workbook(rows: list[tuple]) -> bytes:
     sheet.append(EXPORT_COLUMN_HEADERS)
     for row in rows:
         sheet.append(list(row))
+
+    # Texte saisi par des utilisateurs (noms, appréciations) : une chaîne commençant par = + - @
+    # serait interprétée comme formule par openpyxl (data_type 'f') puis par le tableur à
+    # l'ouverture. Forcer le type texte garde la valeur exacte sans jamais produire de formule.
+    for row_cells in sheet.iter_rows(min_row=2):
+        for cell in row_cells:
+            if isinstance(cell.value, str) and cell.value.startswith(FORMULA_TRIGGER_PREFIXES):
+                cell.data_type = "s"
 
     for column_cells in sheet.columns:
         content_lengths = [len(str(cell.value)) for cell in column_cells if cell.value is not None]
