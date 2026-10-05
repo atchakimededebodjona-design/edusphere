@@ -572,3 +572,157 @@ async def test_school_admin_can_unlock_session(client: AsyncClient) -> None:
     )
     assert unlock_response.status_code == 200
     assert unlock_response.json()["locked"] is False
+
+
+# --- P9.6 : validation des doublons bulk et des null explicites en PATCH --------------------------
+async def _list_records(client: AsyncClient, headers: dict, session_id: str) -> list[dict]:
+    response = await client.get(f"/api/v1/attendance-records?session_id={session_id}", headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _create_single_record(
+    client: AsyncClient,
+    headers: dict,
+    session_id: str,
+    student_id: str,
+    status: str,
+    justified: bool = False,
+    reason: str | None = None,
+) -> dict:
+    response = await client.post(
+        "/api/v1/attendance-records",
+        json={
+            "session_id": session_id,
+            "records": [{"student_id": student_id, "status": status, "justified": justified, "reason": reason}],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()[0]
+
+
+async def test_bulk_duplicate_student_rejected_without_any_write(client: AsyncClient) -> None:
+    data = await register_school(client, "attdupbulk")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    student_id = ctx["students"][0]["id"]
+
+    response = await client.post(
+        "/api/v1/attendance-records",
+        json={
+            "session_id": session["id"],
+            "records": [
+                {"student_id": student_id, "status": "PRESENT"},
+                {"student_id": student_id, "status": "ABSENT"},
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422, response.text
+    assert await _list_records(client, headers, session["id"]) == []
+
+
+async def test_patch_explicit_null_status_rejected_and_value_kept(client: AsyncClient) -> None:
+    data = await register_school(client, "attpatchnullstatus")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    record = await _create_single_record(client, headers, session["id"], ctx["students"][0]["id"], "PRESENT")
+
+    response = await client.patch(f"/api/v1/attendance-records/{record['id']}", json={"status": None}, headers=headers)
+    assert response.status_code == 422, response.text
+    stored = next(r for r in await _list_records(client, headers, session["id"]) if r["id"] == record["id"])
+    assert stored["status"] == "PRESENT"
+
+
+async def test_patch_explicit_null_justified_rejected_and_value_kept(client: AsyncClient) -> None:
+    data = await register_school(client, "attpatchnulljust")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    record = await _create_single_record(
+        client, headers, session["id"], ctx["students"][0]["id"], "ABSENT", justified=True, reason="Certificat"
+    )
+
+    response = await client.patch(f"/api/v1/attendance-records/{record['id']}", json={"justified": None}, headers=headers)
+    assert response.status_code == 422, response.text
+    stored = next(r for r in await _list_records(client, headers, session["id"]) if r["id"] == record["id"])
+    assert stored["justified"] is True
+    assert stored["reason"] == "Certificat"
+
+
+async def test_patch_valid_status_still_works(client: AsyncClient) -> None:
+    data = await register_school(client, "attpatchstatusok")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    record = await _create_single_record(client, headers, session["id"], ctx["students"][0]["id"], "PRESENT")
+
+    response = await client.patch(f"/api/v1/attendance-records/{record['id']}", json={"status": "ABSENT"}, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "ABSENT"
+    stored = next(r for r in await _list_records(client, headers, session["id"]) if r["id"] == record["id"])
+    assert stored["status"] == "ABSENT"
+
+
+async def test_patch_valid_justified_still_works(client: AsyncClient) -> None:
+    data = await register_school(client, "attpatchjustok")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    record = await _create_single_record(client, headers, session["id"], ctx["students"][0]["id"], "ABSENT")
+
+    response = await client.patch(f"/api/v1/attendance-records/{record['id']}", json={"justified": True}, headers=headers)
+    assert response.status_code == 200, response.text
+    stored = next(r for r in await _list_records(client, headers, session["id"]) if r["id"] == record["id"])
+    assert stored["justified"] is True
+
+
+async def test_patch_reason_null_still_works_and_empty_patch_is_noop(client: AsyncClient) -> None:
+    data = await register_school(client, "attpatchreason")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    record = await _create_single_record(
+        client, headers, session["id"], ctx["students"][0]["id"], "ABSENT", justified=True, reason="Motif"
+    )
+
+    noop = await client.patch(f"/api/v1/attendance-records/{record['id']}", json={}, headers=headers)
+    assert noop.status_code == 200, noop.text
+    stored = next(r for r in await _list_records(client, headers, session["id"]) if r["id"] == record["id"])
+    assert stored["status"] == "ABSENT" and stored["justified"] is True and stored["reason"] == "Motif"
+
+    cleared = await client.patch(f"/api/v1/attendance-records/{record['id']}", json={"reason": None}, headers=headers)
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["reason"] is None
+
+
+async def test_separate_posts_with_same_student_stay_idempotent(client: AsyncClient) -> None:
+    data = await register_school(client, "attidempotent")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    student_id = ctx["students"][0]["id"]
+
+    first = await _create_single_record(client, headers, session["id"], student_id, "PRESENT")
+    second = await _create_single_record(client, headers, session["id"], student_id, "ABSENT")
+
+    assert first["id"] == second["id"]
+    records = await _list_records(client, headers, session["id"])
+    assert len(records) == 1
+    assert records[0]["status"] == "ABSENT"
+
+
+async def test_patch_explicit_null_session_locked_rejected_and_state_kept(client: AsyncClient) -> None:
+    data = await register_school(client, "attlockednull")
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    ctx = await _setup_class_with_students(client, headers, data["school"]["id"])
+    session = await _create_session(client, headers, ctx, date(2026, 10, 1))
+    await client.patch(f"/api/v1/attendance-sessions/{session['id']}", json={"locked": True}, headers=headers)
+
+    response = await client.patch(f"/api/v1/attendance-sessions/{session['id']}", json={"locked": None}, headers=headers)
+    assert response.status_code == 422, response.text
+    current = await client.get(f"/api/v1/attendance-sessions/{session['id']}", headers=headers)
+    assert current.json()["locked"] is True
