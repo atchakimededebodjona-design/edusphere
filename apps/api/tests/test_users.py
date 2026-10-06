@@ -1,6 +1,10 @@
+import uuid
+
 from httpx import AsyncClient
 
-from tests.conftest import assign_role, register_school, unique_email
+from app.db.session import AsyncSessionLocal
+from app.modules.users.models import User
+from tests.conftest import assign_role, create_platform_admin, register_school, unique_email
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -351,3 +355,80 @@ async def test_teacher_cannot_update_users(client: AsyncClient) -> None:
         f"/api/v1/users/{teacher['id']}", json={"school_id": school_id, "is_active": False}, headers=headers_teacher
     )
     assert response.status_code == 403
+
+
+# --- is_platform_admin : lecture seule, jamais modifiable par l'API utilisateur ----------------
+async def _school_admin(client: AsyncClient, prefix: str) -> tuple[dict, dict]:
+    data = await register_school(client, prefix)
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    return data, headers
+
+
+async def test_user_out_exposes_is_platform_admin_false_for_normal_teacher(client: AsyncClient) -> None:
+    data, headers = await _school_admin(client, "flagnormal")
+    teacher = await _create_teacher(client, headers, data["school"]["id"], "flagnormal")
+
+    assert teacher["is_platform_admin"] is False
+
+
+async def test_list_users_returns_is_platform_admin_true_for_platform_admin(client: AsyncClient) -> None:
+    data, headers = await _school_admin(client, "flagplatform")
+    platform = await create_platform_admin(client, "flagplatformadmin")
+    await assign_role(
+        platform["user_id"], "TEACHER", organization_id=data["organization"]["id"], school_id=data["school"]["id"]
+    )
+
+    response = await client.get(f"/api/v1/users?school_id={data['school']['id']}", headers=headers)
+    assert response.status_code == 200, response.text
+    entries = {entry["user"]["id"]: entry["user"] for entry in response.json()}
+    assert entries[platform["user_id"]]["is_platform_admin"] is True
+    assert entries[data["user"]["id"]]["is_platform_admin"] is False
+
+
+async def test_create_user_ignores_is_platform_admin_in_payload(client: AsyncClient) -> None:
+    data, headers = await _school_admin(client, "flagcreate")
+    response = await client.post(
+        "/api/v1/users",
+        json={
+            "email": unique_email("flagcreate.attempt"),
+            "full_name": "Tentative Elevation",
+            "school_id": data["school"]["id"],
+            "role_code": "TEACHER",
+            "is_platform_admin": True,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    created = response.json()["user"]
+    assert created["is_platform_admin"] is False
+
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(User, uuid.UUID(created["id"]))
+        assert stored.is_platform_admin is False
+
+
+async def test_update_user_ignores_is_platform_admin_in_payload(client: AsyncClient) -> None:
+    data, headers = await _school_admin(client, "flagupdate")
+    teacher = await _create_teacher(client, headers, data["school"]["id"], "flagupdate")
+
+    response = await client.patch(
+        f"/api/v1/users/{teacher['id']}",
+        json={"school_id": data["school"]["id"], "is_active": True, "is_platform_admin": True},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["user"]["is_platform_admin"] is False
+
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(User, uuid.UUID(teacher["id"]))
+        assert stored.is_platform_admin is False
+
+
+async def test_user_out_schema_declares_is_platform_admin_as_read_only() -> None:
+    """Le schéma d'entrée n'expose pas le champ : aucune API de création/modification ne peut le
+    poser, même si le client l'envoie (les champs inconnus sont ignorés)."""
+    from app.modules.users.schemas import UserCreateRequest, UserOut, UserUpdateRequest
+
+    assert "is_platform_admin" in UserOut.model_fields
+    assert "is_platform_admin" not in UserCreateRequest.model_fields
+    assert "is_platform_admin" not in UserUpdateRequest.model_fields

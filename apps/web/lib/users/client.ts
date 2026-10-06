@@ -25,6 +25,8 @@ export type User = {
   full_name: string;
   phone: string | null;
   is_active: boolean;
+  /** Lecture seule : décidé côté serveur, jamais envoyé dans les payloads de création/modification. */
+  is_platform_admin: boolean;
   created_at: string;
 };
 
