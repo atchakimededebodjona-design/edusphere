@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.email import send_email_best_effort
 from app.core.payment import payment_provider
 from app.core.storage import storage
-from app.core.tenancy import apply_tenant_context, set_platform_wide_context
+from app.core.tenancy import set_platform_wide_context
 from app.modules.academics.models import SchoolClass
 from app.modules.notifications import service as notifications_service
 from app.modules.fees.models import FeeOverdueEmailReminder, FeeSchedule, Payment, PaymentAllocation, StudentFee
@@ -270,22 +270,16 @@ async def record_payment(
             )
         )
 
-    # Capturé AVANT le flush : après rollback() la session expire `student`, et relire son attribut
-    # déclencherait un chargement lazy hors contexte async (MissingGreenlet, 500 en course).
-    student_school_id = student.school_id
     try:
         await db.flush()
     except IntegrityError as exc:
         await db.rollback()
-        # Le rollback efface le contexte tenant (SET LOCAL) : sans le repositionner, la relecture
-        # ci-dessous est filtrée par RLS, ne voit pas le paiement gagnant et répond 409 à tort.
-        await apply_tenant_context(db, recorded_by)
         # Un autre paiement avec la même idempotency_key a gagné la course entre le contrôle
         # ci-dessus et ce flush (double soumission réellement concurrente) : on renvoie son
         # résultat, jamais une erreur, pour rester idempotent.
         retry = await db.execute(
             select(Payment).where(
-                Payment.school_id == student_school_id, Payment.idempotency_key == payload.idempotency_key
+                Payment.school_id == student.school_id, Payment.idempotency_key == payload.idempotency_key
             )
         )
         winner = retry.scalar_one_or_none()
