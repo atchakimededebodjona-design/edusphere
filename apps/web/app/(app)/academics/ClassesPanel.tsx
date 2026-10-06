@@ -18,6 +18,7 @@ import {
   type TeacherAssignment,
 } from "@/lib/academics/client";
 import { users as usersClient, type UserWithRoles } from "@/lib/users/client";
+import { filterSchoolTeachers } from "@/lib/academics/teachers";
 
 function TeacherAssignmentEditor({
   classId,
@@ -37,12 +38,23 @@ function TeacherAssignmentEditor({
   onAssignmentsChange: (next: TeacherAssignment[]) => void;
 }) {
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const forThisSubject = assignments.filter((a) => a.class_subject_id === classSubjectId);
-  const assignedUserIds = new Set(forThisSubject.map((a) => a.user_id));
-  const available = teachers.filter((t) => !assignedUserIds.has(t.user.id));
+  const teacherName = (userId: string) => teachers.find((t) => t.user.id === userId)?.user.full_name ?? userId;
+
+  function startEdit(assignment: TeacherAssignment) {
+    setEditingId(assignment.id);
+    setSelectedTeacherId(assignment.user_id);
+    setError(null);
+  }
+
+  function stopEdit() {
+    setEditingId(null);
+    setSelectedTeacherId("");
+  }
 
   async function handleAssign(event: React.FormEvent) {
     event.preventDefault();
@@ -50,9 +62,28 @@ function TeacherAssignmentEditor({
     setBusy(true);
     setError(null);
     try {
-      const created = await teacherAssignments.create(classId, { user_id: selectedTeacherId, subject_id: subjectId });
+      const created = await teacherAssignments.create(classId, {
+        user_id: selectedTeacherId,
+        subject_id: subjectId,
+      });
       onAssignmentsChange([...assignments, created]);
-      setSelectedTeacherId("");
+      stopEdit();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUpdate(assignmentId: string, event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedTeacherId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await teacherAssignments.update(classId, assignmentId, { user_id: selectedTeacherId });
+      onAssignmentsChange(assignments.map((a) => (a.id === assignmentId ? updated : a)));
+      stopEdit();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
@@ -73,39 +104,63 @@ function TeacherAssignmentEditor({
     }
   }
 
+  const teacherSelect = (
+    <select
+      value={selectedTeacherId}
+      onChange={(e) => setSelectedTeacherId(e.target.value)}
+      required
+      className="rounded border border-slate-300 px-1.5 py-0.5"
+      aria-label="Enseignant"
+    >
+      <option value="">Aucun enseignant</option>
+      {teachers.map((t) => (
+        <option key={t.user.id} value={t.user.id}>
+          {t.user.full_name}
+        </option>
+      ))}
+    </select>
+  );
+
   return (
     <div className="ml-4 mt-1 flex flex-col gap-1 border-l border-slate-200 pl-3 text-xs">
-      {forThisSubject.map((a) => {
-        const teacher = teachers.find((t) => t.user.id === a.user_id);
-        return (
+      {forThisSubject.map((a) =>
+        editingId === a.id ? (
+          <form key={a.id} onSubmit={(e) => handleUpdate(a.id, e)} className="flex items-center gap-2">
+            {teacherSelect}
+            <button type="submit" disabled={busy} className="rounded bg-slate-900 px-2 py-0.5 text-white disabled:opacity-50">
+              Enregistrer
+            </button>
+            <button type="button" onClick={stopEdit} disabled={busy} className="text-slate-600 underline">
+              Annuler
+            </button>
+          </form>
+        ) : (
           <div key={a.id} className="flex items-center justify-between gap-2">
-            <span>Enseignant : {teacher?.user.full_name ?? a.user_id}</span>
+            <span>Enseignant : {teacherName(a.user_id)}</span>
             {canManage && (
-              <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="text-red-700 underline">
-                Retirer
-              </button>
+              <span className="flex gap-2">
+                <button type="button" onClick={() => startEdit(a)} disabled={busy} className="text-slate-700 underline">
+                  Modifier
+                </button>
+                <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="text-red-700 underline">
+                  Retirer
+                </button>
+              </span>
             )}
           </div>
-        );
-      })}
+        ),
+      )}
       {forThisSubject.length === 0 && <span className="text-slate-400">Aucun enseignant affecté.</span>}
-      {canManage && available.length > 0 && (
+      {canManage && forThisSubject.length === 0 && teachers.length === 0 && (
+        <span className="text-amber-700">
+          Aucun enseignant actif rattaché à cette école : créez un utilisateur avec le rôle Enseignant.
+        </span>
+      )}
+      {canManage && forThisSubject.length === 0 && teachers.length > 0 && (
         <form onSubmit={handleAssign} className="flex items-center gap-2">
-          <select
-            value={selectedTeacherId}
-            onChange={(e) => setSelectedTeacherId(e.target.value)}
-            required
-            className="rounded border border-slate-300 px-1.5 py-0.5"
-          >
-            <option value="">—</option>
-            {available.map((t) => (
-              <option key={t.user.id} value={t.user.id}>
-                {t.user.full_name}
-              </option>
-            ))}
-          </select>
-          <button type="submit" disabled={busy} className="rounded bg-slate-900 px-2 py-0.5 text-white disabled:opacity-50">
-            Assigner
+          {teacherSelect}
+          <button type="submit" disabled={busy || !selectedTeacherId} className="rounded bg-slate-900 px-2 py-0.5 text-white disabled:opacity-50">
+            Affecter
           </button>
         </form>
       )}
@@ -145,7 +200,7 @@ export function ClassSubjectsEditor({
       .then(([attachedResult, assignmentsResult, allUsers]) => {
         setAttached(attachedResult);
         setAssignments(assignmentsResult);
-        setTeachers(allUsers.filter((u) => u.roles.some((r) => r.role_code === "TEACHER")));
+        setTeachers(filterSchoolTeachers(allUsers, schoolId));
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
   }, [schoolClass.id, schoolId]);

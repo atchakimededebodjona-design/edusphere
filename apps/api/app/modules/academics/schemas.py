@@ -187,3 +187,7 @@ class TeacherAssignmentOut(BaseModel):
 class TeacherAssignmentCreate(BaseModel):
     user_id: uuid.UUID
     subject_id: uuid.UUID
+
+
+class TeacherAssignmentUpdate(BaseModel):
+    user_id: uuid.UUID

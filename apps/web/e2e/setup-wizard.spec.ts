@@ -180,7 +180,83 @@ test.describe("Assistant de mise en place — parcours complet", () => {
     await expect(page.getByText("Classes (cette année) : 1")).toBeVisible();
   });
 
-  test("bouton « Terminer la configuration » : double-clic ne déclenche qu'une seule finalisation", async ({
+  test("étape 6 : affecte, modifie puis retire un enseignant ; seuls les enseignants de l'école sont proposés", async ({
+  page,
+  request,
+}) => {
+  const admin = await registerSchool(page, request, "wizteach");
+  const headers = { Authorization: `Bearer ${admin.orgAdminToken}` };
+  const schoolId = admin.schoolId;
+
+  const yearName = unique("Annee-");
+  const className = "CM2-A";
+  const subjectName = unique("Français");
+  const year = await request.post(`${API_BASE_URL}/api/v1/academic-years`, {
+    headers,
+    data: { school_id: schoolId, name: yearName, start_date: "2026-09-01", end_date: "2027-06-30", is_current: true },
+  });
+  expect(year.status()).toBe(201);
+  const level = await request.post(`${API_BASE_URL}/api/v1/education-levels`, {
+    headers,
+    data: { school_id: schoolId, name: "CM2" },
+  });
+  const subject = await request.post(`${API_BASE_URL}/api/v1/subjects`, {
+    headers,
+    data: { school_id: schoolId, name: subjectName },
+  });
+  const schoolClass = await request.post(`${API_BASE_URL}/api/v1/classes`, {
+    headers,
+    data: { academic_year_id: (await year.json()).id, education_level_id: (await level.json()).id, name: className },
+  });
+  expect(schoolClass.status()).toBe(201);
+  expect(subject.status()).toBe(201);
+
+  const createUser = async (fullName: string, roleCode: string) => {
+    const response = await request.post(`${API_BASE_URL}/api/v1/users`, {
+      headers,
+      data: { email: `${unique("prof").toLowerCase()}@wizard-e2e.example`, full_name: fullName, school_id: schoolId, role_code: roleCode },
+    });
+    expect(response.status(), await response.text()).toBe(201);
+    return fullName;
+  };
+  const teacherA = await createUser(unique("Koffi "), "TEACHER");
+  const teacherB = await createUser(unique("Akossiwa "), "TEACHER");
+  const notATeacher = await createUser(unique("Secretariat "), "STAFF");
+
+  await page.goto("/setup");
+  await page.getByRole("radio", { name: new RegExp(yearName) }).check();
+  await page.getByRole("button", { name: "6. Affectations enseignants" }).click();
+  await page.getByLabel("Classe").selectOption({ label: className });
+  await page.getByLabel("Matière").selectOption({ label: subjectName });
+  await page.getByRole("button", { name: "Ajouter" }).click();
+  await expect(page.getByText(`${subjectName} — coefficient 1`)).toBeVisible();
+
+  // Liste limitée aux enseignants actifs de cette école : le personnel non enseignant n'est pas proposé.
+  const teacherSelect = page.getByLabel("Enseignant");
+  await expect(teacherSelect.locator("option", { hasText: teacherA })).toHaveCount(1);
+  await expect(teacherSelect.locator("option", { hasText: notATeacher })).toHaveCount(0);
+
+  // Affecter
+  await teacherSelect.selectOption({ label: teacherA });
+  await page.getByRole("button", { name: "Affecter" }).click();
+  await expect(page.getByText(`Enseignant : ${teacherA}`)).toBeVisible();
+
+  // Modifier vers un autre enseignant
+  await page.getByRole("button", { name: "Modifier" }).click();
+  await page.getByLabel("Enseignant").selectOption({ label: teacherB });
+  await page.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(page.getByText(`Enseignant : ${teacherB}`)).toBeVisible();
+
+  // Retirer : bouton de la ligne enseignant (la ligne matière porte aussi un « Retirer »)
+  await page
+    .getByText(`Enseignant : ${teacherB}`)
+    .locator("..")
+    .getByRole("button", { name: "Retirer" })
+    .click();
+  await expect(page.getByText("Aucun enseignant affecté.")).toBeVisible();
+});
+
+test("bouton « Terminer la configuration » : double-clic ne déclenche qu'une seule finalisation", async ({
     page,
     request,
   }) => {

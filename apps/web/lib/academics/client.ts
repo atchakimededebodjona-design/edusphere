@@ -183,6 +183,8 @@ export const teacherAssignments = {
   list: (classId: string) => getJson<TeacherAssignment[]>(`/api/v1/classes/${classId}/teachers`),
   create: (classId: string, payload: { user_id: string; subject_id: string }) =>
     postJson<TeacherAssignment>(`/api/v1/classes/${classId}/teachers`, payload),
+  update: (classId: string, assignmentId: string, payload: { user_id: string }) =>
+    patchJson<TeacherAssignment>(`/api/v1/classes/${classId}/teachers/${assignmentId}`, payload),
   remove: async (classId: string, assignmentId: string): Promise<void> => {
     await apiFetch(`/api/v1/classes/${classId}/teachers/${assignmentId}`, { method: "DELETE" });
   },
