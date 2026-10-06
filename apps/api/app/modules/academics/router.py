@@ -39,8 +39,11 @@ from app.modules.academics.schemas import (
     SubjectUpdate,
     TeacherAssignmentCreate,
     TeacherAssignmentOut,
+    TeacherAssignmentUpdate,
 )
+from app.modules.rbac.models import Role, UserRole
 from app.modules.schools.models import School
+from app.modules.users.models import User
 
 router = APIRouter()
 
@@ -463,6 +466,49 @@ async def remove_class_subject(
 
 
 # --- Teacher assignments -----------------------------------------------------------
+async def _ensure_school_teacher(db: AsyncSession, school: School, user_id: uuid.UUID) -> None:
+    """Source de vérité backend : seul un compte ACTIF, non plateforme, porteur d'un rôle TEACHER
+    scopé à CETTE école (même organisation, `school_id` = école de la classe) peut être affecté.
+    Un SCHOOL_ADMIN (org-wide), un TEACHER d'une autre école, ou un compte inexistant reçoivent la
+    même erreur 400 : aucune réponse ne révèle l'existence ou le rattachement d'un compte ailleurs."""
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Selected user is not an active TEACHER of this school",
+    )
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active or user.is_platform_admin:
+        raise invalid
+
+    teacher_role = await db.execute(
+        select(UserRole.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(
+            UserRole.user_id == user.id,
+            Role.code == "TEACHER",
+            UserRole.organization_id == school.organization_id,
+            UserRole.school_id == school.id,
+        )
+    )
+    if teacher_role.first() is None:
+        raise invalid
+
+
+async def _get_class_subject_or_400(db: AsyncSession, school_class: SchoolClass, subject_id: uuid.UUID) -> ClassSubject:
+    result = await db.execute(
+        select(ClassSubject).where(ClassSubject.class_id == school_class.id, ClassSubject.subject_id == subject_id)
+    )
+    class_subject = result.scalar_one_or_none()
+    if class_subject is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This subject must be attached to the class before assigning a teacher",
+        )
+    subject = await db.get(Subject, subject_id)
+    if subject is None or subject.school_id != school_class.school_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Subject does not belong to this school")
+    return class_subject
+
+
 @router.post("/classes/{class_id}/teachers", response_model=TeacherAssignmentOut, status_code=status.HTTP_201_CREATED)
 async def assign_teacher(
     class_id: uuid.UUID, payload: TeacherAssignmentCreate, db: DbSession, current_user: CurrentUser
@@ -471,16 +517,9 @@ async def assign_teacher(
     await ensure_permission(
         db, current_user, "academics.manage", organization_id=school_class.organization_id, school_id=school_class.school_id
     )
-
-    result = await db.execute(
-        select(ClassSubject).where(ClassSubject.class_id == class_id, ClassSubject.subject_id == payload.subject_id)
-    )
-    class_subject = result.scalar_one_or_none()
-    if class_subject is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This subject must be attached to the class before assigning a teacher",
-        )
+    school = await _get_school_or_404(db, school_class.school_id)
+    class_subject = await _get_class_subject_or_400(db, school_class, payload.subject_id)
+    await _ensure_school_teacher(db, school, payload.user_id)
 
     assignment = TeacherAssignment(
         id=uuid.uuid4(),
@@ -497,6 +536,51 @@ async def assign_teacher(
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This teacher is already assigned to this class subject") from exc
+    return assignment
+
+
+@router.patch("/classes/{class_id}/teachers/{assignment_id}", response_model=TeacherAssignmentOut)
+async def update_teacher_assignment(
+    class_id: uuid.UUID,
+    assignment_id: uuid.UUID,
+    payload: TeacherAssignmentUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> TeacherAssignment:
+    """Change l'enseignant d'une affectation existante (matière de cette classe inchangée)."""
+    school_class = await _get_class_or_404(db, class_id)
+    await ensure_permission(
+        db, current_user, "academics.manage", organization_id=school_class.organization_id, school_id=school_class.school_id
+    )
+    assignment = await _get_assignment_of_class_or_404(db, school_class, assignment_id)
+    school = await _get_school_or_404(db, school_class.school_id)
+    await _ensure_school_teacher(db, school, payload.user_id)
+
+    assignment.user_id = payload.user_id
+    try:
+        await db.flush()
+        await db.refresh(assignment)
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This teacher is already assigned to this class subject") from exc
+    return assignment
+
+
+async def _get_assignment_of_class_or_404(
+    db: AsyncSession, school_class: SchoolClass, assignment_id: uuid.UUID
+) -> TeacherAssignment:
+    """Une affectation n'est accessible via une classe que si elle porte sur une matière de CETTE
+    classe : sans ce contrôle, un id d'affectation d'une autre école pouvait être modifié/supprimé
+    sous couvert d'une permission sur la classe de l'URL."""
+    result = await db.execute(
+        select(TeacherAssignment)
+        .join(ClassSubject, ClassSubject.id == TeacherAssignment.class_subject_id)
+        .where(TeacherAssignment.id == assignment_id, ClassSubject.class_id == school_class.id)
+    )
+    assignment = result.scalar_one_or_none()
+    if assignment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher assignment not found")
     return assignment
 
 
@@ -523,9 +607,6 @@ async def remove_teacher_assignment(
         db, current_user, "academics.manage", organization_id=school_class.organization_id, school_id=school_class.school_id
     )
 
-    assignment = await db.get(TeacherAssignment, assignment_id)
-    if assignment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher assignment not found")
-
+    assignment = await _get_assignment_of_class_or_404(db, school_class, assignment_id)
     await db.delete(assignment)
     await db.commit()

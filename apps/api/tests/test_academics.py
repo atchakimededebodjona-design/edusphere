@@ -1,8 +1,11 @@
+import uuid
 from datetime import date
 
 from httpx import AsyncClient
 
-from tests.conftest import assign_role, register_school
+from app.db.session import AsyncSessionLocal
+from app.modules.users.models import User
+from tests.conftest import assign_role, create_platform_admin, register_school
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -199,3 +202,216 @@ async def test_academics_tenant_isolation(client: AsyncClient) -> None:
     assert create_response.status_code == 404
 
     assert subject_b["name"] == "Mathématiques"
+
+
+# --- Affectation des enseignants : règles de validation backend ---------------------------------
+async def _school_setup(client: AsyncClient, prefix: str) -> dict:
+    """Organisation + école + admin + année/niveau/matière, avec une classe et la matière attachée."""
+    data = await register_school(client, prefix)
+    headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
+    school_id = data["school"]["id"]
+    year = await _create_year(client, headers, school_id)
+    level = await _create_level(client, headers, school_id)
+    subject = await _create_subject(client, headers, school_id)
+    school_class = await _create_class(client, headers, year["id"], level["id"])
+    attached = await client.post(
+        f"/api/v1/classes/{school_class['id']}/subjects", json={"subject_id": subject["id"]}, headers=headers
+    )
+    assert attached.status_code == 201, attached.text
+    return {
+        "headers": headers,
+        "school_id": school_id,
+        "organization_id": data["organization"]["id"],
+        "year_id": year["id"],
+        "level_id": level["id"],
+        "class_id": school_class["id"],
+        "subject_id": subject["id"],
+    }
+
+
+async def _user_with_role(client: AsyncClient, prefix: str, role: str, org_id: str, school_id: str | None) -> str:
+    data = await register_school(client, prefix)
+    user_id = data["user"]["id"]
+    await assign_role(user_id, role, organization_id=org_id, school_id=school_id)
+    return user_id
+
+
+async def _assign(client: AsyncClient, setup: dict, user_id: str):
+    return await client.post(
+        f"/api/v1/classes/{setup['class_id']}/teachers",
+        json={"user_id": user_id, "subject_id": setup["subject_id"]},
+        headers=setup["headers"],
+    )
+
+
+async def _assignments(client: AsyncClient, class_id: str, headers: dict) -> list:
+    response = await client.get(f"/api/v1/classes/{class_id}/teachers", headers=headers)
+    assert response.status_code == 200
+    return response.json()
+
+
+async def test_assign_valid_school_teacher_succeeds(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasgood")
+    teacher = await _user_with_role(client, "tasgoodt", "TEACHER", setup["organization_id"], setup["school_id"])
+
+    response = await _assign(client, setup, teacher)
+    assert response.status_code == 201, response.text
+    assert response.json()["user_id"] == teacher
+    assert len(await _assignments(client, setup["class_id"], setup["headers"])) == 1
+
+
+async def test_assign_rejects_non_teacher_role(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasrole")
+    school_admin = await _user_with_role(client, "tasroleadm", "SCHOOL_ADMIN", setup["organization_id"], setup["school_id"])
+
+    response = await _assign(client, setup, school_admin)
+    assert response.status_code == 400
+    assert await _assignments(client, setup["class_id"], setup["headers"]) == []
+
+
+async def test_assign_rejects_teacher_of_another_school_same_organization(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasxschool")
+    other_school = await client.post(
+        "/api/v1/schools",
+        json={"organization_id": setup["organization_id"], "name": "Autre ecole", "slug": "autre"},
+        headers=setup["headers"],
+    )
+    assert other_school.status_code == 201, other_school.text
+    teacher = await _user_with_role(client, "tasxschoolt", "TEACHER", setup["organization_id"], other_school.json()["id"])
+
+    response = await _assign(client, setup, teacher)
+    assert response.status_code == 400
+    assert await _assignments(client, setup["class_id"], setup["headers"]) == []
+
+
+async def test_assign_rejects_teacher_of_another_organization(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasxorg")
+    other = await register_school(client, "tasxorgother")
+    teacher = await _user_with_role(client, "tasxorgt", "TEACHER", other["organization"]["id"], other["school"]["id"])
+
+    response = await _assign(client, setup, teacher)
+    assert response.status_code == 400
+    assert await _assignments(client, setup["class_id"], setup["headers"]) == []
+
+
+async def test_assign_rejects_org_wide_teacher_role_without_school(client: AsyncClient) -> None:
+    """Le rôle TEACHER doit être rattaché à l'école de la classe (pas un rôle org-wide, school NULL)."""
+    setup = await _school_setup(client, "tasorgwide")
+    teacher = await _user_with_role(client, "tasorgwidet", "TEACHER", setup["organization_id"], None)
+
+    response = await _assign(client, setup, teacher)
+    assert response.status_code == 400
+
+
+async def test_assign_rejects_platform_admin_even_with_teacher_role(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasplat")
+    platform = await create_platform_admin(client, "tasplatadmin")
+    await assign_role(platform["user_id"], "TEACHER", organization_id=setup["organization_id"], school_id=setup["school_id"])
+
+    response = await _assign(client, setup, platform["user_id"])
+    assert response.status_code == 400
+
+
+async def test_assign_rejects_inactive_teacher(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasinactive")
+    teacher = await _user_with_role(client, "tasinactivet", "TEACHER", setup["organization_id"], setup["school_id"])
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, uuid.UUID(teacher))
+        user.is_active = False
+        await db.commit()
+
+    response = await _assign(client, setup, teacher)
+    assert response.status_code == 400
+
+
+async def test_assign_rejects_unknown_user(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasunknown")
+    response = await _assign(client, setup, str(uuid.uuid4()))
+    assert response.status_code == 400
+
+
+async def test_assign_rejects_subject_not_attached_to_class(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasnotattached")
+    teacher = await _user_with_role(client, "tasnotattachedt", "TEACHER", setup["organization_id"], setup["school_id"])
+    other_subject = await _create_subject(client, setup["headers"], setup["school_id"], name="Histoire")
+
+    response = await client.post(
+        f"/api/v1/classes/{setup['class_id']}/teachers",
+        json={"user_id": teacher, "subject_id": other_subject["id"]},
+        headers=setup["headers"],
+    )
+    assert response.status_code == 400
+
+
+async def test_duplicate_assignment_conflicts(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasdup")
+    teacher = await _user_with_role(client, "tasdupt", "TEACHER", setup["organization_id"], setup["school_id"])
+    assert (await _assign(client, setup, teacher)).status_code == 201
+
+    response = await _assign(client, setup, teacher)
+    assert response.status_code == 409
+
+
+async def test_update_assignment_changes_teacher(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasupd")
+    first = await _user_with_role(client, "tasupdf", "TEACHER", setup["organization_id"], setup["school_id"])
+    second = await _user_with_role(client, "tasupds", "TEACHER", setup["organization_id"], setup["school_id"])
+    assignment = (await _assign(client, setup, first)).json()
+
+    response = await client.patch(
+        f"/api/v1/classes/{setup['class_id']}/teachers/{assignment['id']}",
+        json={"user_id": second},
+        headers=setup["headers"],
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["user_id"] == second
+    assert [a["user_id"] for a in await _assignments(client, setup["class_id"], setup["headers"])] == [second]
+
+
+async def test_update_assignment_with_invalid_teacher_keeps_original(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasupdbad")
+    teacher = await _user_with_role(client, "tasupdbadt", "TEACHER", setup["organization_id"], setup["school_id"])
+    school_admin = await _user_with_role(client, "tasupdbadadm", "SCHOOL_ADMIN", setup["organization_id"], setup["school_id"])
+    assignment = (await _assign(client, setup, teacher)).json()
+
+    response = await client.patch(
+        f"/api/v1/classes/{setup['class_id']}/teachers/{assignment['id']}",
+        json={"user_id": school_admin},
+        headers=setup["headers"],
+    )
+    assert response.status_code == 400
+    assert [a["user_id"] for a in await _assignments(client, setup["class_id"], setup["headers"])] == [teacher]
+
+
+async def test_assignment_of_another_class_is_not_reachable_through_this_class(client: AsyncClient) -> None:
+    setup = await _school_setup(client, "tasxclass")
+    teacher = await _user_with_role(client, "tasxclasst", "TEACHER", setup["organization_id"], setup["school_id"])
+    assignment = (await _assign(client, setup, teacher)).json()
+    other_class = await _create_class(client, setup["headers"], setup["year_id"], setup["level_id"], name="Z")
+
+    patched = await client.patch(
+        f"/api/v1/classes/{other_class['id']}/teachers/{assignment['id']}",
+        json={"user_id": teacher},
+        headers=setup["headers"],
+    )
+    assert patched.status_code == 404
+    deleted = await client.delete(
+        f"/api/v1/classes/{other_class['id']}/teachers/{assignment['id']}", headers=setup["headers"]
+    )
+    assert deleted.status_code == 404
+    assert [a["id"] for a in await _assignments(client, setup["class_id"], setup["headers"])] == [assignment["id"]]
+
+
+async def test_cross_school_assignment_cannot_be_deleted_through_own_class(client: AsyncClient) -> None:
+    """Régression : DELETE ne vérifiait pas que l'affectation appartenait à la classe de l'URL. Un
+    admin de l'école A pouvait supprimer l'affectation d'une classe de l'école B."""
+    mine = await _school_setup(client, "tasdelmine")
+    theirs = await _school_setup(client, "tasdeltheirs")
+    their_teacher = await _user_with_role(client, "tasdeltheirt", "TEACHER", theirs["organization_id"], theirs["school_id"])
+    their_assignment = (await _assign(client, theirs, their_teacher)).json()
+
+    response = await client.delete(
+        f"/api/v1/classes/{mine['class_id']}/teachers/{their_assignment['id']}", headers=mine["headers"]
+    )
+    assert response.status_code == 404
+    assert [a["id"] for a in await _assignments(client, theirs["class_id"], theirs["headers"])] == [their_assignment["id"]]
