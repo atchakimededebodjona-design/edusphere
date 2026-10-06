@@ -5,6 +5,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserOut(BaseModel):
+    """Représentation de LECTURE d'un utilisateur. `is_platform_admin` n'apparaît dans aucun
+    schéma d'entrée (création/modification) : il est en lecture seule, décidé côté serveur."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -12,6 +15,7 @@ class UserOut(BaseModel):
     full_name: str
     phone: str | None
     is_active: bool
+    is_platform_admin: bool
     created_at: datetime
 
 
