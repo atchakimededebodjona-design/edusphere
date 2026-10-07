@@ -3,7 +3,7 @@ from datetime import date
 
 from httpx import AsyncClient
 
-from tests.conftest import assign_role, register_school
+from tests.conftest import assign_role, register_school, valid_image_bytes, valid_pdf_bytes
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -195,16 +195,16 @@ async def test_photo_and_document_upload(client: AsyncClient) -> None:
     photo_response = await client.post(
         f"/api/v1/students/{student['id']}/photo",
         headers=headers,
-        files={"file": ("photo.jpg", io.BytesIO(b"fake-jpeg-bytes"), "image/jpeg")},
+        files={"file": ("photo.jpg", io.BytesIO(valid_image_bytes("JPEG")), "image/jpeg")},
     )
-    assert photo_response.status_code == 200
+    assert photo_response.status_code == 200, photo_response.text
     assert photo_response.json()["photo_path"] is not None
 
     doc_response = await client.post(
         f"/api/v1/students/{student['id']}/documents",
         headers=headers,
         data={"document_type": "birth_certificate"},
-        files={"file": ("certificate.pdf", io.BytesIO(b"fake-pdf-bytes"), "application/pdf")},
+        files={"file": ("certificate.pdf", io.BytesIO(valid_pdf_bytes()), "application/pdf")},
     )
     assert doc_response.status_code == 201
     document = doc_response.json()
@@ -229,16 +229,17 @@ async def test_download_student_photo(client: AsyncClient) -> None:
     not_found = await client.get(f"/api/v1/students/{student['id']}/photo", headers=headers)
     assert not_found.status_code == 404
 
+    jpeg_bytes = valid_image_bytes("JPEG")
     await client.post(
         f"/api/v1/students/{student['id']}/photo",
         headers=headers,
-        files={"file": ("photo.jpg", io.BytesIO(b"fake-jpeg-bytes"), "image/jpeg")},
+        files={"file": ("photo.jpg", io.BytesIO(jpeg_bytes), "image/jpeg")},
     )
 
     photo_response = await client.get(f"/api/v1/students/{student['id']}/photo", headers=headers)
     assert photo_response.status_code == 200
     assert photo_response.headers["content-type"] == "image/jpeg"
-    assert photo_response.content == b"fake-jpeg-bytes"
+    assert photo_response.content == jpeg_bytes
 
 
 async def test_download_student_document(client: AsyncClient) -> None:
@@ -248,11 +249,12 @@ async def test_download_student_document(client: AsyncClient) -> None:
     school_id = data["school"]["id"]
 
     student = await _create_student(client, headers, school_id)
+    pdf_bytes = valid_pdf_bytes()
     doc_response = await client.post(
         f"/api/v1/students/{student['id']}/documents",
         headers=headers,
         data={"document_type": "birth_certificate"},
-        files={"file": ("certificate.pdf", io.BytesIO(b"fake-pdf-bytes"), "application/pdf")},
+        files={"file": ("certificate.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
     )
     document = doc_response.json()
 
@@ -261,7 +263,7 @@ async def test_download_student_document(client: AsyncClient) -> None:
     )
     assert download_response.status_code == 200
     assert download_response.headers["content-type"] == "application/pdf"
-    assert download_response.content == b"fake-pdf-bytes"
+    assert download_response.content == pdf_bytes
     assert "certificate.pdf" in download_response.headers["content-disposition"]
 
     unknown_response = await client.get(

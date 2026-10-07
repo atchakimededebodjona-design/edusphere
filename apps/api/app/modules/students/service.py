@@ -3,12 +3,15 @@ import io
 import re
 import uuid
 from datetime import date, datetime
+from pathlib import Path
 
 import openpyxl
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile, status
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.storage import safe_filename
 from app.modules.students.models import Student
 from app.modules.students.schemas import StudentImportReport, StudentImportRowError
 
@@ -145,3 +148,92 @@ async def import_students(
 
     await db.commit()
     return StudentImportReport(total_rows=len(rows), created=created, duplicates_skipped=duplicates, errors=errors)
+
+
+# --- Validation des uploads (photo / documents) ---------------------------------
+# Le Content-Type envoyé par le navigateur n'est qu'une déclaration — jamais fiable seul. On
+# détecte le type réel depuis le contenu (Pillow pour les images, signature de fichier pour le
+# PDF) et on vérifie que l'extension déclarée est cohérente avec ce type détecté.
+PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
+DOCUMENT_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB
+
+_PHOTO_MIME_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "image/jpeg": (".jpg", ".jpeg"),
+    "image/png": (".png",),
+    "image/webp": (".webp",),
+}
+_DOCUMENT_MIME_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    **_PHOTO_MIME_EXTENSIONS,
+    "application/pdf": (".pdf",),
+}
+
+_IMAGE_FORMAT_TO_MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
+
+
+def _sniff_image_mime(content: bytes) -> str | None:
+    try:
+        with Image.open(io.BytesIO(content)) as img:
+            img.verify()
+            fmt = (img.format or "").upper()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None
+    return _IMAGE_FORMAT_TO_MIME.get(fmt)
+
+
+def _sniff_mime(content: bytes, *, allow_pdf: bool) -> str | None:
+    if allow_pdf and content[:5] == b"%PDF-":
+        return "application/pdf"
+    return _sniff_image_mime(content)
+
+
+def _validate_upload(
+    content: bytes,
+    filename: str | None,
+    *,
+    allowed_mimes: dict[str, tuple[str, ...]],
+    max_bytes: int,
+    label: str,
+) -> str:
+    """Valide un fichier uploadé (photo ou document) et retourne son type MIME réel détecté.
+
+    Lève HTTPException(422) avec un message précis si : fichier vide, trop volumineux, type non
+    autorisé (détecté réellement, pas depuis le Content-Type déclaré), ou extension incohérente
+    avec le type détecté (ex. un .png renommé en .pdf).
+    """
+    if not content:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{label} vide.")
+    if len(content) > max_bytes:
+        max_mib = max_bytes // (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{label} trop volumineux (maximum {max_mib} Mio).",
+        )
+
+    detected_mime = _sniff_mime(content, allow_pdf="application/pdf" in allowed_mimes)
+    if detected_mime is None or detected_mime not in allowed_mimes:
+        allowed_list = ", ".join(sorted(allowed_mimes))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{label} : type de fichier non autorisé (formats acceptés : {allowed_list}).",
+        )
+
+    extension = Path(safe_filename(filename or "")).suffix.lower()
+    if extension and extension not in allowed_mimes[detected_mime]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{label} : l'extension du fichier ne correspond pas à son contenu réel.",
+        )
+
+    return detected_mime
+
+
+def validate_photo_upload(content: bytes, filename: str | None) -> str:
+    return _validate_upload(
+        content, filename, allowed_mimes=_PHOTO_MIME_EXTENSIONS, max_bytes=PHOTO_MAX_BYTES, label="Photo"
+    )
+
+
+def validate_document_upload(content: bytes, filename: str | None) -> str:
+    return _validate_upload(
+        content, filename, allowed_mimes=_DOCUMENT_MIME_EXTENSIONS, max_bytes=DOCUMENT_MAX_BYTES, label="Document"
+    )

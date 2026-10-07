@@ -90,6 +90,8 @@ export type StudentDocument = {
   document_type: string;
   file_path: string;
   original_filename: string;
+  mime_type: string | null;
+  file_size: number | null;
   uploaded_by: string | null;
   created_at: string;
 };
@@ -170,6 +172,9 @@ export const students = {
     return response.json();
   },
   getPhotoBlobUrl: (id: string) => getBlobUrl(`/api/v1/students/${id}/photo`),
+  deletePhoto: async (id: string): Promise<void> => {
+    await apiFetch(`/api/v1/students/${id}/photo`, { method: "DELETE" });
+  },
   import: async (schoolId: string, file: File): Promise<StudentImportReport> => {
     const form = new FormData();
     form.append("school_id", schoolId);
