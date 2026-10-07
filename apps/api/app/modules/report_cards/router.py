@@ -6,10 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_teacher_only
 from app.core.rate_limit import ensure_report_card_verify_not_rate_limited, register_report_card_verify_attempt
 from app.core.storage import storage
-from app.modules.academics.models import AcademicTerm, SchoolClass
+from app.modules.academics.models import AcademicTerm, ClassSubject, SchoolClass, TeacherAssignment
 from app.modules.notifications import service as notifications_service
 from app.modules.report_cards import service
 from app.modules.report_cards.models import ReportCard, ReportCardTemplate
@@ -22,6 +22,7 @@ from app.modules.report_cards.schemas import (
 )
 from app.modules.schools.models import School
 from app.modules.students.models import Student
+from app.modules.users.models import User
 
 router = APIRouter()
 
@@ -46,6 +47,22 @@ async def _get_report_card_or_404(db: AsyncSession, report_card_id: uuid.UUID) -
     if report_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report card not found")
     return report_card
+
+
+async def _teacher_assigned_class_ids(
+    db: AsyncSession, current_user: User, organization_id: uuid.UUID, school_id: uuid.UUID
+) -> set[uuid.UUID] | None:
+    """None = rôle administratif, aucune restriction. Sinon, les classes où cet enseignant a une
+    TeacherAssignment dans cette école (même règle que grades/students pour `report_cards.read`) :
+    un bulletin d'une classe hors affectation n'est jamais lisible, publié ou non."""
+    if not await is_teacher_only(db, current_user, organization_id, school_id):
+        return None
+    result = await db.execute(
+        select(ClassSubject.class_id)
+        .join(TeacherAssignment, TeacherAssignment.class_subject_id == ClassSubject.id)
+        .where(TeacherAssignment.user_id == current_user.id, ClassSubject.school_id == school_id)
+    )
+    return {row[0] for row in result.all()}
 
 
 # --- Templates -----------------------------------------------------------------
@@ -129,6 +146,9 @@ async def list_report_cards(
     await ensure_permission(
         db, current_user, "report_cards.read", organization_id=school_class.organization_id, school_id=school_class.school_id
     )
+    teacher_scope = await _teacher_assigned_class_ids(db, current_user, school_class.organization_id, school_class.school_id)
+    if teacher_scope is not None and class_id not in teacher_scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class")
     result = await db.execute(
         select(ReportCard).where(ReportCard.class_id == class_id, ReportCard.academic_term_id == academic_term_id)
     )
@@ -141,6 +161,9 @@ async def get_report_card(report_card_id: uuid.UUID, db: DbSession, current_user
     await ensure_permission(
         db, current_user, "report_cards.read", organization_id=report_card.organization_id, school_id=report_card.school_id
     )
+    teacher_scope = await _teacher_assigned_class_ids(db, current_user, report_card.organization_id, report_card.school_id)
+    if teacher_scope is not None and report_card.class_id not in teacher_scope:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report card not found")
     return report_card
 
 
@@ -150,6 +173,9 @@ async def download_report_card_pdf(report_card_id: uuid.UUID, db: DbSession, cur
     await ensure_permission(
         db, current_user, "report_cards.read", organization_id=report_card.organization_id, school_id=report_card.school_id
     )
+    teacher_scope = await _teacher_assigned_class_ids(db, current_user, report_card.organization_id, report_card.school_id)
+    if teacher_scope is not None and report_card.class_id not in teacher_scope:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report card not found")
 
     student = await db.get(Student, report_card.student_id)
     filename = f"bulletin_{student.matricule if student else report_card.id}.pdf"

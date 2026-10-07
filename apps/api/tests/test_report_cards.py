@@ -225,8 +225,10 @@ async def test_teacher_can_read_but_not_generate_or_publish(client: AsyncClient)
     await assign_role(teacher_data["user"]["id"], "TEACHER", organization_id=organization_id, school_id=school_id)
     headers_teacher = {"Authorization": f"Bearer {await _login(client, teacher_data['user']['email'])}"}
 
+    # Ce TEACHER n'a aucune TeacherAssignment sur la classe du bulletin : refusé (durcissement
+    # "portail enseignant" — voir test_teacher_portal_scope.py pour un enseignant réellement affecté).
     read_response = await client.get(f"/api/v1/report-cards/{report_card['id']}", headers=headers_teacher)
-    assert read_response.status_code == 200
+    assert read_response.status_code == 404
 
     generate_attempt = await client.post(
         "/api/v1/report-cards/generate",

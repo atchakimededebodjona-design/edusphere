@@ -67,6 +67,16 @@ async def _ensure_can_manage_class_attendance(db: AsyncSession, current_user: Us
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class")
 
 
+async def _ensure_can_read_class_attendance(db: AsyncSession, current_user: User, school_class: SchoolClass) -> None:
+    """attendance.read scopé à l'école a déjà été vérifié par l'appelant. Si l'utilisateur n'est que
+    TEACHER pour cette école, restreint la lecture à ses classes affectées (même règle que
+    _ensure_can_manage_class_attendance pour l'écriture) : une classe hors affectation répond comme
+    si l'enseignant n'y avait aucun droit, jamais par une liste d'une autre classe."""
+    if await is_teacher_only(db, current_user, school_class.organization_id, school_class.school_id):
+        if not await service.is_teacher_assigned_to_class(db, current_user.id, school_class.id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class")
+
+
 async def _ensure_can_write_session(
     db: AsyncSession, current_user: User, session: AttendanceSession, school_class: SchoolClass
 ) -> None:
@@ -89,6 +99,7 @@ async def list_sessions(
     await ensure_permission(
         db, current_user, "attendance.read", organization_id=school_class.organization_id, school_id=school_class.school_id
     )
+    await _ensure_can_read_class_attendance(db, current_user, school_class)
     stmt = select(AttendanceSession).where(AttendanceSession.class_id == class_id)
     if academic_term_id:
         stmt = stmt.where(AttendanceSession.academic_term_id == academic_term_id)
@@ -133,6 +144,8 @@ async def get_session(session_id: uuid.UUID, db: DbSession, current_user: Curren
     await ensure_permission(
         db, current_user, "attendance.read", organization_id=session.organization_id, school_id=session.school_id
     )
+    school_class = await _get_class_or_404(db, session.class_id)
+    await _ensure_can_read_class_attendance(db, current_user, school_class)
     return session
 
 
@@ -170,6 +183,8 @@ async def list_records(db: DbSession, current_user: CurrentUser, session_id: uui
     await ensure_permission(
         db, current_user, "attendance.read", organization_id=session.organization_id, school_id=session.school_id
     )
+    school_class = await _get_class_or_404(db, session.class_id)
+    await _ensure_can_read_class_attendance(db, current_user, school_class)
     result = await db.execute(select(AttendanceRecord).where(AttendanceRecord.session_id == session_id))
     return list(result.scalars().all())
 

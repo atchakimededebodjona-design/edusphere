@@ -29,3 +29,18 @@ export function hasAnyParentRole(roles: RoleAssignment[]): boolean {
 export function isPlatformAdmin(user: Me["user"] | null): boolean {
   return user?.is_platform_admin ?? false;
 }
+
+// Portail enseignant — un compte dont TOUS les rôles sont TEACHER, scopés à une école, est un
+// enseignant pur : il est envoyé vers `/teacher`. Un compte mixte (TEACHER + admin/staff) reste sur
+// l'espace admin, qui expose un lien vers le portail. Un platform admin n'est jamais enseignant ici.
+// Le backend (apps/api/app/modules/teacher/service.py) reste la source de vérité des accès.
+export function isTeacherOnlyAccount(user: Me["user"] | null, roles: RoleAssignment[]): boolean {
+  if (isPlatformAdmin(user)) return false;
+  return roles.length > 0 && roles.every((role) => role.role_code === "TEACHER" && role.school_id !== null);
+}
+
+// Un compte qui porte au moins un rôle TEACHER scopé à une école, sans être platform admin.
+export function hasTeacherRole(user: Me["user"] | null, roles: RoleAssignment[]): boolean {
+  if (isPlatformAdmin(user)) return false;
+  return roles.some((role) => role.role_code === "TEACHER" && role.school_id !== null);
+}

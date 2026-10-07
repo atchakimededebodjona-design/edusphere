@@ -90,6 +90,42 @@ export function createPlatformAdminAccount(email: string, password: string): voi
   runInApiContainer(script);
 }
 
+/** Ajoute un second rôle à un utilisateur EXISTANT, sans toucher à ses rôles actuels — l'API
+ * publique (PATCH /users/{id}) REMPLACE le rôle, elle ne peut pas en ajouter un second. Utilisé
+ * uniquement pour reproduire un compte mixte (ex. SCHOOL_ADMIN + TEACHER) en test, un état que le
+ * produit ne permet pas de créer via son propre flux — même motif que createPlatformAdminAccount. */
+export function assignExtraRole(
+  userId: string,
+  roleCode: string,
+  organizationId: string,
+  schoolId: string | null,
+): void {
+  const script = [
+    "import asyncio, uuid",
+    "from sqlalchemy import select",
+    "from app.db import model_registry  # noqa: F401",
+    "from app.core.tenancy import set_platform_wide_context",
+    "from app.db.session import AsyncSessionLocal",
+    "from app.modules.rbac.models import Role, UserRole",
+    "",
+    "async def main():",
+    "    async with AsyncSessionLocal() as db:",
+    "        await set_platform_wide_context(db)",
+    `        role = (await db.execute(select(Role).where(Role.code == ${JSON.stringify(roleCode)}))).scalar_one()`,
+    "        db.add(UserRole(",
+    "            id=uuid.uuid4(),",
+    `            user_id=uuid.UUID(${JSON.stringify(userId)}),`,
+    "            role_id=role.id,",
+    `            organization_id=uuid.UUID(${JSON.stringify(organizationId)}),`,
+    `            school_id=${schoolId ? `uuid.UUID(${JSON.stringify(schoolId)})` : "None"},`,
+    "        ))",
+    "        await db.commit()",
+    "",
+    "asyncio.run(main())",
+  ].join("\n");
+  runInApiContainer(script);
+}
+
 let platformAdminEmail: string | null = null;
 
 async function loginApi(request: APIRequestContext, email: string, password: string): Promise<string> {

@@ -375,8 +375,11 @@ async def test_teacher_cannot_manage_students(client: AsyncClient) -> None:
 
     student = await _create_student(client, headers_admin, school_id)
 
+    # Ce TEACHER n'a aucune TeacherAssignment : il ne doit pas lire un élève pris au hasard dans
+    # l'école (durcissement "portail enseignant" — voir test_teacher_portal_scope.py pour le cas
+    # d'un enseignant réellement affecté à la classe de l'élève).
     read_response = await client.get(f"/api/v1/students/{student['id']}", headers=headers_teacher)
-    assert read_response.status_code == 200
+    assert read_response.status_code == 404
 
     manage_response = await client.patch(
         f"/api/v1/students/{student['id']}", json={"address": "New address"}, headers=headers_teacher
