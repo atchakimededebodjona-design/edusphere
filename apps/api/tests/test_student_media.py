@@ -15,6 +15,7 @@ from fastapi import UploadFile
 from httpx import AsyncClient
 
 from tests.conftest import assign_role, register_school, valid_image_bytes, valid_pdf_bytes
+from tests.test_teacher_portal import _portal_setup
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -533,4 +534,136 @@ async def test_enrollment_list_tenant_isolation(client: AsyncClient) -> None:
     student_a = await _create_student(client, headers_a, school_a["school"]["id"])
 
     response = await client.get(f"/api/v1/students/{student_a['id']}/enrollments", headers=headers_b)
+    assert response.status_code == 404
+
+
+# --- Correction obligatoire : périmètre TEACHER sur les médias élève -------------------------------
+# Même garantie que GET /students/{student_id} (voir test_teacher_portal_scope.py) : un TEACHER
+# sans TeacherAssignment active sur la classe de l'élève ne doit jamais pouvoir lire/gérer sa photo
+# ou ses documents, et doit recevoir 404 (jamais 403) pour ne pas révéler l'existence de l'élève.
+# `_portal_setup` (réutilisé tel quel, voir test_teacher_portal.py) affecte l'enseignant à CM2-A
+# uniquement : `student_a` est dans son périmètre, `student_b` (CM2-B) ne l'est pas.
+async def test_teacher_in_scope_reads_photo_and_documents(client: AsyncClient) -> None:
+    setup = await _portal_setup(client, "mediascopein")
+    student_id = setup["student_a"]["id"]
+
+    photo_upload = await client.post(
+        f"/api/v1/students/{student_id}/photo",
+        headers=setup["headers"],
+        files={"file": ("photo.jpg", io.BytesIO(valid_image_bytes("JPEG")), "image/jpeg")},
+    )
+    assert photo_upload.status_code == 200, photo_upload.text
+
+    doc_upload = await client.post(
+        f"/api/v1/students/{student_id}/documents",
+        headers=setup["headers"],
+        data={"document_type": "Bulletin"},
+        files={"file": ("bulletin.pdf", io.BytesIO(valid_pdf_bytes()), "application/pdf")},
+    )
+    assert doc_upload.status_code == 201, doc_upload.text
+    document = doc_upload.json()
+
+    teacher_headers = setup["teacher_headers"]
+    assert (await client.get(f"/api/v1/students/{student_id}/photo", headers=teacher_headers)).status_code == 200
+    assert (await client.get(f"/api/v1/students/{student_id}/documents", headers=teacher_headers)).status_code == 200
+    download = await client.get(
+        f"/api/v1/students/{student_id}/documents/{document['id']}", headers=teacher_headers
+    )
+    assert download.status_code == 200
+
+
+async def test_teacher_out_of_scope_gets_404_on_photo_and_documents(client: AsyncClient) -> None:
+    setup = await _portal_setup(client, "mediascopeout")
+    student_id = setup["student_b"]["id"]  # CM2-B : hors périmètre de l'enseignant
+
+    photo_upload = await client.post(
+        f"/api/v1/students/{student_id}/photo",
+        headers=setup["headers"],
+        files={"file": ("photo.jpg", io.BytesIO(valid_image_bytes("JPEG")), "image/jpeg")},
+    )
+    assert photo_upload.status_code == 200, photo_upload.text
+
+    doc_upload = await client.post(
+        f"/api/v1/students/{student_id}/documents",
+        headers=setup["headers"],
+        data={"document_type": "Bulletin"},
+        files={"file": ("bulletin.pdf", io.BytesIO(valid_pdf_bytes()), "application/pdf")},
+    )
+    assert doc_upload.status_code == 201, doc_upload.text
+    document = doc_upload.json()
+
+    teacher_headers = setup["teacher_headers"]
+    # 404 partout, jamais 403 : ne jamais confirmer que cet élève existe hors du périmètre.
+    assert (await client.get(f"/api/v1/students/{student_id}/photo", headers=teacher_headers)).status_code == 404
+    assert (await client.get(f"/api/v1/students/{student_id}/documents", headers=teacher_headers)).status_code == 404
+    download = await client.get(
+        f"/api/v1/students/{student_id}/documents/{document['id']}", headers=teacher_headers
+    )
+    assert download.status_code == 404
+
+
+async def test_teacher_out_of_scope_cannot_delete_or_replace_photo(client: AsyncClient) -> None:
+    setup = await _portal_setup(client, "mediascopedel")
+    student_id = setup["student_b"]["id"]
+
+    await client.post(
+        f"/api/v1/students/{student_id}/photo",
+        headers=setup["headers"],
+        files={"file": ("photo.jpg", io.BytesIO(valid_image_bytes("JPEG")), "image/jpeg")},
+    )
+    teacher_headers = setup["teacher_headers"]
+
+    # TEACHER n'a de toute façon jamais students.manage (voir rbac/seed.py) — ce test prouve que
+    # le périmètre par affectation ne relâche PAS cette contrainte, pas qu'il la remplace.
+    replace = await client.post(
+        f"/api/v1/students/{student_id}/photo",
+        headers=teacher_headers,
+        files={"file": ("new.png", io.BytesIO(valid_image_bytes("PNG")), "image/png")},
+    )
+    assert replace.status_code == 403
+
+    delete_response = await client.delete(f"/api/v1/students/{student_id}/photo", headers=teacher_headers)
+    assert delete_response.status_code == 403
+
+
+async def test_teacher_cannot_delete_document_out_of_scope(client: AsyncClient) -> None:
+    setup = await _portal_setup(client, "mediascopedocdel")
+    student_id = setup["student_b"]["id"]
+
+    doc_upload = await client.post(
+        f"/api/v1/students/{student_id}/documents",
+        headers=setup["headers"],
+        data={"document_type": "Bulletin"},
+        files={"file": ("bulletin.pdf", io.BytesIO(valid_pdf_bytes()), "application/pdf")},
+    )
+    document = doc_upload.json()
+
+    delete_response = await client.delete(
+        f"/api/v1/students/{student_id}/documents/{document['id']}", headers=setup["teacher_headers"]
+    )
+    assert delete_response.status_code == 403
+
+
+async def test_teacher_media_scope_preserves_tenant_isolation(client: AsyncClient) -> None:
+    """Un TEACHER d'une organisation totalement différente reste bloqué par RLS, indépendamment
+    du périmètre par affectation (qui ne s'applique qu'AU SEIN d'une même organisation/école)."""
+    school_a = await register_school(client, "mediascopetenanta")
+    school_b = await register_school(client, "mediascopetenantb")
+    headers_a = {"Authorization": f"Bearer {await _login(client, school_a['user']['email'])}"}
+
+    student_a = await _create_student(client, headers_a, school_a["school"]["id"])
+    await client.post(
+        f"/api/v1/students/{student_a['id']}/photo",
+        headers=headers_a,
+        files={"file": ("photo.jpg", io.BytesIO(valid_image_bytes("JPEG")), "image/jpeg")},
+    )
+
+    teacher_b_data = await register_school(client, "mediascopetenantb-teacher")
+    await assign_role(
+        teacher_b_data["user"]["id"], "TEACHER",
+        organization_id=school_b["organization"]["id"], school_id=school_b["school"]["id"],
+    )
+    headers_teacher_b = {"Authorization": f"Bearer {await _login(client, teacher_b_data['user']['email'])}"}
+
+    response = await client.get(f"/api/v1/students/{student_a['id']}/photo", headers=headers_teacher_b)
     assert response.status_code == 404
