@@ -385,3 +385,35 @@ async def test_teacher_cannot_manage_students(client: AsyncClient) -> None:
         f"/api/v1/students/{student['id']}", json={"address": "New address"}, headers=headers_teacher
     )
     assert manage_response.status_code == 403
+
+
+async def test_students_are_sorted_naturally_by_matricule(client: AsyncClient) -> None:
+    """EL-CM1-002 avant EL-CM1-010 : un tri lexical produirait 001, 010, 011, 002... (voir
+    service.py::natural_sort_key)."""
+    data = await register_school(client, "studentsort")
+    token = await _login(client, data["user"]["email"])
+    headers = {"Authorization": f"Bearer {token}"}
+    school_id = data["school"]["id"]
+
+    for matricule in ["EL-CM1-010", "EL-CM1-002", "EL-CM1-001", "EL-CM1-003", "EL-CM1-011"]:
+        await _create_student(client, headers, school_id, matricule=matricule, first_name=matricule)
+
+    response = await client.get(f"/api/v1/students?school_id={school_id}", headers=headers)
+    assert response.status_code == 200, response.text
+    assert [s["matricule"] for s in response.json()] == [
+        "EL-CM1-001", "EL-CM1-002", "EL-CM1-003", "EL-CM1-010", "EL-CM1-011",
+    ]
+
+
+async def test_natural_sort_order_survives_search_filter(client: AsyncClient) -> None:
+    data = await register_school(client, "studentsortsearch")
+    token = await _login(client, data["user"]["email"])
+    headers = {"Authorization": f"Bearer {token}"}
+    school_id = data["school"]["id"]
+
+    for matricule in ["EL-CM1-020", "EL-CM1-003", "EL-CM1-100"]:
+        await _create_student(client, headers, school_id, matricule=matricule, first_name="Sortable")
+
+    response = await client.get(f"/api/v1/students?school_id={school_id}&search=sortable", headers=headers)
+    assert response.status_code == 200
+    assert [s["matricule"] for s in response.json()] == ["EL-CM1-003", "EL-CM1-020", "EL-CM1-100"]

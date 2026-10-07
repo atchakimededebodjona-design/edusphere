@@ -66,11 +66,35 @@ export function StudentImportForm({ schoolId, onImported }: { schoolId: string; 
           {error && <p className="text-sm text-red-700">{error}</p>}
 
           {report && (
-            <div className="flex flex-col gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+            <div className="flex flex-col gap-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
               <p>
                 {report.total_rows} ligne(s) — <strong>{report.created} créé(s)</strong>,{" "}
                 {report.duplicates_skipped} doublon(s) ignoré(s), {report.errors.length} erreur(s).
               </p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded border border-slate-200 bg-white p-2 text-center">
+                  <p className="text-lg font-bold text-slate-900">{report.total_rows}</p>
+                  <p className="text-xs text-slate-500">Total</p>
+                </div>
+                <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-center">
+                  <p className="text-lg font-bold text-emerald-700">{report.created}</p>
+                  <p className="text-xs text-emerald-700">Créés</p>
+                </div>
+                <div className="rounded border border-amber-200 bg-amber-50 p-2 text-center">
+                  <p className="text-lg font-bold text-amber-700">{report.duplicates_skipped}</p>
+                  <p className="text-xs text-amber-700">Doublons</p>
+                </div>
+                <div className="rounded border border-red-200 bg-red-50 p-2 text-center">
+                  <p className="text-lg font-bold text-red-700">{report.errors.length}</p>
+                  <p className="text-xs text-red-700">Erreurs</p>
+                </div>
+              </div>
+              {report.created > 0 && (
+                <p className="text-xs text-slate-500">
+                  Les élèves importés ne sont pas automatiquement inscrits dans une classe : utilisez
+                  « Inscriptions » sur la fiche de chaque élève, ou le module Académique.
+                </p>
+              )}
               {report.errors.length > 0 && (
                 <ul className="flex flex-col gap-1 text-xs text-red-700">
                   {report.errors.map((e) => (

@@ -52,6 +52,22 @@ class StudentUpdate(BaseModel):
     status_change_reason: str | None = None
 
 
+# --- Modification en masse (statut uniquement) ---------------------------------
+# Les champs individuels (matricule, prénom, nom, date de naissance, sexe) ne sont délibérément
+# pas proposés ici : une modification en masse n'a de sens que pour un champ partagé entre
+# plusieurs élèves, comme le statut après un import.
+class StudentBulkStatusUpdate(BaseModel):
+    student_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    status: StudentStatus
+    status_change_reason: str | None = Field(default=None, max_length=500)
+
+
+class StudentBulkUpdateOut(BaseModel):
+    updated_count: int
+    unchanged_count: int
+    students: list[StudentOut]
+
+
 # --- Guardians -----------------------------------------------------------------
 class GuardianOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
