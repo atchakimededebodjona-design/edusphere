@@ -36,24 +36,25 @@ async def _create_session(client: AsyncClient, setup: dict, class_id: str, term_
     )
 
 
-async def _generate_report_card_for_class(client: AsyncClient, setup: dict, class_id: str, term_id: str) -> dict | None:
-    """Best-effort : un modèle de bulletin est nécessaire. Si la création échoue (champs du modèle
-    non couverts ici), les tests concernés sont ignorés plutôt que de faire échouer tout le fichier."""
+async def _generate_report_card_for_class(client: AsyncClient, setup: dict, class_id: str, term_id: str) -> dict:
+    """Échoue explicitement (assert) si le modèle ou la génération échouent : un test qui dépend
+    d'un bulletin généré doit réellement exercer son assertion, jamais réussir en silence parce
+    que la mise en place a échoué."""
     template = await client.post(
         "/api/v1/report-card-templates",
         json={"school_id": setup["school_id"], "name": "Modele", "html_content": "<html>{{student}}</html>"},
         headers=setup["headers"],
     )
-    if template.status_code != 201:
-        return None
+    assert template.status_code == 201, template.text
     generated = await client.post(
         "/api/v1/report-cards/generate",
         json={"class_id": class_id, "academic_term_id": term_id, "template_id": template.json()["id"]},
         headers=setup["headers"],
     )
-    if generated.status_code >= 300 or not generated.json():
-        return None
-    return generated.json()[0]
+    assert generated.status_code < 300, generated.text
+    cards = generated.json()
+    assert cards, "generate_report_cards_for_class a renvoyé une liste vide : aucun élève inscrit ?"
+    return cards[0]
 
 
 # --- Students ------------------------------------------------------------------------------------
@@ -160,8 +161,6 @@ async def test_teacher_cannot_read_or_download_report_card_out_of_scope(client: 
     setup = await _portal_setup(client, "scopercdetail")
     term = await _create_term(client, setup)
     card = await _generate_report_card_for_class(client, setup, setup["class_b"]["id"], term["id"])
-    if card is None:
-        return  # Génération non couverte par ce setup minimal — voir docstring du helper.
 
     read = await client.get(f"/api/v1/report-cards/{card['id']}", headers=setup["teacher_headers"])
     assert read.status_code == 404
@@ -173,8 +172,6 @@ async def test_teacher_can_read_report_card_of_assigned_class(client: AsyncClien
     setup = await _portal_setup(client, "scopercok")
     term = await _create_term(client, setup)
     card = await _generate_report_card_for_class(client, setup, setup["class_a"]["id"], term["id"])
-    if card is None:
-        return
 
     read = await client.get(f"/api/v1/report-cards/{card['id']}", headers=setup["teacher_headers"])
     assert read.status_code == 200
@@ -242,8 +239,6 @@ async def test_teacher_downloads_published_report_card_pdf_of_assigned_class(cli
     setup = await _portal_setup(client, "tppdfok")
     term = await _create_term(client, setup)
     card = await _generate_report_card_for_class(client, setup, setup["class_a"]["id"], term["id"])
-    if card is None:
-        return
     publish = await client.post(f"/api/v1/report-cards/{card['id']}/publish", headers=setup["headers"])
     assert publish.status_code == 200, publish.text
 
@@ -257,8 +252,6 @@ async def test_teacher_cannot_download_unpublished_report_card_pdf(client: Async
     setup = await _portal_setup(client, "tppdfdraft")
     term = await _create_term(client, setup)
     card = await _generate_report_card_for_class(client, setup, setup["class_a"]["id"], term["id"])
-    if card is None:
-        return
     # Pas de publication : le bulletin reste DRAFT.
     response = await client.get(f"/api/v1/teacher/report-cards/{card['id']}/pdf", headers=setup["teacher_headers"])
     assert response.status_code == 404
@@ -268,8 +261,6 @@ async def test_teacher_cannot_download_published_report_card_pdf_of_other_class(
     setup = await _portal_setup(client, "tppdfxclass")
     term = await _create_term(client, setup)
     card = await _generate_report_card_for_class(client, setup, setup["class_b"]["id"], term["id"])
-    if card is None:
-        return
     publish = await client.post(f"/api/v1/report-cards/{card['id']}/publish", headers=setup["headers"])
     assert publish.status_code == 200, publish.text
 

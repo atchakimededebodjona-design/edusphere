@@ -11,9 +11,10 @@ from app.modules.attendance.models import AttendanceAbsenceEmailReminder, Attend
 from app.modules.fees.models import FeeOverdueEmailReminder, Payment
 from app.modules.notifications.models import Notification
 from app.modules.notifications.schemas import NotificationType
-from app.modules.rbac.models import UserRole
+from app.modules.rbac.models import Role, UserRole
 from app.modules.report_cards.models import ReportCard
 from app.modules.students.models import Guardian, Student, StudentEnrollment, StudentGuardian
+from app.modules.users.models import User
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
@@ -375,17 +376,39 @@ async def resolve_class_guardian_user_ids(db: AsyncSession, class_ids: list[uuid
     return {row[0] for row in result.all()}
 
 
-async def resolve_class_teacher_user_ids(db: AsyncSession, class_ids: list[uuid.UUID], school_id: uuid.UUID) -> set[uuid.UUID]:
-    """Enseignants ayant une TeacherAssignment sur une matière d'une des classes ciblées.
+async def resolve_class_teacher_user_ids(
+    db: AsyncSession, class_ids: list[uuid.UUID], school_id: uuid.UUID, organization_id: uuid.UUID
+) -> set[uuid.UUID]:
+    """Enseignants réellement habilités à enseigner une des classes ciblées.
 
     Portail enseignant — une annonce de classe doit atteindre l'enseignant de cette classe (section
     2 de la Phase), ce qui annule la décision précédente (Discovery §14/§21, qui réservait les
     annonces de classe aux seuls tuteurs). Ajouté en UNION de `resolve_class_guardian_user_ids`,
-    jamais à sa place : les tuteurs restent destinataires."""
+    jamais à sa place : les tuteurs restent destinataires.
+
+    La TeacherAssignment seule ne suffit pas : elle peut survivre à un rôle TEACHER révoqué (voir
+    academics/router.py, aucune suppression en cascade de TeacherAssignment sur retrait du rôle).
+    Exigés en plus, tous explicitement : un UserRole TEACHER actif rattaché à CETTE organisation ET
+    CETTE école (même garde que `is_teacher_only`), un compte actif, jamais un platform admin."""
     result = await db.execute(
         select(TeacherAssignment.user_id.distinct())
         .join(ClassSubject, ClassSubject.id == TeacherAssignment.class_subject_id)
-        .where(ClassSubject.class_id.in_(class_ids), ClassSubject.school_id == school_id)
+        .join(User, User.id == TeacherAssignment.user_id)
+        .join(
+            UserRole,
+            and_(
+                UserRole.user_id == TeacherAssignment.user_id,
+                UserRole.organization_id == organization_id,
+                UserRole.school_id == school_id,
+            ),
+        )
+        .join(Role, and_(Role.id == UserRole.role_id, Role.code == "TEACHER"))
+        .where(
+            ClassSubject.class_id.in_(class_ids),
+            ClassSubject.school_id == school_id,
+            User.is_active.is_(True),
+            User.is_platform_admin.is_(False),
+        )
     )
     return {row[0] for row in result.all()}
 
@@ -409,7 +432,7 @@ async def create_announcement(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more classes do not belong to this school")
         recipient_ids = await resolve_class_guardian_user_ids(
             db, class_ids, school_id
-        ) | await resolve_class_teacher_user_ids(db, class_ids, school_id)
+        ) | await resolve_class_teacher_user_ids(db, class_ids, school_id, organization_id)
     else:  # SCHOOL
         if class_ids:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SCHOOL target must not include class_ids")
