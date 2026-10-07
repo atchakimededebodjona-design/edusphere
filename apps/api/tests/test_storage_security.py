@@ -19,7 +19,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.storage import LocalStorageProvider, StoragePathError, safe_filename
-from tests.conftest import register_school
+from tests.conftest import register_school, valid_image_bytes, valid_pdf_bytes
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -113,10 +113,11 @@ async def test_student_photo_upload_with_traversal_filename_stays_contained(clie
     headers = {"Authorization": f"Bearer {token}"}
     student = await _create_student(client, headers, data["school"]["id"])
 
+    jpeg_bytes = valid_image_bytes("JPEG")
     response = await client.post(
         f"/api/v1/students/{student['id']}/photo",
         headers=headers,
-        files={"file": ("../../../../../../etc/passwd", b"fake-jpeg-bytes", "image/jpeg")},
+        files={"file": ("../../../../../../etc/passwd", jpeg_bytes, "image/jpeg")},
     )
     assert response.status_code == 200, response.text
     photo_path = response.json()["photo_path"]
@@ -130,7 +131,7 @@ async def test_student_photo_upload_with_traversal_filename_stays_contained(clie
 
     download = await client.get(f"/api/v1/students/{student['id']}/photo", headers=headers)
     assert download.status_code == 200
-    assert download.content == b"fake-jpeg-bytes"
+    assert download.content == jpeg_bytes
 
 
 async def test_student_document_upload_with_absolute_unix_filename_stays_contained(client: AsyncClient) -> None:
@@ -143,7 +144,7 @@ async def test_student_document_upload_with_absolute_unix_filename_stays_contain
         f"/api/v1/students/{student['id']}/documents",
         headers=headers,
         data={"document_type": "birth_certificate"},
-        files={"file": ("/etc/passwd", b"fake-pdf-bytes", "application/pdf")},
+        files={"file": ("/etc/passwd", valid_pdf_bytes(), "application/pdf")},
     )
     assert response.status_code == 201, response.text
     file_path = response.json()["file_path"]
@@ -175,7 +176,7 @@ async def test_legitimate_filename_upload_is_unaffected(client: AsyncClient) -> 
     response = await client.post(
         f"/api/v1/students/{student['id']}/photo",
         headers=headers,
-        files={"file": ("photo.jpg", b"fake-jpeg-bytes", "image/jpeg")},
+        files={"file": ("photo.jpg", valid_image_bytes("JPEG"), "image/jpeg")},
     )
     assert response.status_code == 200, response.text
     assert response.json()["photo_path"].endswith("photo.jpg")
@@ -193,7 +194,7 @@ async def test_school_isolation_still_enforced_on_student_photo(client: AsyncCli
     await client.post(
         f"/api/v1/students/{student_a['id']}/photo",
         headers=headers_a,
-        files={"file": ("photo.jpg", b"fake-jpeg-bytes", "image/jpeg")},
+        files={"file": ("photo.jpg", valid_image_bytes("JPEG"), "image/jpeg")},
     )
 
     token_b = await _login(client, school_b["user"]["email"])

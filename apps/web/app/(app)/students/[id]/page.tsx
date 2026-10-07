@@ -1,11 +1,39 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ApiError } from "@/lib/api/client";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { useAuth } from "@/lib/auth/useAuth";
 import { students, type Sex, type Student, type StudentStatus } from "@/lib/students/client";
+
+const STATUS_BADGE_LABELS: Record<StudentStatus, string> = {
+  ACTIVE: "Actif",
+  INACTIVE: "Inactif",
+  GRADUATED: "Diplômé",
+  WITHDRAWN: "Retiré",
+  TRANSFERRED: "Transféré",
+};
+
+function Field({
+  label,
+  htmlFor,
+  className,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label htmlFor={htmlFor} className={`flex flex-col gap-1 text-xs text-slate-600 ${className ?? ""}`}>
+      {label}
+      {children}
+    </label>
+  );
+}
 import { StudentPhoto } from "@/app/(app)/students/[id]/StudentPhoto";
 import { StudentGuardians } from "@/app/(app)/students/[id]/StudentGuardians";
 import { StudentEnrollments } from "@/app/(app)/students/[id]/StudentEnrollments";
@@ -95,112 +123,155 @@ export default function StudentDetailPage() {
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadStudent} />;
   if (!student) return <p className="text-sm text-slate-500">Chargement...</p>;
 
+  const inputClass = "rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100";
+
   return (
-    <div className="flex max-w-2xl flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          {student.last_name} {student.first_name}
-        </h1>
-        <p className="text-sm text-slate-500">Matricule {student.matricule}</p>
+    <div className="flex w-full min-w-0 max-w-6xl flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <Link href="/students" className="w-fit text-sm text-slate-500 hover:text-slate-900 hover:underline">
+          ← Retour aux élèves
+        </Link>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">
+              {student.last_name} {student.first_name}
+            </h1>
+            <p className="text-sm text-slate-500">Matricule {student.matricule}</p>
+          </div>
+          <span
+            className="w-fit rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700"
+            data-testid="student-status-badge"
+          >
+            {STATUS_BADGE_LABELS[student.status]}
+          </span>
+        </div>
       </div>
 
-      <StudentPhoto studentId={studentId} canManage={canManage} />
+      <section className="flex flex-col gap-4 rounded border border-slate-200 p-4">
+        <h2 className="text-lg font-semibold text-slate-900">Carte d&apos;identité</h2>
+        <StudentPhoto studentId={studentId} canManage={canManage} />
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold text-slate-900">Informations</h2>
-        <div className="flex flex-wrap gap-3">
-          <input
-            placeholder="Matricule"
-            value={form.matricule}
-            onChange={(e) => setForm((prev) => ({ ...prev, matricule: e.target.value }))}
-            disabled={!canManage}
-            className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          />
-          <input
-            placeholder="Prénom"
-            value={form.first_name}
-            onChange={(e) => setForm((prev) => ({ ...prev, first_name: e.target.value }))}
-            disabled={!canManage}
-            className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          />
-          <input
-            placeholder="Nom"
-            value={form.last_name}
-            onChange={(e) => setForm((prev) => ({ ...prev, last_name: e.target.value }))}
-            disabled={!canManage}
-            className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          />
-          <input
-            type="date"
-            value={form.date_of_birth}
-            onChange={(e) => setForm((prev) => ({ ...prev, date_of_birth: e.target.value }))}
-            disabled={!canManage}
-            className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          />
-          <select
-            value={form.sex}
-            onChange={(e) => setForm((prev) => ({ ...prev, sex: e.target.value as Sex }))}
-            disabled={!canManage}
-            className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          >
-            <option value="F">Féminin</option>
-            <option value="M">Masculin</option>
-          </select>
-          <input
-            placeholder="Lieu de naissance"
-            value={form.place_of_birth}
-            onChange={(e) => setForm((prev) => ({ ...prev, place_of_birth: e.target.value }))}
-            disabled={!canManage}
-            className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          />
-          <input
-            placeholder="Adresse"
-            value={form.address}
-            onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
-            disabled={!canManage}
-            className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
-            Statut
-            <select
-              value={form.status}
-              onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as StudentStatus }))}
-              disabled={!canManage}
-              className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Matricule" htmlFor="student-matricule">
+              <input
+                id="student-matricule"
+                value={form.matricule}
+                onChange={(e) => setForm((prev) => ({ ...prev, matricule: e.target.value }))}
+                disabled={!canManage}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Prénom" htmlFor="student-first-name">
+              <input
+                id="student-first-name"
+                value={form.first_name}
+                onChange={(e) => setForm((prev) => ({ ...prev, first_name: e.target.value }))}
+                disabled={!canManage}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Nom" htmlFor="student-last-name">
+              <input
+                id="student-last-name"
+                value={form.last_name}
+                onChange={(e) => setForm((prev) => ({ ...prev, last_name: e.target.value }))}
+                disabled={!canManage}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Date de naissance" htmlFor="student-dob">
+              <input
+                id="student-dob"
+                type="date"
+                value={form.date_of_birth}
+                onChange={(e) => setForm((prev) => ({ ...prev, date_of_birth: e.target.value }))}
+                disabled={!canManage}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Sexe" htmlFor="student-sex">
+              <select
+                id="student-sex"
+                value={form.sex}
+                onChange={(e) => setForm((prev) => ({ ...prev, sex: e.target.value as Sex }))}
+                disabled={!canManage}
+                className={inputClass}
+              >
+                <option value="F">Féminin</option>
+                <option value="M">Masculin</option>
+              </select>
+            </Field>
+            <Field label="Lieu de naissance" htmlFor="student-pob">
+              <input
+                id="student-pob"
+                value={form.place_of_birth}
+                onChange={(e) => setForm((prev) => ({ ...prev, place_of_birth: e.target.value }))}
+                disabled={!canManage}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Adresse" htmlFor="student-address" className="sm:col-span-2 lg:col-span-1">
+              <input
+                id="student-address"
+                value={form.address}
+                onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+                disabled={!canManage}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Statut" htmlFor="student-status">
+              <select
+                id="student-status"
+                value={form.status}
+                onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as StudentStatus }))}
+                disabled={!canManage}
+                className={inputClass}
+              >
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field
+              label="Motif du changement de statut (si applicable)"
+              htmlFor="student-status-reason"
+              className="sm:col-span-2 lg:col-span-1"
             >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-1 flex-col gap-1 text-xs text-slate-600">
-            Motif du changement de statut (si applicable)
-            <input
-              value={form.status_change_reason}
-              onChange={(e) => setForm((prev) => ({ ...prev, status_change_reason: e.target.value }))}
-              disabled={!canManage}
-              className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-            />
-          </label>
-        </div>
+              <input
+                id="student-status-reason"
+                value={form.status_change_reason}
+                onChange={(e) => setForm((prev) => ({ ...prev, status_change_reason: e.target.value }))}
+                disabled={!canManage}
+                className={inputClass}
+              />
+            </Field>
+          </div>
 
-        {canManage && (
-          <button
-            type="submit"
-            disabled={saveStatus === "saving"}
-            className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            {saveStatus === "saving" ? "Enregistrement..." : "Enregistrer"}
-          </button>
-        )}
-        {saveStatus === "saved" && <p className="text-sm text-green-700">Modifications enregistrées.</p>}
-        {error && <p className="text-sm text-red-700">{error}</p>}
-      </form>
+          {canManage && (
+            <button
+              type="submit"
+              disabled={saveStatus === "saving"}
+              className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+              data-testid="student-save"
+            >
+              {saveStatus === "saving" ? "Enregistrement..." : "Enregistrer"}
+            </button>
+          )}
+          {saveStatus === "saved" && (
+            <p className="text-sm text-green-700" data-testid="student-save-success">
+              Modifications enregistrées.
+            </p>
+          )}
+          {error && (
+            <p className="text-sm text-red-700" data-testid="student-save-error">
+              {error}
+            </p>
+          )}
+        </form>
+      </section>
 
       <StudentGuardians
         studentId={studentId}

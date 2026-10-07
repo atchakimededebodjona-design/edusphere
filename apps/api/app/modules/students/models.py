@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -131,6 +131,11 @@ class StudentDocument(Base):
     document_type: Mapped[str] = mapped_column(String(64), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Nullable : documents uploadés avant la migration 0017, jamais rétro-calculés. Pour toute
+    # nouvelle ligne, toujours renseignés depuis le contenu réellement détecté à l'upload (voir
+    # service.py::validate_document_upload), jamais depuis le Content-Type déclaré par le client.
+    mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

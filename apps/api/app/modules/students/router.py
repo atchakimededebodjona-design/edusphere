@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 import uuid
 
@@ -39,7 +40,22 @@ from app.modules.students.schemas import (
 )
 from app.modules.users.models import User
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+async def _delete_storage_file_best_effort(path: str, *, context: str) -> None:
+    """Supprime un fichier de stockage dont la base de données n'a PLUS aucune référence (la ligne
+    DB a déjà été supprimée/mise à jour et committée avec succès avant cet appel — c'est elle
+    l'autorité). Un échec ici laisse au pire un fichier orphelin sur le disque, jamais une
+    référence DB cassée : on ne fait donc jamais échouer la requête pour autant, mais on ne
+    masque pas non plus l'erreur — elle est journalisée avec le contexte nécessaire pour qu'un
+    nettoyage manuel ou une alerte opérationnelle reste possible."""
+    try:
+        await storage.delete(path)
+    except Exception:
+        logger.error("Échec de suppression du fichier de stockage (%s) : path=%s", context, path, exc_info=True)
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -219,21 +235,31 @@ async def bulk_update_student_status(
     )
 
 
+async def _ensure_student_in_teacher_scope(db: AsyncSession, current_user: User, student: Student) -> None:
+    """Même garantie que GET /students/{student_id} : un TEACHER sans TeacherAssignment active sur
+    la classe de cet élève ne doit jamais pouvoir confirmer son existence — 404, jamais 403, pour
+    ne jamais révéler qu'un élève hors périmètre existe. Rôles administratifs (teacher_scope is
+    None) : aucune restriction, comportement inchangé. Réutilisé par toutes les routes photo/
+    documents pour appliquer EXACTEMENT le même périmètre que la fiche élève elle-même."""
+    teacher_scope = await _teacher_enrolled_class_ids(db, current_user, student.organization_id, student.school_id)
+    if teacher_scope is None:
+        return
+    enrolled = await db.execute(
+        select(StudentEnrollment.id).where(
+            StudentEnrollment.student_id == student.id,
+            StudentEnrollment.status == "ACTIVE",
+            StudentEnrollment.class_id.in_(teacher_scope),
+        )
+    )
+    if enrolled.first() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+
+
 @router.get("/students/{student_id}", response_model=StudentOut)
 async def get_student(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> Student:
     student = await _get_student_or_404(db, student_id)
     await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
-    teacher_scope = await _teacher_enrolled_class_ids(db, current_user, student.organization_id, student.school_id)
-    if teacher_scope is not None:
-        enrolled = await db.execute(
-            select(StudentEnrollment.id).where(
-                StudentEnrollment.student_id == student.id,
-                StudentEnrollment.status == "ACTIVE",
-                StudentEnrollment.class_id.in_(teacher_scope),
-            )
-        )
-        if enrolled.first() is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+    await _ensure_student_in_teacher_scope(db, current_user, student)
     return student
 
 
@@ -290,13 +316,35 @@ async def upload_student_photo(
     await ensure_permission(db, current_user, "students.manage", organization_id=student.organization_id, school_id=student.school_id)
 
     content = await file.read()
+    service.validate_photo_upload(content, file.filename)
+
+    previous_photo_path = student.photo_path
     storage_path = f"students/{student.id}/photo_{uuid.uuid4().hex}_{safe_filename(file.filename)}"
     await storage.upload(storage_path, content)
 
-    student.photo_path = storage_path
-    await db.flush()
-    await db.refresh(student)
-    await db.commit()
+    try:
+        student.photo_path = storage_path
+        await db.flush()
+        await db.refresh(student)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # Le nouveau fichier n'a JAMAIS été référencé en base (le commit a échoué) : sa suppression
+        # est un nettoyage d'orphelin, pas une correction de référence cassée. Si elle échoue aussi,
+        # l'erreur d'origine (DB) reste celle remontée au client — journalisée séparément ici pour
+        # qu'un nettoyage manuel reste possible, jamais masquée.
+        try:
+            await storage.delete(storage_path)
+        except Exception:
+            logger.error(
+                "Échec de nettoyage du fichier après échec d'upload photo : path=%s", storage_path, exc_info=True
+            )
+        raise
+
+    # La nouvelle photo est sauvegardée en base : on ne supprime l'ancien fichier qu'APRÈS ce
+    # commit réussi, jamais avant (sinon un échec de commit laisserait l'élève sans photo du tout).
+    if previous_photo_path and previous_photo_path != storage_path:
+        await _delete_storage_file_best_effort(previous_photo_path, context="remplacement de photo élève")
     return student
 
 
@@ -306,10 +354,28 @@ async def get_student_photo(student_id: uuid.UUID, db: DbSession, current_user: 
     if student.photo_path is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student photo not found")
     await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
+    await _ensure_student_in_teacher_scope(db, current_user, student)
 
     content = await storage.download(student.photo_path)
     media_type = mimetypes.guess_type(student.photo_path)[0] or "application/octet-stream"
     return Response(content=content, media_type=media_type)
+
+
+@router.delete("/students/{student_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_student_photo(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> None:
+    student = await _get_student_or_404(db, student_id)
+    await ensure_permission(db, current_user, "students.manage", organization_id=student.organization_id, school_id=student.school_id)
+    await _ensure_student_in_teacher_scope(db, current_user, student)
+
+    photo_path = student.photo_path
+    if photo_path is None:
+        # Idempotent : supprimer une photo déjà absente n'est pas une erreur.
+        return
+
+    student.photo_path = None
+    await db.flush()
+    await db.commit()
+    await _delete_storage_file_best_effort(photo_path, context="suppression de photo élève")
 
 
 # --- Documents ---------------------------------------------------------------------
@@ -323,8 +389,18 @@ async def upload_student_document(
 ) -> StudentDocument:
     student = await _get_student_or_404(db, student_id)
     await ensure_permission(db, current_user, "students.manage", organization_id=student.organization_id, school_id=student.school_id)
+    await _ensure_student_in_teacher_scope(db, current_user, student)
+
+    document_type = document_type.strip()
+    if not document_type or len(document_type) > 64:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="document_type est requis et doit faire au plus 64 caractères.",
+        )
 
     content = await file.read()
+    detected_mime = service.validate_document_upload(content, file.filename)
+
     storage_path = f"students/{student.id}/documents/{uuid.uuid4().hex}_{safe_filename(file.filename)}"
     await storage.upload(storage_path, content)
 
@@ -336,12 +412,27 @@ async def upload_student_document(
         document_type=document_type,
         file_path=storage_path,
         original_filename=file.filename or "document",
+        mime_type=detected_mime,
+        file_size=len(content),
         uploaded_by=current_user.id,
     )
     db.add(document)
-    await db.flush()
-    await db.refresh(document)
-    await db.commit()
+    try:
+        await db.flush()
+        await db.refresh(document)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # Même raisonnement que upload_student_photo ci-dessus : ce fichier n'a jamais été
+        # référencé en base, son nettoyage est best-effort et ne doit jamais masquer l'erreur
+        # DB d'origine, qui reste celle remontée au client.
+        try:
+            await storage.delete(storage_path)
+        except Exception:
+            logger.error(
+                "Échec de nettoyage du fichier après échec d'upload document : path=%s", storage_path, exc_info=True
+            )
+        raise
     return document
 
 
@@ -349,6 +440,7 @@ async def upload_student_document(
 async def list_student_documents(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> list[StudentDocument]:
     student = await _get_student_or_404(db, student_id)
     await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
+    await _ensure_student_in_teacher_scope(db, current_user, student)
     result = await db.execute(select(StudentDocument).where(StudentDocument.student_id == student_id))
     return list(result.scalars().all())
 
@@ -359,13 +451,14 @@ async def download_student_document(
 ) -> Response:
     student = await _get_student_or_404(db, student_id)
     await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
+    await _ensure_student_in_teacher_scope(db, current_user, student)
 
     document = await db.get(StudentDocument, document_id)
     if document is None or document.student_id != student_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     content = await storage.download(document.file_path)
-    media_type = mimetypes.guess_type(document.original_filename)[0] or "application/octet-stream"
+    media_type = document.mime_type or mimetypes.guess_type(document.original_filename)[0] or "application/octet-stream"
     return Response(
         content=content,
         media_type=media_type,
@@ -379,14 +472,19 @@ async def delete_student_document(
 ) -> None:
     student = await _get_student_or_404(db, student_id)
     await ensure_permission(db, current_user, "students.manage", organization_id=student.organization_id, school_id=student.school_id)
+    await _ensure_student_in_teacher_scope(db, current_user, student)
 
     document = await db.get(StudentDocument, document_id)
     if document is None or document.student_id != student_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    await storage.delete(document.file_path)
+    file_path = document.file_path
+    # Supprime d'abord la ligne en base, puis le fichier physique : si le commit échouait après
+    # une suppression du fichier, la ligne resterait en base en pointant vers un fichier disparu.
+    # L'ordre inverse ne laisse au pire qu'un fichier orphelin sur le disque, jamais une 404 surprise.
     await db.delete(document)
     await db.commit()
+    await _delete_storage_file_best_effort(file_path, context="suppression de document élève")
 
 
 # --- Guardians -----------------------------------------------------------------

@@ -54,6 +54,25 @@ async def client():
         yield ac
 
 
+def valid_image_bytes(image_format: str = "JPEG") -> bytes:
+    """Contenu d'image RÉEL (pas juste des octets factices) : la validation stricte des uploads
+    photo/document (students/service.py::validate_photo_upload) ouvre réellement le contenu avec
+    Pillow — un ancien placeholder comme b"fake-jpeg-bytes" est maintenant rejeté à juste titre."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), color=(255, 0, 0)).save(buffer, format=image_format)
+    return buffer.getvalue()
+
+
+def valid_pdf_bytes() -> bytes:
+    """La détection de PDF (students/service.py::_sniff_mime) ne vérifie que la signature
+    d'en-tête "%PDF-" — pas besoin d'un PDF structurellement complet pour ces tests."""
+    return b"%PDF-1.4\n%fake-but-correctly-signed-pdf-content\n%%EOF"
+
+
 def unique_slug(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:10]}"
 

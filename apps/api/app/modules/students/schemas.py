@@ -154,6 +154,8 @@ class StudentDocumentOut(BaseModel):
     document_type: str
     file_path: str
     original_filename: str
+    mime_type: str | None
+    file_size: int | None
     uploaded_by: uuid.UUID | None
     created_at: datetime
 
