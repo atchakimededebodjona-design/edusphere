@@ -6,9 +6,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_teacher_only
 from app.core.storage import safe_filename, storage
-from app.modules.academics.models import SchoolClass
+from app.modules.academics.models import ClassSubject, SchoolClass, TeacherAssignment
 from app.modules.rbac.models import Role, UserRole
 from app.modules.schools.models import School
 from app.modules.students import service
@@ -63,6 +63,22 @@ async def _get_guardian_or_404(db: AsyncSession, guardian_id: uuid.UUID) -> Guar
 
 
 # --- Students ------------------------------------------------------------------
+async def _teacher_enrolled_class_ids(
+    db: AsyncSession, current_user: User, organization_id: uuid.UUID, school_id: uuid.UUID
+) -> set[uuid.UUID] | None:
+    """None = rôle administratif (DIRECTOR, SCHOOL_ADMIN, STAFF...), aucune restriction de lecture.
+    Sinon, l'ensemble des classes où cet enseignant a une TeacherAssignment dans cette école — la
+    même règle que grades/router.py::_teacher_assignment_scope, appliquée ici à `students.read`."""
+    if not await is_teacher_only(db, current_user, organization_id, school_id):
+        return None
+    result = await db.execute(
+        select(ClassSubject.class_id)
+        .join(TeacherAssignment, TeacherAssignment.class_subject_id == ClassSubject.id)
+        .where(TeacherAssignment.user_id == current_user.id, ClassSubject.school_id == school_id)
+    )
+    return {row[0] for row in result.all()}
+
+
 @router.get("/students", response_model=list[StudentOut])
 async def list_students(
     db: DbSession,
@@ -74,6 +90,9 @@ async def list_students(
 ) -> list[Student]:
     school = await _get_school_or_404(db, school_id)
     await ensure_permission(db, current_user, "students.read", organization_id=school.organization_id, school_id=school.id)
+    teacher_scope = await _teacher_enrolled_class_ids(db, current_user, school.organization_id, school.id)
+    if teacher_scope is not None and class_id is not None and class_id not in teacher_scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class")
 
     stmt = select(Student).where(Student.school_id == school_id)
     if search:
@@ -90,6 +109,12 @@ async def list_students(
     if class_id:
         stmt = stmt.join(StudentEnrollment, StudentEnrollment.student_id == Student.id).where(
             StudentEnrollment.class_id == class_id, StudentEnrollment.status == "ACTIVE"
+        )
+    elif teacher_scope is not None:
+        # Aucune classe demandée explicitement : un enseignant ne voit que les élèves de SES
+        # classes affectées, jamais la liste complète de l'école (voir Phase "portail enseignant").
+        stmt = stmt.join(StudentEnrollment, StudentEnrollment.student_id == Student.id).where(
+            StudentEnrollment.class_id.in_(teacher_scope), StudentEnrollment.status == "ACTIVE"
         )
 
     result = await db.execute(stmt.order_by(Student.last_name, Student.first_name))
@@ -128,6 +153,17 @@ async def create_student(payload: StudentCreate, db: DbSession, current_user: Cu
 async def get_student(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> Student:
     student = await _get_student_or_404(db, student_id)
     await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
+    teacher_scope = await _teacher_enrolled_class_ids(db, current_user, student.organization_id, student.school_id)
+    if teacher_scope is not None:
+        enrolled = await db.execute(
+            select(StudentEnrollment.id).where(
+                StudentEnrollment.student_id == student.id,
+                StudentEnrollment.status == "ACTIVE",
+                StudentEnrollment.class_id.in_(teacher_scope),
+            )
+        )
+        if enrolled.first() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
     return student
 
 

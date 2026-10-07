@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
-import { isPlatformAdmin } from "@/lib/auth/roles";
+import { hasTeacherRole, isPlatformAdmin } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 type NavItem = {
@@ -30,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Nav() {
-  const { permissions, user } = useAuth();
+  const { permissions, user, roles } = useAuth();
   const pathname = usePathname();
 
   // Un compte plateforme (SUPER_ADMIN) cumule TOUTES les permissions du catalogue RBAC (voir
@@ -41,6 +41,12 @@ export function Nav() {
   const items = isPlatformAdmin(user)
     ? NAV_ITEMS.filter((item) => item.href === "/dashboard")
     : NAV_ITEMS.filter((item) => !item.permission || permissions.includes(item.permission));
+
+  // Compte mixte (rôle TEACHER en plus d'un rôle admin/staff) : reste sur l'espace admin par
+  // défaut (voir lib/auth/roles.ts::isTeacherOnlyAccount, jamais vrai pour ce cas — aucune
+  // redirection automatique), avec un accès explicite vers son espace enseignant. Un enseignant
+  // pur ne voit jamais cette barre : AuthGate le renvoie vers /teacher avant même ce rendu.
+  const showTeacherLink = !isPlatformAdmin(user) && hasTeacherRole(user, roles);
 
   return (
     <nav className="flex w-56 flex-col gap-1 border-r border-slate-200 bg-white p-4">
@@ -61,6 +67,18 @@ export function Nav() {
           </Link>
         );
       })}
+      {showTeacherLink && (
+        <Link
+          href="/teacher"
+          className={`rounded px-3 py-2 text-sm font-medium ${
+            pathname === "/teacher" || pathname.startsWith("/teacher/")
+              ? "bg-slate-900 text-white"
+              : "text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          Espace enseignant
+        </Link>
+      )}
     </nav>
   );
 }

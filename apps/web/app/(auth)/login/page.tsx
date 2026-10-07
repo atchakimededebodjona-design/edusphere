@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandFull, BrandSymbol } from "@/components/branding/BrandLogo";
 import { ApiError } from "@/lib/auth/client";
-import { isParentOnlyAccount } from "@/lib/auth/roles";
+import { isParentOnlyAccount, isTeacherOnlyAccount } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 export default function LoginPage() {
@@ -26,7 +26,9 @@ export default function LoginPage() {
       // admin (voir lib/auth/roles.ts) : redirection directe vers son propre portail.
       // La landing page publique vivant désormais sur "/", un compte non-parent est envoyé vers
       // son tableau de bord ("/dashboard") plutôt que vers la page marketing.
-      router.push(isParentOnlyAccount(me.roles) ? "/parent" : "/dashboard");
+      router.push(
+        isParentOnlyAccount(me.roles) ? "/parent" : isTeacherOnlyAccount(me.user, me.roles) ? "/teacher" : "/dashboard",
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");

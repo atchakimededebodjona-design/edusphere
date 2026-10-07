@@ -467,14 +467,16 @@ test("un enseignant (sans permission académique) n'a pas accès à l'assistant"
   await page.getByPlaceholder("Email").fill(teacherEmail);
   await page.getByPlaceholder("Mot de passe").fill(teacherPassword);
   await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page).toHaveURL("/dashboard");
+  // Compte enseignant pur : routage vers son espace /teacher (et plus l'espace admin).
+  await expect(page).toHaveURL("/teacher");
 
-  // Le lien "Mise en place" n'apparaît pas dans la navigation pour un enseignant...
+  // Le lien "Mise en place" n'apparaît pas dans la navigation pour un enseignant... n'apparaît pas dans la navigation pour un enseignant...
   await expect(page.getByRole("link", { name: "Mise en place" })).toHaveCount(0);
 
-  // ...et un accès direct par URL affiche un refus clair plutôt que l'assistant.
+  // ...et un accès direct par URL ne mène jamais à l'assistant : l'enseignant est renvoyé vers /teacher.
   await page.goto("/setup");
-  await expect(page.getByText("Vous n'avez pas la permission d'accéder à cette page.", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL("/teacher");
+  await expect(page.getByRole("heading", { name: "Mise en place de l'école" })).toHaveCount(0);
 });
 
 test("isolation tenant : les années d'une école n'apparaissent pas dans l'assistant d'une autre école", async ({

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { isParentOnlyAccount, isPlatformAdmin } from "@/lib/auth/roles";
+import { isParentOnlyAccount, isPlatformAdmin, isTeacherOnlyAccount } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -71,6 +71,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isParent) router.replace("/parent");
   }, [isParent, router]);
+
+  // Portail enseignant — un enseignant pur n'a pas sa place dans l'espace admin (menus École,
+  // Utilisateurs, Frais...) : il est renvoyé vers `/teacher`, même atteint directement par URL.
+  // La protection réelle reste côté backend (403 sur les endpoints admin pour un TEACHER seul).
+  const isTeacher = status === "authenticated" && isTeacherOnlyAccount(user, roles);
+
+  useEffect(() => {
+    if (isTeacher) router.replace("/teacher");
+  }, [isTeacher, router]);
 
   // Correction du flux super administrateur plateforme — un compte is_platform_admin n'a
   // structurellement aucune organisation/école (voir lib/auth/roles.ts::isPlatformAdmin) : la
