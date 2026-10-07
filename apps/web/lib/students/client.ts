@@ -103,6 +103,20 @@ export type StudentImportReport = {
   errors: StudentImportRowError[];
 };
 
+// Modification en masse — STATUT uniquement (voir students/schemas.py::StudentBulkStatusUpdate) :
+// les champs individuels (identité, date de naissance, sexe) ne sont délibérément pas proposés ici.
+export type StudentBulkStatusUpdate = {
+  student_ids: string[];
+  status: StudentStatus;
+  status_change_reason?: string;
+};
+
+export type StudentBulkUpdateResult = {
+  updated_count: number;
+  unchanged_count: number;
+  students: Student[];
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -147,6 +161,8 @@ export const students = {
   get: (id: string) => getJson<Student>(`/api/v1/students/${id}`),
   create: (payload: StudentCreate) => postJson<Student>("/api/v1/students", payload),
   update: (id: string, payload: StudentUpdate) => patchJson<Student>(`/api/v1/students/${id}`, payload),
+  bulkUpdateStatus: (payload: StudentBulkStatusUpdate) =>
+    patchJson<StudentBulkUpdateResult>("/api/v1/students/bulk", payload),
   uploadPhoto: async (id: string, file: File): Promise<Student> => {
     const form = new FormData();
     form.append("file", file);

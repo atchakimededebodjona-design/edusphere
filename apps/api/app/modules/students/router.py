@@ -24,6 +24,8 @@ from app.modules.students.schemas import (
     GuardianCreate,
     GuardianOut,
     GuardianUpdate,
+    StudentBulkStatusUpdate,
+    StudentBulkUpdateOut,
     StudentCreate,
     StudentDocumentOut,
     StudentEnrollmentCreate,
@@ -117,8 +119,11 @@ async def list_students(
             StudentEnrollment.class_id.in_(teacher_scope), StudentEnrollment.status == "ACTIVE"
         )
 
-    result = await db.execute(stmt.order_by(Student.last_name, Student.first_name))
-    return list(result.scalars().all())
+    result = await db.execute(stmt)
+    # Tri naturel par matricule (EL-CM1-002 avant EL-CM1-010) — voir service.py::natural_sort_key.
+    # Fait côté Python plutôt qu'en SQL : aucune hypothèse sur le format exact du matricule, et
+    # reste compatible avec tous les filtres ci-dessus (ils s'appliquent avant, en SQL).
+    return sorted(result.scalars().all(), key=lambda s: service.natural_sort_key(s.matricule))
 
 
 @router.post("/students", response_model=StudentOut, status_code=status.HTTP_201_CREATED)
@@ -147,6 +152,71 @@ async def create_student(payload: StudentCreate, db: DbSession, current_user: Cu
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A student with this matricule already exists") from exc
     return student
+
+
+@router.patch("/students/bulk", response_model=StudentBulkUpdateOut)
+async def bulk_update_student_status(
+    payload: StudentBulkStatusUpdate, db: DbSession, current_user: CurrentUser
+) -> StudentBulkUpdateOut:
+    """Modification en masse — STATUT UNIQUEMENT (cas d'usage : après un import, faire passer
+    plusieurs élèves à ACTIVE/INACTIVE/...). Les champs individuels (identité, date de naissance,
+    sexe) ne sont jamais proposés ici, par construction du schéma d'entrée.
+
+    Tous les élèves doivent appartenir à LA MÊME école ; `students.manage` est vérifié sur cette
+    école avant toute écriture. Un id hors du tenant de l'appelant est invisible sous RLS — il
+    apparaît comme manquant, jamais comme une fuite cross-organization. Transaction atomique :
+    un seul commit final, comme `update_student` ci-dessous.
+
+    IMPORTANT (ordre de déclaration) : doit rester déclarée AVANT `/students/{student_id}` — ce
+    paramètre n'est pas typé `{student_id:uuid}` dans le chemin, FastAPI ne valide donc le format
+    UUID qu'après avoir fait correspondre la route par structure de chemin seule ; une déclaration
+    après aurait fait matcher "bulk" comme student_id et échoué en 422 avant d'atteindre ce code."""
+    unique_ids = list(dict.fromkeys(payload.student_ids))
+
+    result = await db.execute(select(Student).where(Student.id.in_(unique_ids)))
+    found = {student.id: student for student in result.scalars().all()}
+    missing = [student_id for student_id in unique_ids if student_id not in found]
+    if missing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more students were not found")
+
+    students_to_update = [found[student_id] for student_id in unique_ids]
+    school_ids = {student.school_id for student in students_to_update}
+    if len(school_ids) > 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="All students must belong to the same school")
+    school_id = school_ids.pop()
+    organization_id = students_to_update[0].organization_id
+    await ensure_permission(db, current_user, "students.manage", organization_id=organization_id, school_id=school_id)
+
+    updated_count = 0
+    unchanged_count = 0
+    for student in students_to_update:
+        if student.status != payload.status:
+            db.add(
+                StudentStatusHistory(
+                    id=uuid.uuid4(),
+                    school_id=student.school_id,
+                    organization_id=student.organization_id,
+                    student_id=student.id,
+                    previous_status=student.status,
+                    new_status=payload.status,
+                    reason=payload.status_change_reason,
+                    changed_by=current_user.id,
+                )
+            )
+            student.status = payload.status
+            updated_count += 1
+        else:
+            unchanged_count += 1
+
+    await db.flush()
+    for student in students_to_update:
+        await db.refresh(student)
+    await db.commit()
+    return StudentBulkUpdateOut(
+        updated_count=updated_count,
+        unchanged_count=unchanged_count,
+        students=[StudentOut.model_validate(student) for student in students_to_update],
+    )
 
 
 @router.get("/students/{student_id}", response_model=StudentOut)

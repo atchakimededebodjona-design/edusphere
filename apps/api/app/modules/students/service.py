@@ -1,5 +1,6 @@
 import csv
 import io
+import re
 import uuid
 from datetime import date, datetime
 
@@ -12,6 +13,17 @@ from app.modules.students.models import Student
 from app.modules.students.schemas import StudentImportReport, StudentImportRowError
 
 REQUIRED_COLUMNS = ["matricule", "first_name", "last_name", "date_of_birth", "sex"]
+
+_DIGIT_RUN = re.compile(r"(\d+)")
+
+
+def natural_sort_key(value: str) -> tuple[object, ...]:
+    """Clé de tri "naturel" pour un matricule : les suites de chiffres sont comparées comme des
+    nombres, pas caractère par caractère — EL-CM1-002 avant EL-CM1-010, jamais 010 avant 002 ni
+    010 avant 2 (ce qu'un simple tri lexical produirait). Insensible à la casse pour la partie
+    non numérique. Fonctionne quel que soit le format exact du matricule (pas de format imposé)."""
+    parts = _DIGIT_RUN.split(value)
+    return tuple((1, int(part)) if part.isdigit() else (0, part.lower()) for part in parts)
 
 
 def _parse_rows(filename: str, content: bytes) -> list[dict]:
