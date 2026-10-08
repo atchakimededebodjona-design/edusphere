@@ -109,6 +109,10 @@ class StudentEnrollment(Base):
     )
     enrollment_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    # Renseigné uniquement par la réinscription/promotion en masse (migration 0018) — PROMOTED ou
+    # REPEATED. Nullable : jamais recalculé pour les inscriptions créées par les autres points
+    # d'entrée (inscription individuelle, affectation en masse) ni pour les lignes antérieures.
+    promotion_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

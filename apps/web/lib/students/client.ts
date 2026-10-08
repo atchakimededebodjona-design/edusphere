@@ -77,6 +77,7 @@ export type StudentGuardian = {
 };
 
 export type EnrollmentStatus = "ACTIVE" | "WITHDRAWN" | "TRANSFERRED" | "COMPLETED";
+export type PromotionType = "PROMOTED" | "REPEATED" | "TRANSFERRED";
 
 export type StudentEnrollment = {
   id: string;
@@ -85,6 +86,7 @@ export type StudentEnrollment = {
   academic_year_id: string;
   enrollment_date: string;
   status: EnrollmentStatus;
+  promotion_type: PromotionType | null;
   created_at: string;
   updated_at: string;
 };
@@ -146,6 +148,39 @@ export type StudentBulkEnrollmentResult = {
   students: Student[];
 };
 
+// Réinscription / promotion en masse (voir students/schemas.py::StudentBulkPromotionCreate/Out).
+export type ClassMapping = { source_class_id: string; target_class_id: string };
+
+export type StudentBulkPromotionCreate = {
+  source_academic_year_id: string;
+  target_academic_year_id: string;
+  class_mappings: ClassMapping[];
+  student_ids: string[];
+  enrollment_date: string;
+};
+
+export type TargetClassPreview = {
+  target_class_id: string;
+  target_class_name: string;
+  capacity: number | null;
+  active_enrollment_count: number;
+  incoming_count: number;
+  available_places: number | null;
+};
+
+export type StudentBulkPromotionResult = {
+  source_academic_year_id: string;
+  target_academic_year_id: string;
+  selected_count: number;
+  promoted_count: number;
+  repeated_count: number;
+  already_enrolled_count: number;
+  no_target_class_count: number;
+  class_previews: TargetClassPreview[];
+  blocking_errors: string[];
+  students: Student[];
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -200,6 +235,8 @@ export const students = {
   // inchangés) sans rien écrire en base — voir students/router.py::bulk_enroll_students.
   bulkEnroll: (payload: StudentBulkEnrollmentCreate, dryRun = false) =>
     postJson<StudentBulkEnrollmentResult>(`/api/v1/students/bulk-enrollment?dry_run=${dryRun}`, payload),
+  bulkPromote: (payload: StudentBulkPromotionCreate, dryRun = false) =>
+    postJson<StudentBulkPromotionResult>(`/api/v1/students/bulk-promotion?dry_run=${dryRun}`, payload),
   uploadPhoto: async (id: string, file: File): Promise<Student> => {
     const form = new FormData();
     form.append("file", file);
