@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_teacher_only
 from app.core.storage import safe_filename, storage
-from app.modules.academics.models import ClassSubject, SchoolClass, TeacherAssignment
+from app.modules.academics.models import AcademicYear, ClassSubject, SchoolClass, TeacherAssignment
 from app.modules.rbac.models import Role, UserRole
 from app.modules.schools.models import School
 from app.modules.students import service
@@ -25,6 +25,8 @@ from app.modules.students.schemas import (
     GuardianCreate,
     GuardianOut,
     GuardianUpdate,
+    StudentBulkEnrollmentCreate,
+    StudentBulkEnrollmentOut,
     StudentBulkStatusUpdate,
     StudentBulkUpdateOut,
     StudentCreate,
@@ -97,6 +99,13 @@ async def _teacher_enrolled_class_ids(
     return {row[0] for row in result.all()}
 
 
+async def _current_academic_year(db: AsyncSession, school_id: uuid.UUID) -> AcademicYear | None:
+    result = await db.execute(
+        select(AcademicYear).where(AcademicYear.school_id == school_id, AcademicYear.is_current.is_(True))
+    )
+    return result.scalars().first()
+
+
 @router.get("/students", response_model=list[StudentOut])
 async def list_students(
     db: DbSession,
@@ -105,12 +114,21 @@ async def list_students(
     search: str | None = Query(None),
     class_id: uuid.UUID | None = Query(None),
     student_status: str | None = Query(None, alias="status"),
+    unassigned_only: bool = Query(False),
 ) -> list[Student]:
     school = await _get_school_or_404(db, school_id)
     await ensure_permission(db, current_user, "students.read", organization_id=school.organization_id, school_id=school.id)
     teacher_scope = await _teacher_enrolled_class_ids(db, current_user, school.organization_id, school.id)
     if teacher_scope is not None and class_id is not None and class_id not in teacher_scope:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class")
+
+    current_year = await _current_academic_year(db, school_id)
+    if unassigned_only and current_year is None:
+        # "Non affectés" n'a de sens QUE relativement à une année scolaire courante. Sans elle, le
+        # concept n'existe pas : renvoyer la liste complète serait trompeur (ferait croire que TOUS
+        # les élèves sont non affectés). Le frontend désactive aussi ce filtre dans ce cas — ceci
+        # est une seconde ligne de défense explicite côté backend, jamais une liste non filtrée.
+        return []
 
     stmt = select(Student).where(Student.school_id == school_id)
     if search:
@@ -134,12 +152,38 @@ async def list_students(
         stmt = stmt.join(StudentEnrollment, StudentEnrollment.student_id == Student.id).where(
             StudentEnrollment.class_id.in_(teacher_scope), StudentEnrollment.status == "ACTIVE"
         )
+    if unassigned_only:
+        # "Non affectés" = aucune inscription ACTIVE pour l'année scolaire courante de l'école.
+        assert current_year is not None  # retour anticipé ci-dessus sinon — pour le vérificateur de types
+        enrolled_ids = select(StudentEnrollment.student_id).where(
+            StudentEnrollment.academic_year_id == current_year.id, StudentEnrollment.status == "ACTIVE"
+        )
+        stmt = stmt.where(Student.id.notin_(enrolled_ids))
 
     result = await db.execute(stmt)
+    students = list(result.scalars().all())
+
+    if students and current_year is not None:
+        # Classe courante par élève, en UNE requête groupée — jamais un GET par élève (N+1).
+        class_rows = await db.execute(
+            select(StudentEnrollment.student_id, SchoolClass.id, SchoolClass.name)
+            .join(SchoolClass, SchoolClass.id == StudentEnrollment.class_id)
+            .where(
+                StudentEnrollment.academic_year_id == current_year.id,
+                StudentEnrollment.status == "ACTIVE",
+                StudentEnrollment.student_id.in_([s.id for s in students]),
+            )
+        )
+        class_by_student = {student_id: (cid, cname) for student_id, cid, cname in class_rows.all()}
+        for student in students:
+            class_id_name = class_by_student.get(student.id)
+            if class_id_name is not None:
+                student.current_class_id, student.current_class_name = class_id_name  # type: ignore[attr-defined]
+
     # Tri naturel par matricule (EL-CM1-002 avant EL-CM1-010) — voir service.py::natural_sort_key.
     # Fait côté Python plutôt qu'en SQL : aucune hypothèse sur le format exact du matricule, et
     # reste compatible avec tous les filtres ci-dessus (ils s'appliquent avant, en SQL).
-    return sorted(result.scalars().all(), key=lambda s: service.natural_sort_key(s.matricule))
+    return sorted(students, key=lambda s: service.natural_sort_key(s.matricule))
 
 
 @router.post("/students", response_model=StudentOut, status_code=status.HTTP_201_CREATED)
@@ -233,6 +277,60 @@ async def bulk_update_student_status(
         unchanged_count=unchanged_count,
         students=[StudentOut.model_validate(student) for student in students_to_update],
     )
+
+
+@router.post("/students/bulk-enrollment", response_model=StudentBulkEnrollmentOut)
+async def bulk_enroll_students(
+    payload: StudentBulkEnrollmentCreate, db: DbSession, current_user: CurrentUser, dry_run: bool = Query(False)
+) -> StudentBulkEnrollmentOut:
+    """Affecte en masse une liste d'élèves à une classe pour une année scolaire — voir
+    service.py::bulk_assign_students_to_class pour la logique de catégorisation (nouveaux /
+    réaffectés / inchangés) et la vérification de capacité.
+
+    `dry_run=true` (query param) : calcule et renvoie exactement la même réponse SANS écrire en
+    base — utilisé par le panneau d'affectation pour afficher un aperçu (capacité, répartition)
+    avant que l'administrateur ne confirme.
+
+    IMPORTANT (ordre de déclaration) : même raison que PATCH /students/bulk ci-dessus — doit
+    rester déclarée AVANT /students/{student_id} pour ne pas être avalée par ce paramètre de
+    chemin non typé `{student_id:uuid}`."""
+    school_class = await db.get(SchoolClass, payload.class_id)
+    if school_class is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+    academic_year = await db.get(AcademicYear, payload.academic_year_id)
+    if academic_year is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Academic year not found")
+    if school_class.academic_year_id != academic_year.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Class does not belong to the requested academic year"
+        )
+    if academic_year.school_id != school_class.school_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Academic year does not belong to this class's school"
+        )
+
+    await ensure_permission(
+        db, current_user, "students.manage",
+        organization_id=school_class.organization_id, school_id=school_class.school_id,
+    )
+
+    try:
+        return await service.bulk_assign_students_to_class(
+            db,
+            school_id=school_class.school_id,
+            organization_id=school_class.organization_id,
+            student_ids=payload.student_ids,
+            school_class=school_class,
+            enrollment_date=payload.enrollment_date,
+            dry_run=dry_run,
+        )
+    except IntegrityError as exc:
+        # Course très improbable (double soumission concurrente sur la même sélection) — la
+        # pré-validation ci-dessus élimine déjà le cas attendu (élève déjà inscrit cette année).
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Concurrent modification detected, please retry"
+        ) from exc
 
 
 async def _ensure_student_in_teacher_scope(db: AsyncSession, current_user: User, student: Student) -> None:
