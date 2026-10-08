@@ -1,9 +1,11 @@
 """POST /api/v1/students/bulk-promotion — réinscription/promotion en masse vers une nouvelle
 année scolaire, d'après un mapping classe source -> classe cible fourni par l'appelant.
 
-Catégories (jamais mélangées) : promoted / repeated / already_enrolled / no_target_class.
-Seule une capacité insuffisante (par classe cible) est bloquante — jamais de mutation partielle,
-dry_run ou non. L'historique académique (lignes de l'année SOURCE) n'est jamais modifié.
+Catégories (jamais mélangées) : promoted / repeated / already_enrolled / no_target_class (lui-même
+scindé en exit + unprocessed, voir test_students_exit_disposition.py pour les dispositions de
+sortie). Une capacité insuffisante (par classe cible) OU des élèves "unprocessed" restants sont
+bloquants — jamais de mutation partielle, dry_run ou non. L'historique académique (lignes de
+l'année SOURCE) n'est jamais modifié.
 """
 
 import asyncio
@@ -80,12 +82,14 @@ async def _enroll(client: AsyncClient, setup: dict, student_ids: list[str], year
 async def _promote(
     client: AsyncClient, setup: dict, source_year_id: str, target_year_id: str,
     class_mappings: list[dict], student_ids: list[str], enrollment_date: str = "2027-09-01", dry_run: bool = False,
+    exit_dispositions: list[dict] | None = None,
 ):
     return await client.post(
         f"/api/v1/students/bulk-promotion?dry_run={'true' if dry_run else 'false'}",
         json={
             "source_academic_year_id": source_year_id, "target_academic_year_id": target_year_id,
-            "class_mappings": class_mappings, "student_ids": student_ids, "enrollment_date": enrollment_date,
+            "class_mappings": class_mappings, "exit_dispositions": exit_dispositions or [],
+            "student_ids": student_ids, "enrollment_date": enrollment_date,
         },
         headers=setup["headers"],
     )
@@ -195,6 +199,10 @@ async def test_promotion_already_enrolled_students_are_never_touched(client: Asy
 
 
 async def test_promotion_no_target_class_is_skipped_without_mutation(client: AsyncClient) -> None:
+    """Une classe source sans correspondance n'est plus un "oubli" silencieux depuis le sprint
+    sortie d'établissement (voir test_students_exit_disposition.py) : elle doit être explicitement
+    déclarée en sortie pour que la confirmation reste possible. Ici, elle l'est (GRADUATED) — ses
+    élèves sont comptés en "exit", jamais en inscription cible, jamais en "non traité bloquant"."""
     setup = await _setup_school(client, "promonotarget")
     source_year = await _create_year(client, setup, "2026")
     target_year = await _create_year(client, setup, "2027")
@@ -210,10 +218,13 @@ async def test_promotion_no_target_class_is_skipped_without_mutation(client: Asy
         client, setup, source_year["id"], target_year["id"],
         [{"source_class_id": source_class["id"], "target_class_id": target_class["id"]}],
         [mapped_student["id"], unmapped_student["id"]],
+        exit_dispositions=[{"source_class_id": unmapped_source_class["id"], "exit_type": "GRADUATED"}],
     )
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["no_target_class_count"] == 1
+    assert body["exit_count"] == 1
+    assert body["unprocessed_no_target_class_count"] == 0
     assert body["promoted_count"] + body["repeated_count"] == 1
 
     assert await _enrollments_for_year(unmapped_student["id"], target_year["id"]) == []
@@ -241,6 +252,7 @@ async def test_promotion_mixed_categories(client: AsyncClient) -> None:
         client, setup, source_year["id"], target_year["id"],
         [{"source_class_id": source_class_a["id"], "target_class_id": target_class_promoted["id"]}],
         [new_student["id"], repeat_student["id"], already_student["id"], no_target_student["id"]],
+        exit_dispositions=[{"source_class_id": source_class_c["id"], "exit_type": "GRADUATED"}],
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -249,6 +261,8 @@ async def test_promotion_mixed_categories(client: AsyncClient) -> None:
     assert body["repeated_count"] == 0
     assert body["already_enrolled_count"] == 1
     assert body["no_target_class_count"] == 1
+    assert body["exit_count"] == 1
+    assert body["unprocessed_no_target_class_count"] == 0
 
 
 # --- Historique académique -----------------------------------------------------------------------------

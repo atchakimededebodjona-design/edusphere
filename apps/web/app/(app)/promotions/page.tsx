@@ -8,10 +8,25 @@ import { useAuth } from "@/lib/auth/useAuth";
 import {
   students,
   type ClassMapping,
+  type ExitType,
   type Student,
   type StudentBulkPromotionResult,
+  type StudentExitDisposition,
   type StudentStatus,
 } from "@/lib/students/client";
+
+const EXIT_TYPE_LABELS: Record<ExitType, string> = {
+  GRADUATED: "Sortie — Fin de cycle",
+  TRANSFERRED: "Sortie — Transfert",
+  WITHDRAWN: "Sortie — Retrait / abandon",
+  OTHER: "Sortie — Autre",
+};
+const EXIT_TYPE_RESULT_LABELS: Record<ExitType, string> = {
+  GRADUATED: "fin de cycle",
+  TRANSFERRED: "transférés",
+  WITHDRAWN: "retirés",
+  OTHER: "autres",
+};
 
 type Step = "years" | "mapping" | "students" | "preview" | "result";
 
@@ -55,7 +70,12 @@ export default function PromotionsPage() {
   const [step, setStep] = useState<Step>("years");
   const [sourceYearId, setSourceYearId] = useState("");
   const [targetYearId, setTargetYearId] = useState("");
-  const [mapping, setMapping] = useState<Record<string, string>>({});
+  // Par classe source : soit une classe cible (targetMapping), soit une disposition de sortie
+  // (exitMapping) — jamais les deux à la fois (voir setTargetFor/setExitFor ci-dessous, qui
+  // maintiennent cette exclusion mutuelle). Ni l'un ni l'autre = "Non traité" (explicite, jamais
+  // un simple oubli silencieux — voir section aperçu).
+  const [targetMapping, setTargetMapping] = useState<Record<string, string>>({});
+  const [exitMapping, setExitMapping] = useState<Record<string, { exit_type: ExitType; reason: string }>>({});
 
   const [studentsBySourceClass, setStudentsBySourceClass] = useState<Record<string, Student[]>>({});
   const [studentsLoading, setStudentsLoading] = useState(false);
@@ -93,12 +113,58 @@ export default function PromotionsPage() {
   );
   const classMappings: ClassMapping[] = useMemo(
     () =>
-      Object.entries(mapping)
+      Object.entries(targetMapping)
         .filter(([, targetId]) => targetId)
         .map(([sourceId, targetId]) => ({ source_class_id: sourceId, target_class_id: targetId })),
-    [mapping],
+    [targetMapping],
   );
-  const unmappedSourceClasses = sourceClasses.filter((c) => !mapping[c.id]);
+  const exitDispositions: StudentExitDisposition[] = useMemo(
+    () =>
+      Object.entries(exitMapping)
+        .filter(([sourceId]) => !targetMapping[sourceId])
+        .map(([sourceId, disposition]) => ({
+          source_class_id: sourceId,
+          exit_type: disposition.exit_type,
+          reason: disposition.reason || undefined,
+        })),
+    [exitMapping, targetMapping],
+  );
+  // "Non traité" explicite : ni classe cible, ni disposition de sortie pour cette classe source.
+  const unmappedSourceClasses = sourceClasses.filter((c) => !targetMapping[c.id] && !exitMapping[c.id]);
+
+  function setTargetFor(sourceClassId: string, targetClassId: string) {
+    setTargetMapping((prev) => ({ ...prev, [sourceClassId]: targetClassId }));
+    if (targetClassId) {
+      // Une classe cible choisie annule toute disposition de sortie pour cette même classe
+      // source — jamais les deux à la fois (section 6 : "Ne jamais permettre CM1 → CM2 +
+      // Sortie simultanément").
+      setExitMapping((prev) => {
+        if (!(sourceClassId in prev)) return prev;
+        const next = { ...prev };
+        delete next[sourceClassId];
+        return next;
+      });
+    }
+  }
+
+  function setExitFor(sourceClassId: string, exitType: ExitType | "") {
+    if (!exitType) {
+      setExitMapping((prev) => {
+        if (!(sourceClassId in prev)) return prev;
+        const next = { ...prev };
+        delete next[sourceClassId];
+        return next;
+      });
+      return;
+    }
+    setExitMapping((prev) => ({ ...prev, [sourceClassId]: { exit_type: exitType, reason: prev[sourceClassId]?.reason ?? "" } }));
+  }
+
+  function setExitReasonFor(sourceClassId: string, reason: string) {
+    setExitMapping((prev) =>
+      prev[sourceClassId] ? { ...prev, [sourceClassId]: { ...prev[sourceClassId], reason } } : prev,
+    );
+  }
 
   // --- Étape "students" : chargement par classe source, jamais un GET par élève (N+1) -----------
   async function loadStudentsForSourceClass(classId: string) {
@@ -128,6 +194,31 @@ export default function PromotionsPage() {
     const deduped = Array.from(new Map(all.map((s) => [s.id, s])).values());
     return statusFilter ? deduped.filter((s) => s.status === statusFilter) : deduped;
   }, [classFilter, sourceClasses, studentsBySourceClass, statusFilter]);
+
+  // Classe source de chaque élève affiché — nécessaire pour la colonne "Destination" (section 7),
+  // calculée à partir des listes déjà chargées par classe (jamais une requête supplémentaire).
+  const sourceClassIdByStudent = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [classId, list] of Object.entries(studentsBySourceClass)) {
+      for (const s of list) map[s.id] = classId;
+    }
+    return map;
+  }, [studentsBySourceClass]);
+
+  function sourceClassNameForStudent(studentId: string): string {
+    const classId = sourceClassIdByStudent[studentId];
+    return sourceClasses.find((c) => c.id === classId)?.name ?? "—";
+  }
+
+  function destinationForStudent(studentId: string): string {
+    const sourceClassId = sourceClassIdByStudent[studentId];
+    if (!sourceClassId) return "—";
+    const targetId = targetMapping[sourceClassId];
+    if (targetId) return targetClasses.find((tc) => tc.id === targetId)?.name ?? "—";
+    const disposition = exitMapping[sourceClassId];
+    if (disposition) return EXIT_TYPE_LABELS[disposition.exit_type];
+    return "Non traité";
+  }
 
   function toggleStudent(id: string) {
     setSelectedIds((prev) => {
@@ -161,6 +252,7 @@ export default function PromotionsPage() {
           source_academic_year_id: sourceYearId,
           target_academic_year_id: targetYearId,
           class_mappings: classMappings,
+          exit_dispositions: exitDispositions,
           student_ids: [...selectedIds],
           enrollment_date: enrollmentDate,
         },
@@ -193,6 +285,7 @@ export default function PromotionsPage() {
         source_academic_year_id: sourceYearId,
         target_academic_year_id: targetYearId,
         class_mappings: classMappings,
+        exit_dispositions: exitDispositions,
         student_ids: [...selectedIds],
         enrollment_date: enrollmentDate,
       });
@@ -209,7 +302,8 @@ export default function PromotionsPage() {
     setStep("years");
     setSourceYearId("");
     setTargetYearId("");
-    setMapping({});
+    setTargetMapping({});
+    setExitMapping({});
     setStudentsBySourceClass({});
     setClassFilter("");
     setStatusFilter("");
@@ -304,38 +398,69 @@ export default function PromotionsPage() {
             <p className="text-sm text-slate-400">Aucune classe pour l&apos;année source.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[500px] text-left text-sm">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
                     <th className="px-3 py-2 font-medium">Classe source</th>
-                    <th className="px-3 py-2 font-medium">Classe cible</th>
-                    <th className="px-3 py-2 font-medium">Capacité cible</th>
+                    <th className="px-3 py-2 font-medium">Destination</th>
+                    <th className="px-3 py-2 font-medium">Capacité / action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sourceClasses.map((sc) => {
-                    const targetId = mapping[sc.id] ?? "";
+                    const targetId = targetMapping[sc.id] ?? "";
                     const targetClass = targetClasses.find((tc) => tc.id === targetId);
+                    const disposition = exitMapping[sc.id];
                     return (
                       <tr key={sc.id} className="border-b border-slate-100">
-                        <td className="px-3 py-2">{sc.name}</td>
+                        <td className="px-3 py-2 align-top">{sc.name}</td>
                         <td className="px-3 py-2">
-                          <select
-                            value={targetId}
-                            onChange={(e) => setMapping((prev) => ({ ...prev, [sc.id]: e.target.value }))}
-                            className="rounded border border-slate-300 px-2 py-1 text-sm"
-                            aria-label={`Classe cible pour ${sc.name}`}
-                          >
-                            <option value="">Aucune correspondance</option>
-                            {targetClasses.map((tc) => (
-                              <option key={tc.id} value={tc.id}>
-                                {tc.name}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex flex-col gap-2">
+                            <select
+                              value={targetId}
+                              onChange={(e) => setTargetFor(sc.id, e.target.value)}
+                              className="rounded border border-slate-300 px-2 py-1 text-sm"
+                              aria-label={`Classe cible pour ${sc.name}`}
+                            >
+                              <option value="">Aucune correspondance</option>
+                              {targetClasses.map((tc) => (
+                                <option key={tc.id} value={tc.id}>
+                                  {tc.name}
+                                </option>
+                              ))}
+                            </select>
+                            {!targetId && (
+                              <select
+                                value={disposition?.exit_type ?? ""}
+                                onChange={(e) => setExitFor(sc.id, e.target.value as ExitType | "")}
+                                className="rounded border border-slate-300 px-2 py-1 text-sm"
+                                aria-label={`Disposition pour ${sc.name}`}
+                              >
+                                <option value="">Non traité</option>
+                                {(Object.entries(EXIT_TYPE_LABELS) as [ExitType, string][]).map(([value, label]) => (
+                                  <option key={value} value={value}>
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {!targetId && disposition && (
+                              <input
+                                placeholder="Motif (facultatif)"
+                                value={disposition.reason}
+                                onChange={(e) => setExitReasonFor(sc.id, e.target.value)}
+                                className="rounded border border-slate-300 px-2 py-1 text-xs"
+                                aria-label={`Motif de sortie pour ${sc.name}`}
+                              />
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-slate-500">
-                          {targetClass ? (targetClass.capacity ?? "Illimitée") : "—"}
+                          {targetClass
+                            ? (targetClass.capacity ?? "Illimitée")
+                            : disposition
+                              ? EXIT_TYPE_LABELS[disposition.exit_type]
+                              : "Non traité"}
                         </td>
                       </tr>
                     );
@@ -360,7 +485,7 @@ export default function PromotionsPage() {
             <button
               type="button"
               onClick={() => setStep("students")}
-              disabled={classMappings.length === 0}
+              disabled={classMappings.length === 0 && exitDispositions.length === 0}
               className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
               data-testid="promotion-mapping-next"
             >
@@ -420,13 +545,15 @@ export default function PromotionsPage() {
                   <th className="px-3 py-2 font-medium text-slate-600">Matricule</th>
                   <th className="px-3 py-2 font-medium text-slate-600">Prénom</th>
                   <th className="px-3 py-2 font-medium text-slate-600">Nom</th>
+                  <th className="px-3 py-2 font-medium text-slate-600">Classe source</th>
+                  <th className="px-3 py-2 font-medium text-slate-600">Destination</th>
                   <th className="px-3 py-2 font-medium text-slate-600">Statut</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                    <td colSpan={7} className="px-3 py-4 text-center text-slate-400">
                       Aucun élève.
                     </td>
                   </tr>
@@ -444,6 +571,8 @@ export default function PromotionsPage() {
                       <td className="px-3 py-2">{s.matricule}</td>
                       <td className="px-3 py-2">{s.first_name}</td>
                       <td className="px-3 py-2">{s.last_name}</td>
+                      <td className="px-3 py-2">{sourceClassNameForStudent(s.id)}</td>
+                      <td className="px-3 py-2">{destinationForStudent(s.id)}</td>
                       <td className="px-3 py-2">{STATUS_LABELS[s.status]}</td>
                     </tr>
                   ))
@@ -507,8 +636,34 @@ export default function PromotionsPage() {
                 <li data-testid="promotion-preview-promoted">Promus : {preview.promoted_count}</li>
                 <li data-testid="promotion-preview-repeated">Redoublants : {preview.repeated_count}</li>
                 <li data-testid="promotion-preview-already">Déjà inscrits : {preview.already_enrolled_count}</li>
-                <li data-testid="promotion-preview-no-target">Sans classe cible : {preview.no_target_class_count}</li>
+                <li data-testid="promotion-preview-exit">Sortants : {preview.exit_count}</li>
+                <li data-testid="promotion-preview-unprocessed">
+                  Sans classe cible et non traités : {preview.unprocessed_no_target_class_count}
+                </li>
               </ul>
+
+              {preview.exit_count > 0 && (
+                <div className="rounded border border-slate-200 bg-slate-50 p-3" data-testid="promotion-exit-breakdown">
+                  <p className="text-sm font-semibold text-slate-900">Sorties de l&apos;établissement</p>
+                  <ul className="text-sm text-slate-700">
+                    {(Object.entries(EXIT_TYPE_LABELS) as [ExitType, string][]).map(([type, label]) => (
+                      <li key={type}>
+                        {label.replace("Sortie — ", "")} : {preview.exit_counts_by_type[type] ?? 0}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {preview.unprocessed_no_target_class_count > 0 && (
+                <p
+                  className="rounded border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-700"
+                  data-testid="promotion-unprocessed-alert"
+                >
+                  {preview.unprocessed_no_target_class_count} élève(s) n&apos;ont ni classe cible ni disposition de
+                  sortie.
+                </p>
+              )}
 
               {preview.class_previews.length > 0 && (
                 <div className="overflow-x-auto">
@@ -564,7 +719,8 @@ export default function PromotionsPage() {
                 previewLoading ||
                 preview === null ||
                 previewError !== null ||
-                preview.blocking_errors.length > 0
+                preview.blocking_errors.length > 0 ||
+                preview.unprocessed_no_target_class_count > 0
               }
               className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
               data-testid="promotion-confirm"
@@ -592,8 +748,18 @@ export default function PromotionsPage() {
             <li>{result.promoted_count} promu{result.promoted_count > 1 ? "s" : ""}</li>
             <li>{result.repeated_count} redoublant{result.repeated_count > 1 ? "s" : ""}</li>
             <li>{result.already_enrolled_count} déjà inscrit{result.already_enrolled_count > 1 ? "s" : ""}</li>
-            <li>{result.no_target_class_count} sans classe cible</li>
+            <li data-testid="promotion-result-exit">{result.exit_count} sortant{result.exit_count > 1 ? "s" : ""}</li>
+            <li>{result.unprocessed_no_target_class_count} non traité{result.unprocessed_no_target_class_count > 1 ? "s" : ""}</li>
           </ul>
+          {result.exit_count > 0 && (
+            <ul className="text-sm text-slate-700" data-testid="promotion-result-exit-breakdown">
+              {(Object.entries(EXIT_TYPE_RESULT_LABELS) as [ExitType, string][]).map(([type, label]) => (
+                <li key={type}>
+                  {result.exit_counts_by_type[type] ?? 0} {label}
+                </li>
+              ))}
+            </ul>
+          )}
           <button
             type="button"
             onClick={resetWizard}

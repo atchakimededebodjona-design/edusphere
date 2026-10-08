@@ -18,6 +18,7 @@ from app.modules.students.models import (
     Student,
     StudentDocument,
     StudentEnrollment,
+    StudentExit,
     StudentGuardian,
     StudentStatusHistory,
 )
@@ -36,6 +37,7 @@ from app.modules.students.schemas import (
     StudentEnrollmentCreate,
     StudentEnrollmentOut,
     StudentEnrollmentUpdate,
+    StudentExitOut,
     StudentGuardianCreate,
     StudentGuardianOut,
     StudentImportReport,
@@ -377,8 +379,10 @@ async def bulk_promote_students(
             source_year_id=source_year.id,
             target_year_id=target_year.id,
             class_mappings=payload.class_mappings,
+            exit_dispositions=payload.exit_dispositions,
             student_ids=payload.student_ids,
             enrollment_date=payload.enrollment_date,
+            created_by=current_user.id,
             dry_run=dry_run,
         )
     except IntegrityError as exc:
@@ -828,3 +832,26 @@ async def update_enrollment(
     await db.refresh(enrollment)
     await db.commit()
     return enrollment
+
+
+# --- Sorties de l'établissement ----------------------------------------------------------------
+@router.get("/students/{student_id}/exits", response_model=list[StudentExitOut])
+async def list_student_exits(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> list[StudentExit]:
+    student = await _get_student_or_404(db, student_id)
+    await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
+    result = await db.execute(
+        select(StudentExit).where(StudentExit.student_id == student_id).order_by(StudentExit.exit_date.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/student-exits", response_model=list[StudentExitOut])
+async def list_school_student_exits(
+    db: DbSession, current_user: CurrentUser, school_id: uuid.UUID = Query(...)
+) -> list[StudentExit]:
+    school = await _get_school_or_404(db, school_id)
+    await ensure_permission(db, current_user, "students.read", organization_id=school.organization_id, school_id=school.id)
+    result = await db.execute(
+        select(StudentExit).where(StudentExit.school_id == school_id).order_by(StudentExit.exit_date.desc())
+    )
+    return list(result.scalars().all())
