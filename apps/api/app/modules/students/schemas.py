@@ -11,6 +11,7 @@ GuardianRelationship = Literal["father", "mother", "guardian", "other"]
 # TRANSFERRED existe pour cohérence avec le concept déjà présent (EnrollmentStatus) mais n'est
 # jamais produit par la réinscription/promotion en masse elle-même (voir service.py::bulk_promote_students).
 PromotionType = Literal["PROMOTED", "REPEATED", "TRANSFERRED"]
+ExitType = Literal["GRADUATED", "TRANSFERRED", "WITHDRAWN", "OTHER"]
 
 
 # --- Students ------------------------------------------------------------------
@@ -185,10 +186,23 @@ class ClassMapping(BaseModel):
     target_class_id: uuid.UUID
 
 
+# Une classe source déclarée en sortie d'établissement (ex. une classe terminale, CM2 dans une
+# école qui s'arrête là) — jamais une classe fictive créée pour autant. Une classe source ne doit
+# JAMAIS apparaître à la fois dans class_mappings ET exit_dispositions (validé par le service).
+class StudentExitDisposition(BaseModel):
+    source_class_id: uuid.UUID
+    exit_type: ExitType
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class StudentBulkPromotionCreate(BaseModel):
     source_academic_year_id: uuid.UUID
     target_academic_year_id: uuid.UUID
-    class_mappings: list[ClassMapping] = Field(min_length=1, max_length=200)
+    # Une classe source peut avoir une correspondance (class_mappings) OU être déclarée en sortie
+    # (exit_dispositions) — ni l'un ni l'autre n'est requis seul : une école qui ne fait QUE
+    # déclarer des sorties (toutes ses classes sont terminales) a class_mappings vide, légitime.
+    class_mappings: list[ClassMapping] = Field(default_factory=list, max_length=200)
+    exit_dispositions: list[StudentExitDisposition] = Field(default_factory=list, max_length=200)
     student_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
     enrollment_date: date
 
@@ -210,12 +224,35 @@ class StudentBulkPromotionOut(BaseModel):
     promoted_count: int
     repeated_count: int
     already_enrolled_count: int
+    # Conservé pour compatibilité : total des élèves dont la classe source n'a aucune
+    # correspondance dans class_mappings, QU'ILS AIENT ou non une disposition de sortie —
+    # équivaut toujours à exit_count + unprocessed_no_target_class_count.
     no_target_class_count: int
+    exit_count: int
+    # Sous-ensemble de no_target_class_count : ni classe cible, ni disposition de sortie déclarée
+    # — ces élèves doivent être explicitement traités avant de pouvoir confirmer (voir
+    # service.py::bulk_promote_students, bloquant sur l'appel réel si non vide).
+    unprocessed_no_target_class_count: int
+    exit_counts_by_type: dict[str, int]
     class_previews: list[TargetClassPreview]
-    # Erreurs métier bloquantes (capacité insuffisante, etc.) — non vide implique qu'AUCUNE
-    # mutation n'a eu lieu, dry_run ou non (voir service.py::bulk_promote_students).
+    # Erreurs métier bloquantes (capacité insuffisante, élèves non traités...) — non vide implique
+    # qu'AUCUNE mutation n'a eu lieu, dry_run ou non (voir service.py::bulk_promote_students).
     blocking_errors: list[str]
     students: list[StudentOut]
+
+
+class StudentExitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    student_id: uuid.UUID
+    academic_year_id: uuid.UUID
+    exit_type: ExitType
+    reason: str | None
+    exit_date: date
+    created_by: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
 
 
 # --- Documents -------------------------------------------------------------------

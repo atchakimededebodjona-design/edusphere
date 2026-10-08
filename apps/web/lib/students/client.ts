@@ -151,10 +151,33 @@ export type StudentBulkEnrollmentResult = {
 // Réinscription / promotion en masse (voir students/schemas.py::StudentBulkPromotionCreate/Out).
 export type ClassMapping = { source_class_id: string; target_class_id: string };
 
+// Sortie de l'établissement (voir students/schemas.py::StudentExitDisposition/Out). Une classe
+// source ne doit JAMAIS apparaître à la fois dans class_mappings ET exit_dispositions.
+export type ExitType = "GRADUATED" | "TRANSFERRED" | "WITHDRAWN" | "OTHER";
+
+export type StudentExitDisposition = {
+  source_class_id: string;
+  exit_type: ExitType;
+  reason?: string | null;
+};
+
+export type StudentExitOut = {
+  id: string;
+  student_id: string;
+  academic_year_id: string;
+  exit_type: ExitType;
+  reason: string | null;
+  exit_date: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type StudentBulkPromotionCreate = {
   source_academic_year_id: string;
   target_academic_year_id: string;
   class_mappings: ClassMapping[];
+  exit_dispositions: StudentExitDisposition[];
   student_ids: string[];
   enrollment_date: string;
 };
@@ -176,6 +199,9 @@ export type StudentBulkPromotionResult = {
   repeated_count: number;
   already_enrolled_count: number;
   no_target_class_count: number;
+  exit_count: number;
+  unprocessed_no_target_class_count: number;
+  exit_counts_by_type: Record<string, number>;
   class_previews: TargetClassPreview[];
   blocking_errors: string[];
   students: Student[];
@@ -281,6 +307,11 @@ export const enrollments = {
     postJson<StudentEnrollment>(`/api/v1/students/${studentId}/enrollments`, payload),
   updateStatus: (enrollmentId: string, status: EnrollmentStatus) =>
     patchJson<StudentEnrollment>(`/api/v1/enrollments/${enrollmentId}`, { status }),
+};
+
+export const studentExits = {
+  listForStudent: (studentId: string) => getJson<StudentExitOut[]>(`/api/v1/students/${studentId}/exits`),
+  listForSchool: (schoolId: string) => getJson<StudentExitOut[]>(`/api/v1/student-exits?school_id=${schoolId}`),
 };
 
 export const documents = {

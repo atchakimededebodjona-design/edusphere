@@ -13,11 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import safe_filename
 from app.modules.academics.models import SchoolClass
-from app.modules.students.models import Student, StudentEnrollment
+from app.modules.students.models import Student, StudentEnrollment, StudentExit
 from app.modules.students.schemas import (
     ClassMapping,
     StudentBulkEnrollmentOut,
     StudentBulkPromotionOut,
+    StudentExitDisposition,
     StudentImportReport,
     StudentImportRowError,
     StudentOut,
@@ -416,32 +417,39 @@ async def bulk_promote_students(
     source_year_id: uuid.UUID,
     target_year_id: uuid.UUID,
     class_mappings: list[ClassMapping],
+    exit_dispositions: list[StudentExitDisposition],
     student_ids: list[uuid.UUID],
     enrollment_date: date,
+    created_by: uuid.UUID,
     dry_run: bool,
 ) -> StudentBulkPromotionOut:
     """Réinscrit/promeut une liste d'élèves de leur classe de l'année SOURCE vers la classe
     correspondante de l'année CIBLE, d'après un mapping classe source -> classe cible fourni par
     l'appelant (jamais déduit automatiquement).
 
-    Catégories (4, jamais mélangées, jamais de double comptage) :
+    Catégories (jamais mélangées, jamais de double comptage) :
     - promoted         : classe cible de niveau (education_level_id) différent de la classe source.
     - repeated         : classe cible de MÊME niveau que la classe source (redoublement).
     - already_enrolled : l'élève a DÉJÀ une inscription pour l'année cible (quelle que soit la
-                         classe) -> jamais touchée par cette opération (c'est le rôle de
-                         l'affectation en masse ou de la fiche élève, pas de la promotion).
-    - no_target_class  : la classe source de l'élève n'a aucune correspondance dans class_mappings.
+                         classe) -> jamais touchée par cette opération, jamais de StudentExit non
+                         plus (c'est le rôle de l'affectation en masse ou de la fiche élève).
+    - exit             : la classe source de l'élève n'a AUCUNE correspondance dans class_mappings
+                         MAIS une disposition de sortie explicite a été déclarée pour cette classe
+                         (ex. CM2 dans une école qui s'arrête là) -> StudentExit créé, AUCUNE
+                         inscription cible, JAMAIS de classe fictive.
+    - unprocessed      : la classe source n'a ni correspondance ni disposition de sortie —
+                         l'élève doit être explicitement traité avant de pouvoir confirmer
+                         (bloquant sur l'appel réel, voir plus bas).
 
-    Ces 4 catégories sont informatives, jamais bloquantes : l'opération peut très bien promouvoir
-    une partie de la sélection en laissant les "déjà inscrits"/"sans classe cible" de côté.
-    Seule une capacité insuffisante sur une classe cible est bloquante (`blocking_errors` non vide),
-    auquel cas AUCUNE mutation n'a lieu — pour dry_run ET pour l'appel réel (jamais de confiance
-    aveugle en un aperçu côté frontend).
+    Seules une capacité insuffisante sur une classe cible OU des élèves "unprocessed" sont
+    bloquants (`blocking_errors` non vide), auquel cas AUCUNE mutation n'a lieu — pour dry_run ET
+    pour l'appel réel (jamais de confiance aveugle en un aperçu côté frontend).
 
-    Respecte UNIQUE(student_id, academic_year_id) : un élève "already_enrolled" n'est jamais
-    touché, un élève promu n'a par construction aucune ligne existante pour l'année cible — jamais
-    de nouvelle ligne en doublon. Aucune ligne de l'année SOURCE n'est jamais modifiée ni supprimée
-    : l'historique académique reste intact par construction (chaque année a sa propre ligne).
+    Respecte UNIQUE(student_id, academic_year_id) sur StudentEnrollment ET sur StudentExit : un
+    élève "already_enrolled" n'est jamais touché ; un StudentExit déjà existant pour (élève, année
+    source) n'est jamais dupliqué, simplement reconnu comme déjà traité. Aucune ligne de l'année
+    SOURCE n'est jamais modifiée ni supprimée : l'historique académique reste intact par
+    construction (chaque année/sortie a sa propre ligne, jamais de classe fictive créée).
     """
     # --- Validation des mappings de classes ------------------------------------------------------
     source_ids_in_mappings = [m.source_class_id for m in class_mappings]
@@ -450,12 +458,31 @@ async def bulk_promote_students(
             status_code=400, detail="class_mappings contains duplicate source_class_id entries"
         )
 
-    all_mapping_class_ids = {m.source_class_id for m in class_mappings} | {m.target_class_id for m in class_mappings}
+    source_ids_in_exits = [d.source_class_id for d in exit_dispositions]
+    if len(set(source_ids_in_exits)) != len(source_ids_in_exits):
+        raise BulkEnrollmentError(
+            status_code=400, detail="exit_dispositions contains duplicate source_class_id entries"
+        )
+
+    overlap = set(source_ids_in_mappings) & set(source_ids_in_exits)
+    if overlap:
+        raise BulkEnrollmentError(
+            status_code=400,
+            detail="A source class cannot have both a class_mapping and an exit_disposition",
+        )
+
+    all_mapping_class_ids = (
+        {m.source_class_id for m in class_mappings}
+        | {m.target_class_id for m in class_mappings}
+        | {d.source_class_id for d in exit_dispositions}
+    )
     classes_result = await db.execute(select(SchoolClass).where(SchoolClass.id.in_(all_mapping_class_ids)))
     classes_by_id = {c.id: c for c in classes_result.scalars().all()}
     missing_classes = [cid for cid in all_mapping_class_ids if cid not in classes_by_id]
     if missing_classes:
-        raise BulkEnrollmentError(status_code=404, detail="One or more classes in class_mappings were not found")
+        raise BulkEnrollmentError(
+            status_code=404, detail="One or more classes in class_mappings/exit_dispositions were not found"
+        )
 
     mapping_by_source_class: dict[uuid.UUID, SchoolClass] = {}
     for mapping in class_mappings:
@@ -470,6 +497,16 @@ async def bulk_promote_students(
                 status_code=400, detail="A target class in class_mappings does not belong to the target academic year"
             )
         mapping_by_source_class[source_class.id] = target_class
+
+    exit_disposition_by_source_class: dict[uuid.UUID, StudentExitDisposition] = {}
+    for disposition in exit_dispositions:
+        source_class = classes_by_id[disposition.source_class_id]
+        if source_class.school_id != school_id or source_class.academic_year_id != source_year_id:
+            raise BulkEnrollmentError(
+                status_code=400,
+                detail="A source class in exit_dispositions does not belong to the source academic year",
+            )
+        exit_disposition_by_source_class[source_class.id] = disposition
 
     # --- Élèves sélectionnés ----------------------------------------------------------------------
     unique_student_ids = list(dict.fromkeys(student_ids))
@@ -514,10 +551,21 @@ async def bulk_promote_students(
     )
     already_enrolled_ids = {row[0] for row in target_enroll_result.all()}
 
+    # --- Sorties déjà existantes (jamais dupliquées — UNIQUE(student_id, academic_year_id)) -------
+    existing_exit_result = await db.execute(
+        select(StudentExit.student_id).where(
+            StudentExit.student_id.in_(unique_student_ids), StudentExit.academic_year_id == source_year_id
+        )
+    )
+    already_exited_ids = {row[0] for row in existing_exit_result.all()}
+
     # --- Catégorisation ---------------------------------------------------------------------------
     to_create: list[tuple[Student, SchoolClass, str]] = []
+    to_create_exits: list[tuple[Student, StudentExitDisposition]] = []
     already_enrolled_count = 0
-    no_target_class_count = 0
+    exit_count = 0
+    unprocessed_no_target_class_count = 0
+    exit_counts_by_type: dict[str, int] = {}
     incoming_by_target_class: dict[uuid.UUID, int] = {}
 
     for student in students:
@@ -526,18 +574,32 @@ async def bulk_promote_students(
             continue
         source_enrollment = source_enrollment_by_student[student.id]
         mapped_target_class = mapping_by_source_class.get(source_enrollment.class_id)
-        if mapped_target_class is None:
-            no_target_class_count += 1
+        if mapped_target_class is not None:
+            source_class = classes_by_id[source_enrollment.class_id]
+            promotion_type = (
+                "REPEATED" if mapped_target_class.education_level_id == source_class.education_level_id else "PROMOTED"
+            )
+            to_create.append((student, mapped_target_class, promotion_type))
+            incoming_by_target_class[mapped_target_class.id] = (
+                incoming_by_target_class.get(mapped_target_class.id, 0) + 1
+            )
             continue
-        source_class = classes_by_id[source_enrollment.class_id]
-        promotion_type = (
-            "REPEATED" if mapped_target_class.education_level_id == source_class.education_level_id else "PROMOTED"
-        )
-        to_create.append((student, mapped_target_class, promotion_type))
-        incoming_by_target_class[mapped_target_class.id] = incoming_by_target_class.get(mapped_target_class.id, 0) + 1
+
+        matched_disposition = exit_disposition_by_source_class.get(source_enrollment.class_id)
+        if matched_disposition is not None:
+            exit_count += 1
+            exit_counts_by_type[matched_disposition.exit_type] = (
+                exit_counts_by_type.get(matched_disposition.exit_type, 0) + 1
+            )
+            if student.id not in already_exited_ids:
+                to_create_exits.append((student, matched_disposition))
+            continue
+
+        unprocessed_no_target_class_count += 1
 
     promoted_count = sum(1 for _, _, promotion_type in to_create if promotion_type == "PROMOTED")
     repeated_count = sum(1 for _, _, promotion_type in to_create if promotion_type == "REPEATED")
+    no_target_class_count = exit_count + unprocessed_no_target_class_count
 
     # --- Verrouillage + capacité, PAR classe cible concernée --------------------------------------
     # Ordre trié stable (UUID) : plusieurs classes cibles sont verrouillées dans CETTE opération —
@@ -584,10 +646,17 @@ async def bulk_promote_students(
             )
         )
 
+    if unprocessed_no_target_class_count > 0:
+        # Bloquant — section 5/11 : confirmer doit rester impossible tant qu'un élève sélectionné
+        # n'a ni classe cible ni disposition de sortie explicite (jamais un "oubli" silencieux).
+        blocking_errors.append(
+            f"{unprocessed_no_target_class_count} élève(s) n'ont ni classe cible ni disposition de sortie."
+        )
+
     if dry_run:
         # Aperçu : la liste `blocking_errors` est affichée telle quelle par le frontend (une entrée
-        # par classe cible en déficit de capacité) — jamais une exception, c'est le but même de
-        # l'aperçu. Aucune mutation dans tous les cas (dry_run).
+        # par classe cible en déficit de capacité, ou pour les élèves non traités) — jamais une
+        # exception, c'est le but même de l'aperçu. Aucune mutation dans tous les cas (dry_run).
         return StudentBulkPromotionOut(
             source_academic_year_id=source_year_id,
             target_academic_year_id=target_year_id,
@@ -596,6 +665,9 @@ async def bulk_promote_students(
             repeated_count=repeated_count,
             already_enrolled_count=already_enrolled_count,
             no_target_class_count=no_target_class_count,
+            exit_count=exit_count,
+            unprocessed_no_target_class_count=unprocessed_no_target_class_count,
+            exit_counts_by_type=exit_counts_by_type,
             class_previews=class_previews,
             blocking_errors=blocking_errors,
             students=[],
@@ -603,8 +675,9 @@ async def bulk_promote_students(
 
     if blocking_errors:
         # Appel réel : jamais de mutation partielle. Le backend revalide systématiquement la
-        # capacité (jamais de confiance aveugle en un aperçu côté frontend potentiellement
-        # obsolète) — cohérent avec le 409 de l'affectation en masse mono-classe (Sprint précédent).
+        # capacité et le traitement complet de la sélection (jamais de confiance aveugle en un
+        # aperçu côté frontend potentiellement obsolète) — cohérent avec le 409 de l'affectation
+        # en masse mono-classe (Sprint précédent).
         raise BulkEnrollmentError(status_code=409, detail="; ".join(blocking_errors))
 
     for student, enrollment_target_class, promotion_type in to_create:
@@ -621,6 +694,20 @@ async def bulk_promote_students(
                 promotion_type=promotion_type,
             )
         )
+    for student, disposition in to_create_exits:
+        db.add(
+            StudentExit(
+                id=uuid.uuid4(),
+                school_id=school_id,
+                organization_id=organization_id,
+                student_id=student.id,
+                academic_year_id=source_year_id,
+                exit_type=disposition.exit_type,
+                reason=disposition.reason,
+                exit_date=enrollment_date,
+                created_by=created_by,
+            )
+        )
 
     await db.flush()
     for student, _, _ in to_create:
@@ -635,6 +722,9 @@ async def bulk_promote_students(
         repeated_count=repeated_count,
         already_enrolled_count=already_enrolled_count,
         no_target_class_count=no_target_class_count,
+        exit_count=exit_count,
+        unprocessed_no_target_class_count=unprocessed_no_target_class_count,
+        exit_counts_by_type=exit_counts_by_type,
         class_previews=class_previews,
         blocking_errors=blocking_errors,
         students=[StudentOut.model_validate(student) for student, _, _ in to_create],
