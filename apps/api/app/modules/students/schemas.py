@@ -8,6 +8,9 @@ Sex = Literal["M", "F"]
 StudentStatus = Literal["ACTIVE", "INACTIVE", "GRADUATED", "WITHDRAWN", "TRANSFERRED"]
 EnrollmentStatus = Literal["ACTIVE", "WITHDRAWN", "TRANSFERRED", "COMPLETED"]
 GuardianRelationship = Literal["father", "mother", "guardian", "other"]
+# TRANSFERRED existe pour cohérence avec le concept déjà présent (EnrollmentStatus) mais n'est
+# jamais produit par la réinscription/promotion en masse elle-même (voir service.py::bulk_promote_students).
+PromotionType = Literal["PROMOTED", "REPEATED", "TRANSFERRED"]
 
 
 # --- Students ------------------------------------------------------------------
@@ -162,6 +165,7 @@ class StudentEnrollmentOut(BaseModel):
     academic_year_id: uuid.UUID
     enrollment_date: date
     status: EnrollmentStatus
+    promotion_type: PromotionType | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -173,6 +177,45 @@ class StudentEnrollmentCreate(BaseModel):
 
 class StudentEnrollmentUpdate(BaseModel):
     status: EnrollmentStatus
+
+
+# --- Réinscription / promotion en masse -----------------------------------------
+class ClassMapping(BaseModel):
+    source_class_id: uuid.UUID
+    target_class_id: uuid.UUID
+
+
+class StudentBulkPromotionCreate(BaseModel):
+    source_academic_year_id: uuid.UUID
+    target_academic_year_id: uuid.UUID
+    class_mappings: list[ClassMapping] = Field(min_length=1, max_length=200)
+    student_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    enrollment_date: date
+
+
+class TargetClassPreview(BaseModel):
+    target_class_id: uuid.UUID
+    target_class_name: str
+    capacity: int | None
+    active_enrollment_count: int
+    incoming_count: int
+    # None si la classe n'a pas de capacité définie (aucune limite).
+    available_places: int | None
+
+
+class StudentBulkPromotionOut(BaseModel):
+    source_academic_year_id: uuid.UUID
+    target_academic_year_id: uuid.UUID
+    selected_count: int
+    promoted_count: int
+    repeated_count: int
+    already_enrolled_count: int
+    no_target_class_count: int
+    class_previews: list[TargetClassPreview]
+    # Erreurs métier bloquantes (capacité insuffisante, etc.) — non vide implique qu'AUCUNE
+    # mutation n'a eu lieu, dry_run ou non (voir service.py::bulk_promote_students).
+    blocking_errors: list[str]
+    students: list[StudentOut]
 
 
 # --- Documents -------------------------------------------------------------------

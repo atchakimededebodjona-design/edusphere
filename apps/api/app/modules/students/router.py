@@ -27,6 +27,8 @@ from app.modules.students.schemas import (
     GuardianUpdate,
     StudentBulkEnrollmentCreate,
     StudentBulkEnrollmentOut,
+    StudentBulkPromotionCreate,
+    StudentBulkPromotionOut,
     StudentBulkStatusUpdate,
     StudentBulkUpdateOut,
     StudentCreate,
@@ -327,6 +329,59 @@ async def bulk_enroll_students(
     except IntegrityError as exc:
         # Course très improbable (double soumission concurrente sur la même sélection) — la
         # pré-validation ci-dessus élimine déjà le cas attendu (élève déjà inscrit cette année).
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Concurrent modification detected, please retry"
+        ) from exc
+
+
+@router.post("/students/bulk-promotion", response_model=StudentBulkPromotionOut)
+async def bulk_promote_students(
+    payload: StudentBulkPromotionCreate, db: DbSession, current_user: CurrentUser, dry_run: bool = Query(False)
+) -> StudentBulkPromotionOut:
+    """Réinscrit/promeut en masse une liste d'élèves de l'année SOURCE vers l'année CIBLE, d'après
+    un mapping classe source -> classe cible fourni par l'appelant — voir
+    service.py::bulk_promote_students pour la catégorisation (promus/redoublants/déjà inscrits/
+    sans classe cible) et la vérification de capacité (par classe cible, verrouillée).
+
+    `dry_run=true` : calcule et renvoie le même aperçu sans écrire en base.
+
+    IMPORTANT (ordre de déclaration) : même raison que PATCH /students/bulk et POST /students/
+    bulk-enrollment ci-dessus — doit rester déclarée AVANT /students/{student_id}."""
+    source_year = await db.get(AcademicYear, payload.source_academic_year_id)
+    if source_year is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source academic year not found")
+    target_year = await db.get(AcademicYear, payload.target_academic_year_id)
+    if target_year is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target academic year not found")
+    if source_year.id == target_year.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Source and target academic years must be different"
+        )
+    if source_year.school_id != target_year.school_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source and target academic years must belong to the same school",
+        )
+
+    await ensure_permission(
+        db, current_user, "students.manage",
+        organization_id=source_year.organization_id, school_id=source_year.school_id,
+    )
+
+    try:
+        return await service.bulk_promote_students(
+            db,
+            school_id=source_year.school_id,
+            organization_id=source_year.organization_id,
+            source_year_id=source_year.id,
+            target_year_id=target_year.id,
+            class_mappings=payload.class_mappings,
+            student_ids=payload.student_ids,
+            enrollment_date=payload.enrollment_date,
+            dry_run=dry_run,
+        )
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Concurrent modification detected, please retry"

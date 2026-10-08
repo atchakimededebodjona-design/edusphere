@@ -15,10 +15,13 @@ from app.core.storage import safe_filename
 from app.modules.academics.models import SchoolClass
 from app.modules.students.models import Student, StudentEnrollment
 from app.modules.students.schemas import (
+    ClassMapping,
     StudentBulkEnrollmentOut,
+    StudentBulkPromotionOut,
     StudentImportReport,
     StudentImportRowError,
     StudentOut,
+    TargetClassPreview,
 )
 
 REQUIRED_COLUMNS = ["matricule", "first_name", "last_name", "date_of_birth", "sex"]
@@ -401,4 +404,238 @@ async def bulk_assign_students_to_class(
         reassigned_count=len(to_reassign),
         unchanged_count=unchanged_count,
         students=[StudentOut.model_validate(student) for student in students],
+    )
+
+
+# --- Réinscription / promotion en masse ------------------------------------------------------------
+async def bulk_promote_students(
+    db: AsyncSession,
+    *,
+    school_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    source_year_id: uuid.UUID,
+    target_year_id: uuid.UUID,
+    class_mappings: list[ClassMapping],
+    student_ids: list[uuid.UUID],
+    enrollment_date: date,
+    dry_run: bool,
+) -> StudentBulkPromotionOut:
+    """Réinscrit/promeut une liste d'élèves de leur classe de l'année SOURCE vers la classe
+    correspondante de l'année CIBLE, d'après un mapping classe source -> classe cible fourni par
+    l'appelant (jamais déduit automatiquement).
+
+    Catégories (4, jamais mélangées, jamais de double comptage) :
+    - promoted         : classe cible de niveau (education_level_id) différent de la classe source.
+    - repeated         : classe cible de MÊME niveau que la classe source (redoublement).
+    - already_enrolled : l'élève a DÉJÀ une inscription pour l'année cible (quelle que soit la
+                         classe) -> jamais touchée par cette opération (c'est le rôle de
+                         l'affectation en masse ou de la fiche élève, pas de la promotion).
+    - no_target_class  : la classe source de l'élève n'a aucune correspondance dans class_mappings.
+
+    Ces 4 catégories sont informatives, jamais bloquantes : l'opération peut très bien promouvoir
+    une partie de la sélection en laissant les "déjà inscrits"/"sans classe cible" de côté.
+    Seule une capacité insuffisante sur une classe cible est bloquante (`blocking_errors` non vide),
+    auquel cas AUCUNE mutation n'a lieu — pour dry_run ET pour l'appel réel (jamais de confiance
+    aveugle en un aperçu côté frontend).
+
+    Respecte UNIQUE(student_id, academic_year_id) : un élève "already_enrolled" n'est jamais
+    touché, un élève promu n'a par construction aucune ligne existante pour l'année cible — jamais
+    de nouvelle ligne en doublon. Aucune ligne de l'année SOURCE n'est jamais modifiée ni supprimée
+    : l'historique académique reste intact par construction (chaque année a sa propre ligne).
+    """
+    # --- Validation des mappings de classes ------------------------------------------------------
+    source_ids_in_mappings = [m.source_class_id for m in class_mappings]
+    if len(set(source_ids_in_mappings)) != len(source_ids_in_mappings):
+        raise BulkEnrollmentError(
+            status_code=400, detail="class_mappings contains duplicate source_class_id entries"
+        )
+
+    all_mapping_class_ids = {m.source_class_id for m in class_mappings} | {m.target_class_id for m in class_mappings}
+    classes_result = await db.execute(select(SchoolClass).where(SchoolClass.id.in_(all_mapping_class_ids)))
+    classes_by_id = {c.id: c for c in classes_result.scalars().all()}
+    missing_classes = [cid for cid in all_mapping_class_ids if cid not in classes_by_id]
+    if missing_classes:
+        raise BulkEnrollmentError(status_code=404, detail="One or more classes in class_mappings were not found")
+
+    mapping_by_source_class: dict[uuid.UUID, SchoolClass] = {}
+    for mapping in class_mappings:
+        source_class = classes_by_id[mapping.source_class_id]
+        target_class = classes_by_id[mapping.target_class_id]
+        if source_class.school_id != school_id or source_class.academic_year_id != source_year_id:
+            raise BulkEnrollmentError(
+                status_code=400, detail="A source class in class_mappings does not belong to the source academic year"
+            )
+        if target_class.school_id != school_id or target_class.academic_year_id != target_year_id:
+            raise BulkEnrollmentError(
+                status_code=400, detail="A target class in class_mappings does not belong to the target academic year"
+            )
+        mapping_by_source_class[source_class.id] = target_class
+
+    # --- Élèves sélectionnés ----------------------------------------------------------------------
+    unique_student_ids = list(dict.fromkeys(student_ids))
+    students_result = await db.execute(select(Student).where(Student.id.in_(unique_student_ids)))
+    found_students = {s.id: s for s in students_result.scalars().all()}
+    missing_students = [sid for sid in unique_student_ids if sid not in found_students]
+    if missing_students:
+        raise BulkEnrollmentError(status_code=404, detail="One or more students were not found")
+
+    students = [found_students[sid] for sid in unique_student_ids]
+    wrong_school = [s.id for s in students if s.school_id != school_id]
+    if wrong_school:
+        raise BulkEnrollmentError(
+            status_code=400, detail="All students must belong to the school of the source/target academic years"
+        )
+
+    # --- Inscriptions SOURCE (doivent exister et être ACTIVE) -------------------------------------
+    source_enroll_result = await db.execute(
+        select(StudentEnrollment).where(
+            StudentEnrollment.student_id.in_(unique_student_ids),
+            StudentEnrollment.academic_year_id == source_year_id,
+        )
+    )
+    source_enrollment_by_student = {e.student_id: e for e in source_enroll_result.scalars().all()}
+    not_actively_enrolled = [
+        s.id
+        for s in students
+        if source_enrollment_by_student.get(s.id) is None or source_enrollment_by_student[s.id].status != "ACTIVE"
+    ]
+    if not_actively_enrolled:
+        raise BulkEnrollmentError(
+            status_code=400,
+            detail="One or more students are not actively enrolled in the source academic year",
+        )
+
+    # --- Inscriptions CIBLE déjà existantes (jamais touchées par cette opération) -----------------
+    target_enroll_result = await db.execute(
+        select(StudentEnrollment.student_id).where(
+            StudentEnrollment.student_id.in_(unique_student_ids),
+            StudentEnrollment.academic_year_id == target_year_id,
+        )
+    )
+    already_enrolled_ids = {row[0] for row in target_enroll_result.all()}
+
+    # --- Catégorisation ---------------------------------------------------------------------------
+    to_create: list[tuple[Student, SchoolClass, str]] = []
+    already_enrolled_count = 0
+    no_target_class_count = 0
+    incoming_by_target_class: dict[uuid.UUID, int] = {}
+
+    for student in students:
+        if student.id in already_enrolled_ids:
+            already_enrolled_count += 1
+            continue
+        source_enrollment = source_enrollment_by_student[student.id]
+        mapped_target_class = mapping_by_source_class.get(source_enrollment.class_id)
+        if mapped_target_class is None:
+            no_target_class_count += 1
+            continue
+        source_class = classes_by_id[source_enrollment.class_id]
+        promotion_type = (
+            "REPEATED" if mapped_target_class.education_level_id == source_class.education_level_id else "PROMOTED"
+        )
+        to_create.append((student, mapped_target_class, promotion_type))
+        incoming_by_target_class[mapped_target_class.id] = incoming_by_target_class.get(mapped_target_class.id, 0) + 1
+
+    promoted_count = sum(1 for _, _, promotion_type in to_create if promotion_type == "PROMOTED")
+    repeated_count = sum(1 for _, _, promotion_type in to_create if promotion_type == "REPEATED")
+
+    # --- Verrouillage + capacité, PAR classe cible concernée --------------------------------------
+    # Ordre trié stable (UUID) : plusieurs classes cibles sont verrouillées dans CETTE opération —
+    # un ordre cohérent entre toutes les transactions concurrentes évite les interblocages, même
+    # principe que le verrou mono-classe de l'affectation en masse (Sprint précédent).
+    target_class_ids_involved = sorted(incoming_by_target_class.keys())
+    if not dry_run and target_class_ids_involved:
+        await db.execute(
+            select(SchoolClass.id)
+            .where(SchoolClass.id.in_(target_class_ids_involved))
+            .order_by(SchoolClass.id)
+            .with_for_update()
+        )
+
+    class_previews: list[TargetClassPreview] = []
+    blocking_errors: list[str] = []
+    for target_class_id in target_class_ids_involved:
+        preview_class = classes_by_id[target_class_id]
+        active_count_result = await db.execute(
+            select(func.count()).select_from(StudentEnrollment).where(
+                StudentEnrollment.class_id == target_class_id, StudentEnrollment.status == "ACTIVE"
+            )
+        )
+        active_enrollment_count = active_count_result.scalar_one()
+        incoming_count = incoming_by_target_class[target_class_id]
+
+        available_places: int | None = None
+        if preview_class.capacity is not None:
+            computed_available_places = preview_class.capacity - active_enrollment_count
+            available_places = computed_available_places
+            if incoming_count > computed_available_places:
+                blocking_errors.append(
+                    f"La classe {preview_class.name} ne dispose que de {computed_available_places} "
+                    f"place(s) disponible(s) pour {incoming_count} élève(s)."
+                )
+        class_previews.append(
+            TargetClassPreview(
+                target_class_id=target_class_id,
+                target_class_name=preview_class.name,
+                capacity=preview_class.capacity,
+                active_enrollment_count=active_enrollment_count,
+                incoming_count=incoming_count,
+                available_places=available_places,
+            )
+        )
+
+    if dry_run:
+        # Aperçu : la liste `blocking_errors` est affichée telle quelle par le frontend (une entrée
+        # par classe cible en déficit de capacité) — jamais une exception, c'est le but même de
+        # l'aperçu. Aucune mutation dans tous les cas (dry_run).
+        return StudentBulkPromotionOut(
+            source_academic_year_id=source_year_id,
+            target_academic_year_id=target_year_id,
+            selected_count=len(unique_student_ids),
+            promoted_count=promoted_count,
+            repeated_count=repeated_count,
+            already_enrolled_count=already_enrolled_count,
+            no_target_class_count=no_target_class_count,
+            class_previews=class_previews,
+            blocking_errors=blocking_errors,
+            students=[],
+        )
+
+    if blocking_errors:
+        # Appel réel : jamais de mutation partielle. Le backend revalide systématiquement la
+        # capacité (jamais de confiance aveugle en un aperçu côté frontend potentiellement
+        # obsolète) — cohérent avec le 409 de l'affectation en masse mono-classe (Sprint précédent).
+        raise BulkEnrollmentError(status_code=409, detail="; ".join(blocking_errors))
+
+    for student, enrollment_target_class, promotion_type in to_create:
+        db.add(
+            StudentEnrollment(
+                id=uuid.uuid4(),
+                school_id=school_id,
+                organization_id=organization_id,
+                student_id=student.id,
+                class_id=enrollment_target_class.id,
+                academic_year_id=target_year_id,
+                enrollment_date=enrollment_date,
+                status="ACTIVE",
+                promotion_type=promotion_type,
+            )
+        )
+
+    await db.flush()
+    for student, _, _ in to_create:
+        await db.refresh(student)
+    await db.commit()
+
+    return StudentBulkPromotionOut(
+        source_academic_year_id=source_year_id,
+        target_academic_year_id=target_year_id,
+        selected_count=len(unique_student_ids),
+        promoted_count=promoted_count,
+        repeated_count=repeated_count,
+        already_enrolled_count=already_enrolled_count,
+        no_target_class_count=no_target_class_count,
+        class_previews=class_previews,
+        blocking_errors=blocking_errors,
+        students=[StudentOut.model_validate(student) for student, _, _ in to_create],
     )
