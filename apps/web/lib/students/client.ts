@@ -17,6 +17,11 @@ export type Student = {
   photo_path: string | null;
   created_at: string;
   updated_at: string;
+  // Renseignés uniquement par students.list(), pour l'année scolaire courante de l'école — null si
+  // aucune année n'est marquée courante, ou si l'élève n'y a aucune inscription active (voir
+  // students/router.py::list_students, qui distingue ces deux cas pour le frontend).
+  current_class_id: string | null;
+  current_class_name: string | null;
 };
 
 export type StudentCreate = {
@@ -119,6 +124,28 @@ export type StudentBulkUpdateResult = {
   students: Student[];
 };
 
+// Affectation en masse à une classe (voir students/schemas.py::StudentBulkEnrollmentCreate/Out).
+export type StudentBulkEnrollmentCreate = {
+  student_ids: string[];
+  academic_year_id: string;
+  class_id: string;
+  enrollment_date: string;
+};
+
+export type StudentBulkEnrollmentResult = {
+  target_class_id: string;
+  target_class_name: string;
+  academic_year_id: string;
+  capacity: number | null;
+  active_enrollment_count: number;
+  available_places: number | null;
+  selected_count: number;
+  created_count: number;
+  reassigned_count: number;
+  unchanged_count: number;
+  students: Student[];
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await apiFetch(path);
   return response.json();
@@ -153,11 +180,15 @@ async function getBlobUrl(path: string): Promise<string | null> {
 }
 
 export const students = {
-  list: (schoolId: string, filters: { search?: string; classId?: string; status?: StudentStatus } = {}) => {
+  list: (
+    schoolId: string,
+    filters: { search?: string; classId?: string; status?: StudentStatus; unassignedOnly?: boolean } = {},
+  ) => {
     const params = new URLSearchParams({ school_id: schoolId });
     if (filters.search) params.set("search", filters.search);
     if (filters.classId) params.set("class_id", filters.classId);
     if (filters.status) params.set("status", filters.status);
+    if (filters.unassignedOnly) params.set("unassigned_only", "true");
     return getJson<Student[]>(`/api/v1/students?${params.toString()}`);
   },
   get: (id: string) => getJson<Student>(`/api/v1/students/${id}`),
@@ -165,6 +196,10 @@ export const students = {
   update: (id: string, payload: StudentUpdate) => patchJson<Student>(`/api/v1/students/${id}`, payload),
   bulkUpdateStatus: (payload: StudentBulkStatusUpdate) =>
     patchJson<StudentBulkUpdateResult>("/api/v1/students/bulk", payload),
+  // `dryRun: true` calcule et renvoie l'aperçu (capacité, répartition nouveaux/réaffectés/
+  // inchangés) sans rien écrire en base — voir students/router.py::bulk_enroll_students.
+  bulkEnroll: (payload: StudentBulkEnrollmentCreate, dryRun = false) =>
+    postJson<StudentBulkEnrollmentResult>(`/api/v1/students/bulk-enrollment?dry_run=${dryRun}`, payload),
   uploadPhoto: async (id: string, file: File): Promise<Student> => {
     const form = new FormData();
     form.append("file", file);

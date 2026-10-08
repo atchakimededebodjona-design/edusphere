@@ -27,6 +27,13 @@ class StudentOut(BaseModel):
     photo_path: str | None
     created_at: datetime
     updated_at: datetime
+    # Renseignés UNIQUEMENT par GET /students (liste), pour l'année scolaire marquée "courante" de
+    # l'école — voir router.py::list_students. None ailleurs (fiche élève, création, bulk statut) :
+    # ces endpoints n'ont pas besoin de cette info, jamais recalculée pour eux inutilement.
+    # Défauts explicites : un ORM Student sans cet attribut assigné sérialise simplement à null,
+    # jamais une erreur de validation.
+    current_class_id: uuid.UUID | None = None
+    current_class_name: str | None = None
 
 
 class StudentCreate(BaseModel):
@@ -64,6 +71,29 @@ class StudentBulkStatusUpdate(BaseModel):
 
 class StudentBulkUpdateOut(BaseModel):
     updated_count: int
+    unchanged_count: int
+    students: list[StudentOut]
+
+
+# --- Affectation en masse à une classe ------------------------------------------
+class StudentBulkEnrollmentCreate(BaseModel):
+    student_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    academic_year_id: uuid.UUID
+    class_id: uuid.UUID
+    enrollment_date: date
+
+
+class StudentBulkEnrollmentOut(BaseModel):
+    target_class_id: uuid.UUID
+    target_class_name: str
+    academic_year_id: uuid.UUID
+    capacity: int | None
+    active_enrollment_count: int
+    # None si la classe n'a pas de capacité définie (aucune limite).
+    available_places: int | None
+    selected_count: int
+    created_count: int
+    reassigned_count: int
     unchanged_count: int
     students: list[StudentOut]
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { academicYears, schoolClasses, type AcademicYear, type SchoolClass } from "@/lib/academics/client";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import { useAsyncData } from "@/lib/api/useAsyncData";
@@ -9,6 +10,9 @@ import { useAuth } from "@/lib/auth/useAuth";
 import { students, type Sex, type Student, type StudentStatus } from "@/lib/students/client";
 import { StudentImportForm } from "@/app/(app)/students/StudentImportForm";
 import { StudentBulkStatusPanel } from "@/app/(app)/students/StudentBulkStatusPanel";
+import { StudentBulkEnrollmentPanel } from "@/app/(app)/students/StudentBulkEnrollmentPanel";
+
+const UNASSIGNED_FILTER = "__unassigned__";
 
 const STATUS_LABELS: Record<StudentStatus, string> = {
   ACTIVE: "Actif",
@@ -43,15 +47,39 @@ export default function StudentsPage() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatus | "">("");
+  const [classFilter, setClassFilter] = useState("");
   const [form, setForm] = useState(initialForm);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkPanelOpen, setBulkPanelOpen] = useState(false);
+  const [bulkEnrollmentPanelOpen, setBulkEnrollmentPanelOpen] = useState(false);
+
+  const [years, setYears] = useState<AcademicYear[] | null>(null);
+  const [classes, setClasses] = useState<SchoolClass[] | null>(null);
+  useEffect(() => {
+    if (!currentSchoolId) return;
+    Promise.all([academicYears.list(currentSchoolId), schoolClasses.list(currentSchoolId)])
+      .then(([yearsResult, classesResult]) => {
+        setYears(yearsResult);
+        setClasses(classesResult);
+      })
+      .catch(() => undefined);
+  }, [currentSchoolId]);
+  const currentYear = years?.find((y) => y.is_current) ?? null;
+  // Le filtre "Classe" ne propose que les classes de l'année scolaire courante — cohérent avec la
+  // colonne Classe de la liste, qui ne reflète elle aussi que cette année-là.
+  const classesForFilter = currentYear ? (classes ?? []).filter((c) => c.academic_year_id === currentYear.id) : [];
 
   const list = useAsyncData(
-    () => students.list(currentSchoolId ?? "", { search: search || undefined, status: statusFilter || undefined }),
-    [currentSchoolId, search, statusFilter],
+    () =>
+      students.list(currentSchoolId ?? "", {
+        search: search || undefined,
+        status: statusFilter || undefined,
+        classId: classFilter && classFilter !== UNASSIGNED_FILTER ? classFilter : undefined,
+        unassignedOnly: classFilter === UNASSIGNED_FILTER,
+      }),
+    [currentSchoolId, search, statusFilter, classFilter],
     { enabled: Boolean(currentSchoolId) },
   );
 
@@ -125,6 +153,20 @@ export default function StudentsPage() {
             </option>
           ))}
         </select>
+        <select
+          value={classFilter}
+          onChange={(e) => setClassFilter(e.target.value)}
+          aria-label="Filtrer par classe"
+          className="rounded border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="">Toutes les classes</option>
+          <option value={UNASSIGNED_FILTER}>Non affectés</option>
+          {classesForFilter.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
 
         {canManage && selected.size > 0 && (
           <>
@@ -138,6 +180,13 @@ export default function StudentsPage() {
             >
               Modifier en masse
             </button>
+            <button
+              type="button"
+              onClick={() => setBulkEnrollmentPanelOpen(true)}
+              className="rounded bg-slate-900 px-4 py-2 text-sm text-white"
+            >
+              Affecter à une classe
+            </button>
           </>
         )}
       </div>
@@ -148,6 +197,19 @@ export default function StudentsPage() {
           onClose={() => setBulkPanelOpen(false)}
           onApplied={() => {
             setBulkPanelOpen(false);
+            setSelected(new Set());
+            list.retry();
+          }}
+        />
+      )}
+
+      {canManage && bulkEnrollmentPanelOpen && selected.size > 0 && currentSchoolId && (
+        <StudentBulkEnrollmentPanel
+          schoolId={currentSchoolId}
+          selectedIds={[...selected]}
+          onClose={() => setBulkEnrollmentPanelOpen(false)}
+          onApplied={() => {
+            setBulkEnrollmentPanelOpen(false);
             setSelected(new Set());
             list.retry();
           }}
@@ -173,6 +235,7 @@ export default function StudentsPage() {
               <th className="px-3 py-2 text-left font-medium text-slate-600">Nom</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Date de naissance</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Sexe</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-600">Classe</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Statut</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Action</th>
             </tr>
@@ -180,7 +243,7 @@ export default function StudentsPage() {
           <tbody className="divide-y divide-slate-100">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={canManage ? 8 : 7} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={canManage ? 9 : 8} className="px-3 py-4 text-center text-slate-400">
                   Aucun élève.
                 </td>
               </tr>
@@ -206,6 +269,9 @@ export default function StudentsPage() {
                   <td className="px-3 py-2">{s.last_name}</td>
                   <td className="px-3 py-2">{formatDateFR(s.date_of_birth)}</td>
                   <td className="px-3 py-2">{SEX_LABELS[s.sex]}</td>
+                  <td className="px-3 py-2">
+                    {currentYear === null ? "—" : (s.current_class_name ?? "Non affecté")}
+                  </td>
                   <td className="px-3 py-2">{STATUS_LABELS[s.status]}</td>
                   <td className="px-3 py-2">
                     {canManage && (
