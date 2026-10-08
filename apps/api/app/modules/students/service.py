@@ -316,6 +316,15 @@ async def bulk_assign_students_to_class(
             to_reassign.append(existing)
 
     # --- Capacité ------------------------------------------------------------------------------
+    if not dry_run:
+        # Verrouille la ligne SchoolClass pour toute la durée de CETTE transaction (jusqu'au
+        # commit/rollback plus bas) : deux affectations concurrentes sur la même classe ne peuvent
+        # plus lire le même effectif "avant" puis la dépasser ensemble — la seconde attend que la
+        # première committe (ou échoue) avant de relire l'effectif à son tour, qui est alors à
+        # jour. Jamais de verrou en dry_run : un aperçu ne modifie rien et ne doit ni bloquer une
+        # affectation réelle en cours, ni en être bloqué.
+        await db.execute(select(SchoolClass.id).where(SchoolClass.id == school_class.id).with_for_update())
+
     active_count_result = await db.execute(
         select(func.count()).select_from(StudentEnrollment).where(
             StudentEnrollment.class_id == school_class.id, StudentEnrollment.status == "ACTIVE"

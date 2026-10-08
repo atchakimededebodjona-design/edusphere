@@ -153,20 +153,33 @@ export default function StudentsPage() {
             </option>
           ))}
         </select>
-        <select
-          value={classFilter}
-          onChange={(e) => setClassFilter(e.target.value)}
-          aria-label="Filtrer par classe"
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
-        >
-          <option value="">Toutes les classes</option>
-          <option value={UNASSIGNED_FILTER}>Non affectés</option>
-          {classesForFilter.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
+        <div className="flex flex-col gap-1">
+          <select
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            aria-label="Filtrer par classe"
+            className="rounded border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Toutes les classes</option>
+            {/* "Non affectés" n'a de sens que relativement à une année scolaire courante : sans
+                elle, le concept n'existe pas — désactivé plutôt que de laisser croire qu'il
+                filtrerait correctement (voir aussi le garde-fou côté backend, qui renvoie [] si
+                ce filtre est quand même forcé sans année courante). */}
+            <option value={UNASSIGNED_FILTER} disabled={!currentYear}>
+              Non affectés
             </option>
-          ))}
-        </select>
+            {classesForFilter.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          {years !== null && !currentYear && (
+            <span className="text-xs text-slate-500" data-testid="no-current-year-notice">
+              Aucune année scolaire courante définie.
+            </span>
+          )}
+        </div>
 
         {canManage && selected.size > 0 && (
           <>

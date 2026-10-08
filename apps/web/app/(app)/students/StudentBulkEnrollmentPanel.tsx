@@ -9,6 +9,25 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+type PreviewErrorKind = "capacity" | "permission" | "not_found" | "network" | "server";
+type PreviewError = { kind: PreviewErrorKind; message: string };
+
+// Seul un 409 est réellement une capacité/conflit — toute autre erreur (droits, ressource
+// introuvable, réseau, serveur) doit rester distincte et jamais relabellisée "Capacité
+// insuffisante" (voir correction post-audit : le code précédent traitait TOUTE previewError
+// comme une capacité insuffisante, ce qui était trompeur pour un 403/404/réseau/500).
+function describePreviewError(err: unknown): PreviewError {
+  if (err instanceof ApiError) {
+    if (err.status === 409) return { kind: "capacity", message: err.message };
+    if (err.status === 403) return { kind: "permission", message: "Vous n'avez pas les droits nécessaires." };
+    if (err.status === 404) return { kind: "not_found", message: "Classe, année scolaire ou élève introuvable." };
+    return { kind: "server", message: "Une erreur serveur est survenue." };
+  }
+  // ApiError porte toujours un vrai statut HTTP reçu — son absence signifie qu'aucune réponse
+  // n'est arrivée du tout (fetch() a rejeté : coupure réseau, DNS, CORS...).
+  return { kind: "network", message: "Impossible de calculer l'aperçu. Vérifiez votre connexion." };
+}
+
 // Affectation en masse à une classe : sélectionne l'année + la classe, affiche un aperçu (capacité,
 // répartition nouveaux/réaffectés/inchangés) calculé par le backend en dry-run AVANT toute écriture,
 // puis confirme. Le backend reste l'autorité : cet aperçu ne fait que relayer son calcul, jamais une
@@ -33,7 +52,7 @@ export function StudentBulkEnrollmentPanel({
   const [enrollmentDate, setEnrollmentDate] = useState(today());
 
   const [preview, setPreview] = useState<StudentBulkEnrollmentResult | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<PreviewError | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const [confirming, setConfirming] = useState(false);
@@ -77,7 +96,7 @@ export function StudentBulkEnrollmentPanel({
       .catch((err) => {
         if (cancelled) return;
         setPreview(null);
-        setPreviewError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+        setPreviewError(describePreviewError(err));
       })
       .finally(() => {
         if (cancelled) return;
@@ -107,8 +126,7 @@ export function StudentBulkEnrollmentPanel({
 
   const selectedYear = years?.find((y) => y.id === yearId);
   const selectedClass = classesForYear.find((c) => c.id === classId);
-  const capacityInsufficient = previewError !== null;
-  const canConfirm = preview !== null && !capacityInsufficient && !previewLoading;
+  const canConfirm = preview !== null && previewError === null && !previewLoading;
 
   if (result) {
     return (
@@ -207,15 +225,20 @@ export function StudentBulkEnrollmentPanel({
               </p>
             </>
           )}
-          {capacityInsufficient && (
+          {previewError && previewError.kind === "capacity" && (
             <p className="font-medium text-red-700" data-testid="bulk-enrollment-capacity-error">
-              Capacité insuffisante — {previewError}
+              Capacité insuffisante — {previewError.message}
+            </p>
+          )}
+          {previewError && previewError.kind !== "capacity" && (
+            <p className="font-medium text-red-700" data-testid="bulk-enrollment-preview-error">
+              {previewError.message}
             </p>
           )}
         </div>
       )}
 
-      {selectedYear && selectedClass && preview && !capacityInsufficient && (
+      {selectedYear && selectedClass && preview && previewError === null && (
         <p className="text-sm text-slate-700">
           Vous êtes sur le point d&apos;affecter {selectedIds.length} élève{selectedIds.length > 1 ? "s" : ""} à{" "}
           {selectedClass.name}.

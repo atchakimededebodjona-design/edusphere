@@ -123,6 +123,12 @@ async def list_students(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this class")
 
     current_year = await _current_academic_year(db, school_id)
+    if unassigned_only and current_year is None:
+        # "Non affectés" n'a de sens QUE relativement à une année scolaire courante. Sans elle, le
+        # concept n'existe pas : renvoyer la liste complète serait trompeur (ferait croire que TOUS
+        # les élèves sont non affectés). Le frontend désactive aussi ce filtre dans ce cas — ceci
+        # est une seconde ligne de défense explicite côté backend, jamais une liste non filtrée.
+        return []
 
     stmt = select(Student).where(Student.school_id == school_id)
     if search:
@@ -146,10 +152,9 @@ async def list_students(
         stmt = stmt.join(StudentEnrollment, StudentEnrollment.student_id == Student.id).where(
             StudentEnrollment.class_id.in_(teacher_scope), StudentEnrollment.status == "ACTIVE"
         )
-    if unassigned_only and current_year is not None:
+    if unassigned_only:
         # "Non affectés" = aucune inscription ACTIVE pour l'année scolaire courante de l'école.
-        # Sans année courante définie, le filtre n'a pas de sens applicable — ignoré plutôt que de
-        # renvoyer une liste vide trompeuse (voir frontend : affiche "—" dans ce cas).
+        assert current_year is not None  # retour anticipé ci-dessus sinon — pour le vérificateur de types
         enrolled_ids = select(StudentEnrollment.student_id).where(
             StudentEnrollment.academic_year_id == current_year.id, StudentEnrollment.status == "ACTIVE"
         )

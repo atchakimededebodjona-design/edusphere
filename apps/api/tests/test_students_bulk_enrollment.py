@@ -5,6 +5,7 @@ nouvelle ligne pour un élève déjà inscrit cette année, seulement une mise �
 status) de la ligne existante. Catégorisation : created / reassigned / unchanged (jamais mélangées).
 """
 
+import asyncio
 import uuid
 
 from httpx import AsyncClient
@@ -453,3 +454,72 @@ async def test_list_students_unassigned_only_filter(client: AsyncClient) -> None
     assert response.status_code == 200, response.text
     ids = {s["id"] for s in response.json()}
     assert ids == {unassigned["id"]}
+
+
+# --- Correction post-audit 1 : capacité sous concurrence ---------------------------------------------
+async def test_bulk_enrollment_concurrent_requests_never_exceed_capacity(client: AsyncClient) -> None:
+    """capacity=1, deux requêtes réellement concurrentes affectant chacune 1 NOUVEL élève : une
+    seule doit réussir, l'autre doit recevoir 409, et la classe ne doit jamais dépasser 1 inscrit
+    actif — jamais les deux (ce qui prouverait que le verrou SELECT ... FOR UPDATE sur SchoolClass
+    sérialise bien les deux opérations, comme test_fees.py::
+    test_concurrent_payments_on_same_fee_never_overallocate pour les paiements)."""
+    setup = await _setup_school(client, "benrollconcurrent")
+    year = await _create_year(client, setup)
+    level = await _create_level(client, setup)
+    school_class = await _create_class(client, setup, year["id"], level["id"], capacity=1)
+    student_a, student_b = await _students(client, setup, "RACE", 2)
+
+    results = await asyncio.gather(
+        _bulk_enroll(client, setup, [student_a["id"]], year["id"], school_class["id"]),
+        _bulk_enroll(client, setup, [student_b["id"]], year["id"], school_class["id"]),
+    )
+    statuses = sorted(r.status_code for r in results)
+    assert statuses == [200, 409], [r.text for r in results]
+    # Jamais un état partiellement modifié : soit la ligne existe et la classe est à 1/1, soit
+    # l'opération a échoué avant toute mutation — jamais les deux élèves actifs à la fois.
+    assert await _enrollment_count_for_class(school_class["id"]) == 1
+
+
+async def test_bulk_enrollment_dry_run_does_not_lock_and_runs_alongside_real_operation(client: AsyncClient) -> None:
+    """dry_run=true ne doit jamais bloquer (ni être bloqué par) une affectation réelle concurrente
+    sur la même classe — il ne modifie rien et n'a donc aucune raison de verrouiller la ligne."""
+    setup = await _setup_school(client, "benrolldryconcurrent")
+    year = await _create_year(client, setup)
+    level = await _create_level(client, setup)
+    school_class = await _create_class(client, setup, year["id"], level["id"], capacity=5)
+    real_student, preview_student = await _students(client, setup, "DRYCONC", 2)
+
+    results = await asyncio.gather(
+        _bulk_enroll(client, setup, [real_student["id"]], year["id"], school_class["id"]),
+        _bulk_enroll(client, setup, [preview_student["id"]], year["id"], school_class["id"], dry_run=True),
+    )
+    assert all(r.status_code == 200 for r in results), [r.text for r in results]
+    assert await _enrollment_count_for_class(school_class["id"]) == 1  # seule l'opération réelle a écrit
+
+
+# --- Correction post-audit 2 : filtre "Non affectés" sans année courante ------------------------------
+async def test_list_students_unassigned_only_without_current_year_returns_empty(client: AsyncClient) -> None:
+    setup = await _setup_school(client, "blistnocurrentunassigned")
+    year = await _create_year(client, setup, is_current=False)  # aucune année marquée courante
+    level = await _create_level(client, setup)
+    await _create_class(client, setup, year["id"], level["id"])
+    await _students(client, setup, "NOCURRUNASSIGNED", 2)
+
+    response = await client.get(
+        f"/api/v1/students?school_id={setup['school_id']}&unassigned_only=true", headers=setup["headers"]
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == [], "Jamais la liste complète présentée comme 'non affectés'"
+
+
+async def test_list_students_without_unassigned_only_is_unaffected_by_missing_current_year(client: AsyncClient) -> None:
+    """Non-régression : l'absence d'année courante ne doit affecter QUE le filtre unassigned_only,
+    jamais la liste normale (toujours tous les élèves de l'école, comme avant ce sprint)."""
+    setup = await _setup_school(client, "blistnocurrentnormal")
+    await _create_year(client, setup, is_current=False)
+    await _students(client, setup, "NOCURRNORMAL", 3)
+
+    response = await client.get(f"/api/v1/students?school_id={setup['school_id']}", headers=setup["headers"])
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 3
+    assert all(s["current_class_name"] is None for s in response.json())

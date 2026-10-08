@@ -163,6 +163,98 @@ test("capacité insuffisante empêche la confirmation", async ({ page, request }
   await expect(dialog.getByTestId("bulk-enrollment-confirm")).toBeDisabled();
 });
 
+// Correction post-audit 3 : l'aperçu (dry-run) ne doit jamais relabelliser une erreur 403/404/
+// réseau/500 comme "Capacité insuffisante" — seul un 409 l'est. Le vrai backend ne renvoie pas
+// facilement ces statuts via une interaction UI normale (le bouton est déjà masqué sans
+// students.manage, etc.) : on intercepte précisément l'appel d'aperçu (dry_run=true) pour simuler
+// chaque cas, sans toucher à l'appel de confirmation réel.
+async function openPanelWithOneStudent(page: Page, request: APIRequestContext, prefix: string) {
+  const admin = await createOrganizationViaPlatform(request, prefix);
+  const { year, schoolClass } = await setupYearAndClass(request, admin, "CM1 A", 30);
+  const student = await createStudent(request, admin, `${prefix.toUpperCase()}-01`, "Preview");
+
+  await loginAdmin(page, admin.orgAdminEmail);
+  await page.goto("/students");
+  await page.locator("tbody tr", { hasText: student.matricule }).getByRole("checkbox", { name: /Sélectionner/ }).check();
+  await page.getByRole("button", { name: "Affecter à une classe" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Affecter des élèves à une classe" });
+  return { dialog, year, schoolClass };
+}
+
+test("aperçu : une erreur 403 affiche un message de droits, pas 'Capacité insuffisante'", async ({ page, request }) => {
+  await page.route("**/api/v1/students/bulk-enrollment*", async (route) => {
+    if (route.request().url().includes("dry_run=true")) {
+      await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ detail: "Not enough permissions" }) });
+    } else {
+      await route.continue();
+    }
+  });
+  const { dialog, year, schoolClass } = await openPanelWithOneStudent(page, request, "previewforbidden");
+
+  await dialog.getByLabel("Année scolaire").selectOption({ label: year.name });
+  await dialog.getByLabel("Classe").selectOption({ label: schoolClass.name });
+
+  const errorBlock = dialog.getByTestId("bulk-enrollment-preview-error");
+  await expect(errorBlock).toContainText("Vous n'avez pas les droits nécessaires.");
+  await expect(dialog.getByTestId("bulk-enrollment-capacity-error")).toHaveCount(0);
+  await expect(dialog.getByTestId("bulk-enrollment-confirm")).toBeDisabled();
+});
+
+test("aperçu : une erreur 404 affiche un message de ressource introuvable, pas 'Capacité insuffisante'", async ({ page, request }) => {
+  await page.route("**/api/v1/students/bulk-enrollment*", async (route) => {
+    if (route.request().url().includes("dry_run=true")) {
+      await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Class not found" }) });
+    } else {
+      await route.continue();
+    }
+  });
+  const { dialog, year, schoolClass } = await openPanelWithOneStudent(page, request, "previewnotfound");
+
+  await dialog.getByLabel("Année scolaire").selectOption({ label: year.name });
+  await dialog.getByLabel("Classe").selectOption({ label: schoolClass.name });
+
+  const errorBlock = dialog.getByTestId("bulk-enrollment-preview-error");
+  await expect(errorBlock).toContainText("Classe, année scolaire ou élève introuvable.");
+  await expect(dialog.getByTestId("bulk-enrollment-capacity-error")).toHaveCount(0);
+  await expect(dialog.getByTestId("bulk-enrollment-confirm")).toBeDisabled();
+});
+
+test("aperçu : une coupure réseau affiche un message réseau, pas 'Capacité insuffisante'", async ({ page, request }) => {
+  await page.route("**/api/v1/students/bulk-enrollment*", async (route) => {
+    if (route.request().url().includes("dry_run=true")) {
+      await route.abort("failed");
+    } else {
+      await route.continue();
+    }
+  });
+  const { dialog, year, schoolClass } = await openPanelWithOneStudent(page, request, "previewnetwork");
+
+  await dialog.getByLabel("Année scolaire").selectOption({ label: year.name });
+  await dialog.getByLabel("Classe").selectOption({ label: schoolClass.name });
+
+  const errorBlock = dialog.getByTestId("bulk-enrollment-preview-error");
+  await expect(errorBlock).toContainText("Impossible de calculer l'aperçu. Vérifiez votre connexion.");
+  await expect(dialog.getByTestId("bulk-enrollment-capacity-error")).toHaveCount(0);
+  await expect(dialog.getByTestId("bulk-enrollment-confirm")).toBeDisabled();
+});
+
+test("filtre Non affectés désactivé et message explicite sans année scolaire courante", async ({ page, request }) => {
+  const admin = await createOrganizationViaPlatform(request, "noyearfilter");
+  await api(request, admin.orgAdminToken, "POST", "/api/v1/academic-years", {
+    school_id: admin.schoolId, name: "2026-2027", start_date: "2026-09-01", end_date: "2027-06-30", is_current: false,
+  });
+  await createStudent(request, admin, "NOYEAR-01", "SansAnnee");
+
+  await loginAdmin(page, admin.orgAdminEmail);
+  await page.goto("/students");
+
+  await expect(page.getByTestId("no-current-year-notice")).toContainText("Aucune année scolaire courante définie.");
+  await expect(page.getByRole("option", { name: "Non affectés" })).toBeDisabled();
+  // La liste normale, elle, reste inchangée (tous les élèves visibles).
+  await expect(page.locator("tbody tr", { hasText: "NOYEAR-01" })).toBeVisible();
+});
+
 test("fiche élève : panneau d'affectation en masse reste utilisable en mobile/tablette/desktop", async ({ page, request }) => {
   const admin = await createOrganizationViaPlatform(request, "bulkresponsive");
   await setupYearAndClass(request, admin, "CM1 A", 30);
