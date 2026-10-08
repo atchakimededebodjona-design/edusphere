@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/notifications", label: "Notifications" },
   { href: "/announcements", label: "Annonces", permission: "announcements.manage" },
   { href: "/users", label: "Utilisateurs", permission: "users.read" },
+  { href: "/audit-logs", label: "Journal d'audit", permission: "audit.read" },
 ];
 
 export function Nav() {

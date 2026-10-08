@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import safe_filename
 from app.modules.academics.models import SchoolClass
+from app.modules.audit import service as audit_service
 from app.modules.students.models import Student, StudentEnrollment, StudentExit
 from app.modules.students.schemas import (
     ClassMapping,
@@ -264,6 +265,7 @@ async def bulk_assign_students_to_class(
     student_ids: list[uuid.UUID],
     school_class: SchoolClass,
     enrollment_date: date,
+    actor_user_id: uuid.UUID,
     dry_run: bool,
 ) -> StudentBulkEnrollmentOut:
     """Affecte (ou réaffecte) une liste d'élèves à `school_class`, pour l'année scolaire de cette
@@ -385,6 +387,28 @@ async def bulk_assign_students_to_class(
         # fiche élève le ferait) — seule la classe cible et la réactivation sont de cette action.
         enrollment.class_id = school_class.id
         enrollment.status = "ACTIVE"
+
+    # PR #14 — jamais en dry_run (déjà retourné plus haut) ; même transaction que les mutations
+    # ci-dessus.
+    await audit_service.record_audit_event(
+        db,
+        school_id=school_id,
+        organization_id=organization_id,
+        actor_user_id=actor_user_id,
+        action=audit_service.ACTION_STUDENTS_BULK_ASSIGNED,
+        entity_type=audit_service.ENTITY_STUDENT_ASSIGNMENT,
+        entity_id=school_class.id,
+        summary=(
+            f"Affectation en masse vers {school_class.name} : {len(to_create)} nouveau(x), "
+            f"{len(to_reassign)} réaffecté(s), {unchanged_count} inchangé(s)"
+        ),
+        metadata={
+            "target_class_id": str(school_class.id),
+            "created_count": len(to_create),
+            "reassigned_count": len(to_reassign),
+            "unchanged_count": unchanged_count,
+        },
+    )
 
     await db.flush()
     for student in students:
@@ -708,6 +732,31 @@ async def bulk_promote_students(
                 created_by=created_by,
             )
         )
+
+    # PR #14 — jamais en dry_run (déjà retourné plus haut) ni sur un commit bloqué (l'exception
+    # ci-dessus a déjà levé avant ce point) ; même transaction que les mutations ci-dessus.
+    await audit_service.record_audit_event(
+        db,
+        school_id=school_id,
+        organization_id=organization_id,
+        actor_user_id=created_by,
+        action=audit_service.ACTION_STUDENTS_BULK_PROMOTED,
+        entity_type=audit_service.ENTITY_STUDENT_PROMOTION,
+        entity_id=source_year_id,
+        summary=(
+            f"Promotion en masse : {promoted_count} promu(s), {repeated_count} redoublant(s), "
+            f"{exit_count} sortant(s), {already_enrolled_count} déjà inscrit(s)"
+        ),
+        metadata={
+            "source_academic_year_id": str(source_year_id),
+            "target_academic_year_id": str(target_year_id),
+            "promoted_count": promoted_count,
+            "repeated_count": repeated_count,
+            "already_enrolled_count": already_enrolled_count,
+            "exit_count": exit_count,
+            "exit_counts_by_type": exit_counts_by_type,
+        },
+    )
 
     await db.flush()
     for student, _, _ in to_create:
