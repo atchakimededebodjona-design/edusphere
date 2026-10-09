@@ -10,7 +10,7 @@ existante, même convention que test_attendance_notifications.py.
 """
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import func, select
@@ -23,7 +23,16 @@ from app.modules.notifications.models import Notification
 from tests.conftest import register_school, unique_email
 
 STANDARD_PASSWORD = "SuperSecret123"
-PAST_DUE_DATE = date(2020, 1, 1)
+# PR #15 — un seul jour de retard : largement suffisant pour déclencher le palier J0 (déjà
+# éligible dès `due_date < today`), mais jamais assez pour atteindre J7 (seuil à 7 jours) dans la
+# durée réelle d'une exécution de la suite de tests (quelques minutes, jamais 7 jours). Choisi
+# délibérément PROCHE plutôt que très ancien (l'ancienne valeur, date(2020, 1, 1)) : avec la
+# cadence à paliers de PR #15, un frais resté "en retard" pendant des années accumulerait sans fin
+# de nouveaux paliers à chaque exécution du job déclenchée par N'IMPORTE QUEL test de ce fichier
+# (le job est volontairement plateforme entière, jamais scopé à une seule école) — une valeur
+# proche évite cette pollution croisée entre tests, sans changer le comportement testé ici (ces
+# tests ne portent pas sur la progression des paliers, voir test_fee_reminder_stages.py pour ça).
+PAST_DUE_DATE = date.today() - timedelta(days=1)
 FUTURE_DUE_DATE = date(2099, 1, 1)
 
 
@@ -284,7 +293,9 @@ async def test_partially_paid_overdue_fee_notifies_with_remaining_balance(client
     assert "30000" in items[0]["body"]
 
 
-# --- TEST 5 : exécuter le job deux fois -> exactement une notification -----------------------------
+# --- TEST 5 : exécuter le job deux fois LE MÊME JOUR -> exactement une notification (même palier,
+# jamais de doublon ; voir test_fee_reminder_stages.py pour la progression VERS un nouveau palier,
+# un cas différent et explicitement attendu) --------------------------------------------------------
 async def test_running_job_twice_does_not_duplicate_notification(client: AsyncClient) -> None:
     env = await _setup_student(client, "overdue5")
     parent = await _link_parent(client, env, "parent.overdue5")
@@ -392,6 +403,11 @@ async def test_pre_existing_notification_is_not_duplicated(client: AsyncClient) 
                 title="Paiement en retard",
                 body="Notification pré-existante (test).",
                 student_fee_id=uuid.UUID(fee["id"]),
+                # PR #15 — représente un palier J0 déjà traité (c'est exactement ce qu'une
+                # notification FEE_OVERDUE unique représentait avant ce PR) ; sans ce champ
+                # explicite, le job la traiterait comme un palier inconnu et en créerait un
+                # second pour J0, ce que ce test vérifie justement ne jamais arriver.
+                reminder_stage="J0",
             )
         )
         await db.commit()

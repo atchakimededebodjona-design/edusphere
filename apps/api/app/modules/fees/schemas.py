@@ -171,6 +171,11 @@ OverdueContactChannel = Literal[
     "IN_APP_SENT", "EMAIL_ATTEMPTED", "EMAIL_TRANSPORT_ACCEPTED", "EMAIL_TRANSPORT_FAILED", "NO_CHANNEL"
 ]
 
+# PR #15 — palier de relance atteint (voir fees/models.py::REMINDER_STAGES). `None` ci-dessous
+# (jamais cette chaîne) quand aucun palier n'a jamais été tenté pour ce tuteur (NO_CHANNEL ou
+# tuteur ajouté après la dernière exécution du job).
+ReminderStage = Literal["J0", "J7", "J30"]
+
 
 class OverdueFeeGuardianContact(BaseModel):
     guardian_id: uuid.UUID
@@ -178,6 +183,12 @@ class OverdueFeeGuardianContact(BaseModel):
     has_user_account: bool
     email: str | None
     statuses: list[OverdueContactChannel]
+    # PR #15 — palier le plus avancé déjà atteint pour ce tuteur sur ce frais (celui du SEUL
+    # canal qui le concerne : in-app XOR email, jamais les deux pour un même tuteur — voir
+    # fees/service.py::list_overdue_fees), et la date de cette tentative. `None`/`None` si
+    # NO_CHANNEL (aucune tentative n'a jamais été possible).
+    reminder_stage: ReminderStage | None = None
+    last_reminder_at: datetime | None = None
 
 
 class OverdueFeeItem(BaseModel):

@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from html import escape as html_escape
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -15,7 +16,7 @@ from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.modules.academics.models import SchoolClass
 from app.modules.audit import service as audit_service
 from app.modules.notifications import service as notifications_service
-from app.modules.fees.models import FeeOverdueEmailReminder, FeeSchedule, Payment, PaymentAllocation, StudentFee
+from app.modules.fees.models import REMINDER_STAGES, FeeOverdueEmailReminder, FeeSchedule, Payment, PaymentAllocation, StudentFee
 from app.modules.fees.schemas import (
     FeeScheduleGenerateResult,
     FinancialSummaryOut,
@@ -25,6 +26,7 @@ from app.modules.fees.schemas import (
     OverdueFeeItem,
     OverdueFeesOut,
     PaymentCreate,
+    ReminderStage,
     StudentFeeBalanceOut,
     StudentFeeOut,
 )
@@ -566,12 +568,13 @@ async def list_overdue_fees(
         for student_id, guardian_id, full_name, email, user_id in guardians_result.all():
             guardians_by_student.setdefault(student_id, []).append((guardian_id, full_name, email, user_id))
 
-    in_app_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
-    # Sprint 1.6 — plus un simple ensemble (existence de ligne) : associe désormais chaque couple
-    # (student_fee_id, guardian_id) à son `transport_status` réel, pour ne jamais afficher au
-    # staff un email "envoyé" alors que seule une tentative a été enregistrée (voir
-    # PHASE_14_DISCOVERY_REPORT / SPRINT 1.6 DISCOVERY REPORT §6).
-    email_status_pairs: dict[tuple[uuid.UUID, uuid.UUID], str] = {}
+    # PR #15 — un même (student_fee_id, destinataire) a désormais jusqu'à 3 lignes au fil du
+    # temps (une par palier atteint, voir fees/models.py::REMINDER_STAGES) ; on ne garde par
+    # paire que celle du palier le PLUS AVANCÉ (le plus pertinent à afficher au personnel), avec
+    # sa propre date et, pour l'email, son propre `transport_status` — jamais un mélange entre
+    # paliers différents.
+    in_app_by_pair: dict[tuple[uuid.UUID, uuid.UUID], tuple[str, datetime]] = {}
+    email_by_pair: dict[tuple[uuid.UUID, uuid.UUID], tuple[str, str, datetime]] = {}
     if fee_ids:
         # `notifications` a une policy RLS PAR DESTINATAIRE, pas par organisation (migration 0011)
         # — un membre du staff lisant ce rapport n'est jamais lui-même le destinataire de la
@@ -581,31 +584,58 @@ async def list_overdue_fees(
         # `school_id` explicite) pour garder ces dernières sous la policy RLS restrictive normale.
         await set_platform_wide_context(db)
         notif_result = await db.execute(
-            select(Notification.student_fee_id, Notification.recipient_user_id).where(
-                Notification.student_fee_id.in_(fee_ids), Notification.type == "FEE_OVERDUE"
-            )
+            select(
+                Notification.student_fee_id,
+                Notification.recipient_user_id,
+                Notification.reminder_stage,
+                Notification.created_at,
+            ).where(Notification.student_fee_id.in_(fee_ids), Notification.type == "FEE_OVERDUE")
         )
-        in_app_pairs = {(row[0], row[1]) for row in notif_result.all()}
+        for fee_id, recipient_id, stage, created_at in notif_result.all():
+            if stage is None:
+                continue
+            key = (fee_id, recipient_id)
+            existing_in_app = in_app_by_pair.get(key)
+            if existing_in_app is None or REMINDER_STAGES.index(stage) > REMINDER_STAGES.index(existing_in_app[0]):
+                in_app_by_pair[key] = (stage, created_at)
 
         email_result = await db.execute(
             select(
                 FeeOverdueEmailReminder.student_fee_id,
                 FeeOverdueEmailReminder.guardian_id,
                 FeeOverdueEmailReminder.transport_status,
+                FeeOverdueEmailReminder.reminder_stage,
+                FeeOverdueEmailReminder.sent_at,
             ).where(FeeOverdueEmailReminder.student_fee_id.in_(fee_ids))
         )
-        email_status_pairs = {(row[0], row[1]): row[2] for row in email_result.all()}
+        for fee_id, guardian_id, transport_status, stage, sent_at in email_result.all():
+            key = (fee_id, guardian_id)
+            existing_email = email_by_pair.get(key)
+            if existing_email is None or REMINDER_STAGES.index(stage) > REMINDER_STAGES.index(existing_email[0]):
+                email_by_pair[key] = (stage, transport_status, sent_at)
 
     items: list[OverdueFeeItem] = []
     for fee, schedule_name, currency, remaining_balance, matricule, first_name, last_name in rows:
         contacts: list[OverdueFeeGuardianContact] = []
         for guardian_id, full_name, email, user_id in guardians_by_student.get(fee.student_id, []):
             statuses: list[OverdueContactChannel] = []
-            if user_id is not None and (fee.id, user_id) in in_app_pairs:
-                statuses.append("IN_APP_SENT")
-            transport_status = email_status_pairs.get((fee.id, guardian_id))
-            if transport_status is not None:
+            reminder_stage: str | None = None
+            last_reminder_at: datetime | None = None
+            if user_id is not None:
+                in_app_entry = in_app_by_pair.get((fee.id, user_id))
+                if in_app_entry is not None:
+                    statuses.append("IN_APP_SENT")
+                    reminder_stage, last_reminder_at = in_app_entry
+            email_entry = email_by_pair.get((fee.id, guardian_id))
+            if email_entry is not None:
+                email_stage, transport_status, sent_at = email_entry
                 statuses.append(_EMAIL_TRANSPORT_STATUS_TO_CHANNEL.get(transport_status, "EMAIL_ATTEMPTED"))
+                # Un tuteur donné n'a jamais les deux sources à la fois en pratique (compte XOR
+                # email, voir resolve_guardian_user_ids_for_students/
+                # resolve_guardian_emails_without_account_for_students) — gardé par robustesse,
+                # jamais exercé en conditions normales.
+                if reminder_stage is None or REMINDER_STAGES.index(email_stage) > REMINDER_STAGES.index(reminder_stage):
+                    reminder_stage, last_reminder_at = email_stage, sent_at
             contacts.append(
                 OverdueFeeGuardianContact(
                     guardian_id=guardian_id,
@@ -613,6 +643,8 @@ async def list_overdue_fees(
                     has_user_account=user_id is not None,
                     email=email,
                     statuses=statuses or ["NO_CHANNEL"],
+                    reminder_stage=cast("ReminderStage | None", reminder_stage),
+                    last_reminder_at=last_reminder_at,
                 )
             )
         assert fee.due_date is not None  # garanti par `conditions` ci-dessus

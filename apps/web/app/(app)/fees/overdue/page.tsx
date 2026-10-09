@@ -9,6 +9,7 @@ import {
   type OverdueContactChannel,
   type OverdueFeeGuardianContact,
   type OverdueFeesPage,
+  type ReminderStage,
 } from "@/lib/fees/client";
 
 const PAGE_SIZE = 20;
@@ -31,7 +32,31 @@ const STATUS_STYLES: Record<OverdueContactChannel, string> = {
   NO_CHANNEL: "bg-red-50 text-red-700 border-red-200",
 };
 
-function GuardianContact({ guardian }: { guardian: OverdueFeeGuardianContact }) {
+// PR #15 — cadence de relance (voir fees/models.py::REMINDER_STAGES).
+const STAGE_LABELS: Record<ReminderStage, string> = {
+  J0: "Palier initial (J0)",
+  J7: "Relance à J+7",
+  J30: "Relance à J+30",
+};
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("fr-FR");
+}
+
+// Prochaine relance CALCULÉE côté client depuis `due_date` (jamais renvoyée par l'API — voir
+// cahier des charges PR #15 §11, "prochaine relance calculable à partir de due_date") : aucune
+// donnée n'est stockée pour ça, uniquement les seuils fixes J+7/J+30 déjà connus du frontend.
+function nextReminderDate(dueDate: string, stage: ReminderStage | null): string | null {
+  if (stage === null) return null; // NO_CHANNEL : aucune relance possible, rien à prévoir.
+  const next = new Date(dueDate);
+  if (stage === "J0") next.setDate(next.getDate() + 7);
+  else if (stage === "J7") next.setDate(next.getDate() + 30);
+  else return null; // J30 : dernier palier déjà atteint, plus aucune relance prévue.
+  return next.toISOString().slice(0, 10);
+}
+
+function GuardianContact({ guardian, dueDate }: { guardian: OverdueFeeGuardianContact; dueDate: string }) {
+  const next = nextReminderDate(dueDate, guardian.reminder_stage);
   return (
     <div className="flex flex-col gap-1">
       <span className="text-slate-700">
@@ -48,6 +73,13 @@ function GuardianContact({ guardian }: { guardian: OverdueFeeGuardianContact }) 
           </span>
         ))}
       </div>
+      {guardian.reminder_stage && (
+        <span className="text-[11px] text-slate-500">
+          {STAGE_LABELS[guardian.reminder_stage]}
+          {guardian.last_reminder_at && ` — dernière relance le ${formatDate(guardian.last_reminder_at)}`}
+          {next && ` — prochaine relance le ${new Date(next).toLocaleDateString("fr-FR")}`}
+        </span>
+      )}
     </div>
   );
 }
@@ -121,7 +153,7 @@ export default function OverdueFeesPageView() {
                   ) : (
                     <div className="flex flex-col gap-2">
                       {item.guardians.map((guardian) => (
-                        <GuardianContact key={guardian.guardian_id} guardian={guardian} />
+                        <GuardianContact key={guardian.guardian_id} guardian={guardian} dueDate={item.due_date} />
                       ))}
                     </div>
                   )}

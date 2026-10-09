@@ -113,12 +113,18 @@ export type OverdueContactChannel =
   | "EMAIL_TRANSPORT_FAILED"
   | "NO_CHANNEL";
 
+// PR #15 — palier de relance le plus avancé déjà atteint ("J0"/"J7"/"J30"), `null` si aucune
+// tentative n'a jamais été possible (NO_CHANNEL) — voir fees/models.py::REMINDER_STAGES.
+export type ReminderStage = "J0" | "J7" | "J30";
+
 export type OverdueFeeGuardianContact = {
   guardian_id: string;
   full_name: string;
   has_user_account: boolean;
   email: string | null;
   statuses: OverdueContactChannel[];
+  reminder_stage: ReminderStage | null;
+  last_reminder_at: string | null;
 };
 
 export type OverdueFeeItem = {

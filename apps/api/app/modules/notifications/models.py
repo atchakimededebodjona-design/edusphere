@@ -46,11 +46,18 @@ class Notification(Base):
     # Sprint 1.2 (rappels de retard de paiement) — lien optionnel vers la StudentFee à l'origine
     # d'une notification FEE_OVERDUE. Nullable : aucun des 4 types de notification précédents n'a
     # de référence structurelle de ce genre (voir Discovery — texte seul, jamais fiable pour
-    # dédupliquer). Base de l'idempotence : un seul rappel par (student_fee_id, recipient_user_id),
-    # garanti par l'index unique partiel `uq_notifications_fee_overdue_recipient` (migration 0013),
-    # pas seulement par le contrôle applicatif dans fees/overdue_reminders.py.
+    # dédupliquer). Base de l'idempotence : un seul rappel par (student_fee_id, recipient_user_id,
+    # reminder_stage depuis PR #15), garanti par l'index unique partiel
+    # `uq_notifications_fee_overdue_recipient_stage` (migration 0021, qui remplace l'index
+    # `uq_notifications_fee_overdue_recipient` de la migration 0013), pas seulement par le
+    # contrôle applicatif dans fees/overdue_reminders.py.
     student_fee_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("student_fees.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # PR #15 — palier de relance ("J0"/"J7"/"J30", voir fees/models.py::REMINDER_STAGES), UNIQUEMENT
+    # pertinent pour `type == "FEE_OVERDUE"` ; toujours NULL pour les 4 autres types, qui n'ont
+    # aucune notion de palier. Jamais réécrit après coup : une fois posé, le palier d'une ligne
+    # existante n'est jamais modifié (chaque palier franchi = sa propre ligne immuable).
+    reminder_stage: Mapped[str | None] = mapped_column(String(8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
