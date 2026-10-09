@@ -17,6 +17,7 @@ from app.core.log_context import (
 from app.core.logging_config import configure_logging
 from app.modules.academics.router import router as academics_router
 from app.modules.attendance.router import router as attendance_router
+from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.fees.router import router as fees_router
 from app.modules.grades.router import router as grades_router
@@ -137,6 +138,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 app.include_router(health_router, prefix=settings.api_v1_prefix, tags=["health"])
+app.include_router(audit_router, prefix=settings.api_v1_prefix, tags=["audit"])
 app.include_router(auth_router, prefix=f"{settings.api_v1_prefix}/auth", tags=["auth"])
 app.include_router(organizations_router, prefix=f"{settings.api_v1_prefix}/organizations", tags=["organizations"])
 app.include_router(schools_router, prefix=f"{settings.api_v1_prefix}/schools", tags=["schools"])

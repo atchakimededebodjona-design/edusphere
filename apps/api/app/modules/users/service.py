@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.email import send_email_best_effort
 from app.core.security import generate_opaque_token, hash_opaque_token, hash_password
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
+from app.modules.audit import service as audit_service
 from app.modules.auth.models import PasswordResetToken
 from app.modules.rbac.models import PLATFORM_ROLE_CODES, Role, UserRole
 from app.modules.schools.models import School
@@ -170,6 +171,8 @@ async def update_user_in_school(
     if not role_rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User has no role in this school")
 
+    previous_is_active = user.is_active
+
     if payload.role_code is not None:
         if payload.role_code in PLATFORM_ROLE_CODES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a platform-wide role here")
@@ -177,6 +180,15 @@ async def update_user_in_school(
         role = role_result.scalar_one_or_none()
         if role is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role code")
+
+        # PR #14 — code(s) précédent(s) capturé AVANT suppression, pour le résumé d'audit ci-dessous.
+        previous_codes_result = await db.execute(
+            select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(
+                UserRole.id.in_([row.id for row in role_rows])
+            )
+        )
+        previous_role_codes = sorted({row[0] for row in previous_codes_result.all()})
+
         for row in role_rows:
             await db.delete(row)
         await db.flush()
@@ -189,9 +201,34 @@ async def update_user_in_school(
                 school_id=school.id,
             )
         )
+        await audit_service.record_audit_event(
+            db,
+            school_id=school.id,
+            organization_id=school.organization_id,
+            actor_user_id=current_user_id,
+            action=audit_service.ACTION_USER_ROLE_CHANGED,
+            entity_type=audit_service.ENTITY_USER,
+            entity_id=target_user_id,
+            summary=f"Rôle de {user.email} changé de {'/'.join(previous_role_codes) or '—'} à {role.code}",
+            metadata={"previous_role_codes": previous_role_codes, "new_role_code": role.code},
+        )
 
     if payload.is_active is not None:
         user.is_active = payload.is_active
+        await audit_service.record_audit_event(
+            db,
+            school_id=school.id,
+            organization_id=school.organization_id,
+            actor_user_id=current_user_id,
+            action=audit_service.ACTION_USER_STATUS_CHANGED,
+            entity_type=audit_service.ENTITY_USER,
+            entity_id=target_user_id,
+            summary=(
+                f"Compte {user.email} {'activé' if payload.is_active else 'désactivé'} "
+                f"(précédemment {'actif' if previous_is_active else 'inactif'})"
+            ),
+            metadata={"previous_is_active": previous_is_active, "new_is_active": payload.is_active},
+        )
 
     await db.flush()
     await db.refresh(user)

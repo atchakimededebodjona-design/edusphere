@@ -160,3 +160,19 @@ PHASE21_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "SCHOOL_ADMIN": ["announcements.manage"],
     "DIRECTOR": ["announcements.manage"],
 }
+
+# --- PR #14 (journal d'audit administratif) --------------------------------------
+# Pas de numéro de "Phase" ici : le projet est passé à un suivi par PR depuis la Phase 21. Décision
+# produit validée (voir AUDIT EDULINKAGE §13) : seuls les rôles qui supervisent une école/
+# organisation peuvent consulter ce journal. ACCOUNTANT/TEACHER/STAFF manipulent des ressources
+# sensibles (paiements, notes...) mais ne supervisent pas — ils n'ont jamais `audit.read`.
+AUDIT_PERMISSIONS: dict[str, str] = {
+    "audit.read": "Consulter le journal des actions administratives sensibles",
+}
+
+AUDIT_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": ["audit.read"],
+    "PLATFORM_SUPPORT": ["audit.read"],
+    "SCHOOL_ADMIN": ["audit.read"],
+    "DIRECTOR": ["audit.read"],
+}

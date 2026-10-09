@@ -10,6 +10,7 @@ from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_t
 from app.core.rate_limit import ensure_report_card_verify_not_rate_limited, register_report_card_verify_attempt
 from app.core.storage import storage
 from app.modules.academics.models import AcademicTerm, ClassSubject, SchoolClass, TeacherAssignment
+from app.modules.audit import service as audit_service
 from app.modules.notifications import service as notifications_service
 from app.modules.report_cards import service
 from app.modules.report_cards.models import ReportCard, ReportCardTemplate
@@ -218,6 +219,22 @@ async def publish_report_card(report_card_id: uuid.UUID, db: DbSession, current_
         # du contexte plateforme). Hérite gratuitement de la même garde `was_already_published`
         # (pas de double notification sur republication d'un bulletin déjà publié).
         await notifications_service.notify_report_card_published(db, report_card)
+
+    # PR #14 — publié à chaque appel réussi (y compris une republication après régénération : le
+    # contenu a changé, c'est une nouvelle action de publication réelle, pas un doublon à éviter).
+    student = await db.get(Student, report_card.student_id)
+    student_label = f"{student.first_name} {student.last_name} ({student.matricule})" if student else str(report_card.student_id)
+    await audit_service.record_audit_event(
+        db,
+        school_id=report_card.school_id,
+        organization_id=report_card.organization_id,
+        actor_user_id=current_user.id,
+        action=audit_service.ACTION_REPORT_CARD_PUBLISHED,
+        entity_type=audit_service.ENTITY_REPORT_CARD,
+        entity_id=report_card.id,
+        summary=f"Bulletin publié pour {student_label}" + (" (republication)" if was_already_published else ""),
+        metadata={"student_id": str(report_card.student_id), "republication": was_already_published},
+    )
 
     await db.commit()
 

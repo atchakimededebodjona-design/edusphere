@@ -9,6 +9,7 @@ from app.core.permissions import CurrentUser, DbSession, ensure_permission
 from app.core.rate_limit import ensure_payments_not_rate_limited, register_payments_attempt
 from app.core.storage import storage
 from app.modules.academics.models import AcademicYear, EducationLevel, SchoolClass
+from app.modules.audit import service as audit_service
 from app.modules.fees import service
 from app.modules.fees.models import FeeCategory, FeeSchedule, Payment, StudentFee
 from app.modules.fees.schemas import (
@@ -205,6 +206,8 @@ async def update_student_fee(student_fee_id: uuid.UUID, payload: StudentFeeUpdat
             detail="A note is required when adjusting the due amount",
         )
 
+    previous_amount_due = student_fee.amount_due
+
     changed = False
     if payload.amount_due is not None:
         student_fee.amount_due = payload.amount_due
@@ -218,6 +221,27 @@ async def update_student_fee(student_fee_id: uuid.UUID, payload: StudentFeeUpdat
 
     if changed:
         student_fee.updated_by = current_user.id
+
+    # PR #14 — uniquement sur un ajustement du MONTANT dû (jamais sur une simple modification de
+    # date d'échéance ou de note seule) : même périmètre que l'exigence de note obligatoire
+    # ci-dessus, les deux ciblent la même opération sensible. Même transaction que la mutation
+    # ci-dessus (voir audit/service.py::record_audit_event).
+    if payload.amount_due is not None:
+        await audit_service.record_audit_event(
+            db,
+            school_id=student_fee.school_id,
+            organization_id=student_fee.organization_id,
+            actor_user_id=current_user.id,
+            action=audit_service.ACTION_STUDENT_FEE_AMOUNT_ADJUSTED,
+            entity_type=audit_service.ENTITY_STUDENT_FEE,
+            entity_id=student_fee.id,
+            summary=f"Montant dû ajusté de {previous_amount_due} à {payload.amount_due} — motif : {payload.note}",
+            metadata={
+                "student_id": str(student_fee.student_id),
+                "previous_amount_due": str(previous_amount_due),
+                "new_amount_due": str(payload.amount_due),
+            },
+        )
 
     await db.flush()
     await db.refresh(student_fee)

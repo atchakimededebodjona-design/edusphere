@@ -326,6 +326,7 @@ async def bulk_enroll_students(
             student_ids=payload.student_ids,
             school_class=school_class,
             enrollment_date=payload.enrollment_date,
+            actor_user_id=current_user.id,
             dry_run=dry_run,
         )
     except IntegrityError as exc:

@@ -13,6 +13,7 @@ from app.core.payment import payment_provider
 from app.core.storage import storage
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.modules.academics.models import SchoolClass
+from app.modules.audit import service as audit_service
 from app.modules.notifications import service as notifications_service
 from app.modules.fees.models import FeeOverdueEmailReminder, FeeSchedule, Payment, PaymentAllocation, StudentFee
 from app.modules.fees.schemas import (
@@ -347,6 +348,22 @@ async def cancel_payment(db: AsyncSession, payment: Payment, cancelled_by: uuid.
     fees_result = await db.execute(select(StudentFee).where(StudentFee.id.in_(fee_ids)).with_for_update())
     for fee in fees_result.scalars().all():
         await _refresh_student_fee_status(db, fee)
+
+    # PR #14 — même transaction que la mutation ci-dessus (voir audit/service.py::record_audit_event
+    # pour la justification de ce choix) : le garde `payment.status != "COMPLETED"` plus haut
+    # empêche déjà qu'une seconde annulation (retry réseau d'un appel déjà réussi) n'atteigne ce
+    # point, donc jamais de second audit pour la même annulation.
+    await audit_service.record_audit_event(
+        db,
+        school_id=payment.school_id,
+        organization_id=payment.organization_id,
+        actor_user_id=cancelled_by,
+        action=audit_service.ACTION_PAYMENT_CANCELLED,
+        entity_type=audit_service.ENTITY_PAYMENT,
+        entity_id=payment.id,
+        summary=f"Paiement {payment.receipt_number} ({payment.amount}) annulé — motif : {reason}",
+        metadata={"student_id": str(payment.student_id), "amount": str(payment.amount), "reason": reason},
+    )
 
     await db.refresh(payment)
     await db.commit()
