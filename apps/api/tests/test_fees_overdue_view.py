@@ -269,10 +269,10 @@ async def test_list_overdue_fees_does_not_scale_query_count_with_row_count(clien
         )
 
     assert len(result.items) == 5
-    # Comptage + page + tuteurs + élargissement RLS notifications + notifications + rappels email :
-    # 6 requêtes fixes, jamais une par ligne ni par tuteur (5 frais x 3 tuteurs chacun aurait donné
-    # bien plus de 6 appels avec du N+1 réel).
-    assert call_count <= 6, f"{call_count} requêtes SQL exécutées pour 5 frais — suspicion de N+1"
+    # Comptage + page + tuteurs + élargissement RLS notifications + notifications + rappels email
+    # + rappels SMS (PR #16, nouvelle lecture fixe) : 7 requêtes fixes, jamais une par ligne ni
+    # par tuteur (5 frais x 3 tuteurs chacun aurait donné bien plus de 7 appels avec du N+1 réel).
+    assert call_count <= 7, f"{call_count} requêtes SQL exécutées pour 5 frais — suspicion de N+1"
 
 
 # --- Lecture seule : aucune écriture n'est produite par l'endpoint ---------------------------------------

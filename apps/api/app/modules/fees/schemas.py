@@ -167,8 +167,22 @@ class FeesSummaryOut(BaseModel):
 # PHASE_14_DISCOVERY_REPORT §5. Jamais plusieurs statuts email à la fois pour un même tuteur/frais
 # (une seule ligne `fee_overdue_email_reminders`, contrainte unique). ["NO_CHANNEL"] seul si ni
 # in-app ni email n'a jamais été tenté.
+# PR #16 — SMS_* ajoutés, même sémantique exacte que EMAIL_* ci-dessus (ATTEMPTED/
+# TRANSPORT_ACCEPTED/TRANSPORT_FAILED reflètent `FeeOverdueSmsReminder.transport_status`, jamais
+# une preuve de remise au téléphone). Un tuteur sans compte n'emprunte normalement QUE l'un des
+# deux canaux SMS/email à la fois (voir fees/overdue_reminders.py::_route_guardians_without_account),
+# mais les deux peuvent exceptionnellement coexister dans l'historique si le canal préféré a
+# changé entre deux exécutions (téléphone ajouté/retiré, SMS_ENABLED modifié) — limite connue et
+# documentée, voir ce même module.
 OverdueContactChannel = Literal[
-    "IN_APP_SENT", "EMAIL_ATTEMPTED", "EMAIL_TRANSPORT_ACCEPTED", "EMAIL_TRANSPORT_FAILED", "NO_CHANNEL"
+    "IN_APP_SENT",
+    "EMAIL_ATTEMPTED",
+    "EMAIL_TRANSPORT_ACCEPTED",
+    "EMAIL_TRANSPORT_FAILED",
+    "SMS_ATTEMPTED",
+    "SMS_TRANSPORT_ACCEPTED",
+    "SMS_TRANSPORT_FAILED",
+    "NO_CHANNEL",
 ]
 
 # PR #15 — palier de relance atteint (voir fees/models.py::REMINDER_STAGES). `None` ci-dessous

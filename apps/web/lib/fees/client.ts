@@ -106,11 +106,15 @@ export type FeesSummary = { total_due: string; total_paid: string; balance: stri
 // Sprint 1.6 — "EMAIL_SENT" scindé en 3 (attempted/transport accepted/transport failed) : un
 // transport SMTP accepté n'est jamais une preuve de remise réelle, jamais affiché comme "envoyé"
 // ou "reçu" seul (voir apps/web/app/(app)/fees/overdue/page.tsx pour les libellés exacts).
+// PR #16 — SMS_* ajoutés, même sémantique exacte que EMAIL_*.
 export type OverdueContactChannel =
   | "IN_APP_SENT"
   | "EMAIL_ATTEMPTED"
   | "EMAIL_TRANSPORT_ACCEPTED"
   | "EMAIL_TRANSPORT_FAILED"
+  | "SMS_ATTEMPTED"
+  | "SMS_TRANSPORT_ACCEPTED"
+  | "SMS_TRANSPORT_FAILED"
   | "NO_CHANNEL";
 
 // PR #15 — palier de relance le plus avancé déjà atteint ("J0"/"J7"/"J30"), `null` si aucune

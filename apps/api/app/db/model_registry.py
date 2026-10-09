@@ -16,6 +16,7 @@ from app.modules.auth.models import PasswordResetToken, UserSession  # noqa: F40
 from app.modules.fees.models import (  # noqa: F401
     FeeCategory,
     FeeOverdueEmailReminder,
+    FeeOverdueSmsReminder,
     FeeSchedule,
     Payment,
     PaymentAllocation,

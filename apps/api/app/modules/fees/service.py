@@ -16,7 +16,15 @@ from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.modules.academics.models import SchoolClass
 from app.modules.audit import service as audit_service
 from app.modules.notifications import service as notifications_service
-from app.modules.fees.models import REMINDER_STAGES, FeeOverdueEmailReminder, FeeSchedule, Payment, PaymentAllocation, StudentFee
+from app.modules.fees.models import (
+    REMINDER_STAGES,
+    FeeOverdueEmailReminder,
+    FeeOverdueSmsReminder,
+    FeeSchedule,
+    Payment,
+    PaymentAllocation,
+    StudentFee,
+)
 from app.modules.fees.schemas import (
     FeeScheduleGenerateResult,
     FinancialSummaryOut,
@@ -479,6 +487,13 @@ _EMAIL_TRANSPORT_STATUS_TO_CHANNEL: dict[str, OverdueContactChannel] = {
     "TRANSPORT_FAILED": "EMAIL_TRANSPORT_FAILED",
 }
 
+# PR #16 — pendant SMS de la correspondance ci-dessus, même motif exact.
+_SMS_TRANSPORT_STATUS_TO_CHANNEL: dict[str, OverdueContactChannel] = {
+    "ATTEMPTED": "SMS_ATTEMPTED",
+    "TRANSPORT_ACCEPTED": "SMS_TRANSPORT_ACCEPTED",
+    "TRANSPORT_FAILED": "SMS_TRANSPORT_FAILED",
+}
+
 
 async def list_overdue_fees(
     db: AsyncSession,
@@ -575,6 +590,7 @@ async def list_overdue_fees(
     # paliers différents.
     in_app_by_pair: dict[tuple[uuid.UUID, uuid.UUID], tuple[str, datetime]] = {}
     email_by_pair: dict[tuple[uuid.UUID, uuid.UUID], tuple[str, str, datetime]] = {}
+    sms_by_pair: dict[tuple[uuid.UUID, uuid.UUID], tuple[str, str, datetime]] = {}
     if fee_ids:
         # `notifications` a une policy RLS PAR DESTINATAIRE, pas par organisation (migration 0011)
         # — un membre du staff lisant ce rapport n'est jamais lui-même le destinataire de la
@@ -614,6 +630,22 @@ async def list_overdue_fees(
             if existing_email is None or REMINDER_STAGES.index(stage) > REMINDER_STAGES.index(existing_email[0]):
                 email_by_pair[key] = (stage, transport_status, sent_at)
 
+        # PR #16 — pendant SMS de la lecture email ci-dessus, même motif exact.
+        sms_result = await db.execute(
+            select(
+                FeeOverdueSmsReminder.student_fee_id,
+                FeeOverdueSmsReminder.guardian_id,
+                FeeOverdueSmsReminder.transport_status,
+                FeeOverdueSmsReminder.reminder_stage,
+                FeeOverdueSmsReminder.created_at,
+            ).where(FeeOverdueSmsReminder.student_fee_id.in_(fee_ids))
+        )
+        for fee_id, guardian_id, transport_status, stage, created_at in sms_result.all():
+            key = (fee_id, guardian_id)
+            existing_sms = sms_by_pair.get(key)
+            if existing_sms is None or REMINDER_STAGES.index(stage) > REMINDER_STAGES.index(existing_sms[0]):
+                sms_by_pair[key] = (stage, transport_status, created_at)
+
     items: list[OverdueFeeItem] = []
     for fee, schedule_name, currency, remaining_balance, matricule, first_name, last_name in rows:
         contacts: list[OverdueFeeGuardianContact] = []
@@ -630,12 +662,19 @@ async def list_overdue_fees(
             if email_entry is not None:
                 email_stage, transport_status, sent_at = email_entry
                 statuses.append(_EMAIL_TRANSPORT_STATUS_TO_CHANNEL.get(transport_status, "EMAIL_ATTEMPTED"))
-                # Un tuteur donné n'a jamais les deux sources à la fois en pratique (compte XOR
-                # email, voir resolve_guardian_user_ids_for_students/
-                # resolve_guardian_emails_without_account_for_students) — gardé par robustesse,
-                # jamais exercé en conditions normales.
+                # Un tuteur donné n'emprunte normalement qu'une seule de ces trois sources à la
+                # fois (compte XOR SMS XOR email, voir
+                # fees/overdue_reminders.py::_route_guardians_without_account) — sauf bascule de
+                # canal entre deux exécutions (limite connue et documentée dans ce même module),
+                # d'où ce calcul robuste au cumul plutôt qu'une hypothèse d'exclusivité stricte.
                 if reminder_stage is None or REMINDER_STAGES.index(email_stage) > REMINDER_STAGES.index(reminder_stage):
                     reminder_stage, last_reminder_at = email_stage, sent_at
+            sms_entry = sms_by_pair.get((fee.id, guardian_id))
+            if sms_entry is not None:
+                sms_stage, sms_transport_status, sms_created_at = sms_entry
+                statuses.append(_SMS_TRANSPORT_STATUS_TO_CHANNEL.get(sms_transport_status, "SMS_ATTEMPTED"))
+                if reminder_stage is None or REMINDER_STAGES.index(sms_stage) > REMINDER_STAGES.index(reminder_stage):
+                    reminder_stage, last_reminder_at = sms_stage, sms_created_at
             contacts.append(
                 OverdueFeeGuardianContact(
                     guardian_id=guardian_id,

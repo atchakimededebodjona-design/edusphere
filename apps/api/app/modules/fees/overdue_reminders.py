@@ -44,7 +44,22 @@ commit unique pour tout le lot, pour qu'une interruption n'affecte jamais plus d
 SPRINT 1.6 IMPLEMENTATION PLAN §7/§8). Aucun retry automatique, aucune queue : un
 `TRANSPORT_FAILED` reste tel quel jusqu'à une décision produit explicite et distincte — et,
 depuis PR #15, un `TRANSPORT_FAILED` à un palier n'empêche jamais le palier SUIVANT d'être tenté
-à son tour (paliers indépendants, lignes indépendantes)."""
+à son tour (paliers indépendants, lignes indépendantes).
+
+PR #16 — canal SMS, pour les mêmes tuteurs SANS compte utilisateur que le canal email ci-dessus,
+mais PRIORITAIRE sur lui dès qu'un numéro de téléphone normalisable en E.164 existe (voir
+`app/core/phone.py`) ET que `SMS_ENABLED=true` (voir `app/core/config.py`) : SMS et email restent
+mutuellement exclusifs PAR TUTEUR — jamais les deux pour le même palier (voir
+`_route_guardians_without_account` ci-dessous pour la règle de routage exacte). Si
+`SMS_ENABLED=false` (valeur par défaut) ou qu'aucun numéro valide n'existe pour un tuteur donné,
+le comportement retombe EXACTEMENT sur celui de PR #15 (email si disponible, sinon aucun canal) —
+aucune régression du comportement existant tant que ce drapeau reste désactivé. Même discipline
+d'idempotence EN BASE (table dédiée `fee_overdue_sms_reminders`, contrainte unique
+`(student_fee_id, guardian_id, reminder_stage)`, `SAVEPOINT` par ligne) et même règle de retry
+qu'email : un SMS `TRANSPORT_FAILED` à un palier n'est JAMAIS retenté automatiquement pour ce
+MÊME palier (la ligne existe déjà, donc ce palier est "tenté" pour `_next_stage_to_send`, qui ne
+regarde jamais `transport_status`) — seul le palier SUIVANT sera tenté normalement, exactement la
+même décision que pour l'email, pour rester cohérent avec l'architecture déjà en place."""
 
 import logging
 import uuid
@@ -56,17 +71,22 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.email import send_email_best_effort
+from app.core.phone import normalize_phone_to_e164
+from app.core.sms import send_sms_best_effort
 from app.core.tenancy import set_platform_wide_context
-from app.modules.fees.models import REMINDER_STAGES, FeeOverdueEmailReminder, FeeSchedule, StudentFee
+from app.modules.fees.models import REMINDER_STAGES, FeeOverdueEmailReminder, FeeOverdueSmsReminder, FeeSchedule, StudentFee
 from app.modules.fees.service import compute_remaining_balances
 from app.modules.notifications.models import Notification
 from app.modules.notifications.service import (
     existing_fee_overdue_emailed_guardian_stages_for_fees,
     existing_fee_overdue_recipient_stages_for_fees,
-    resolve_guardian_emails_without_account_for_students,
+    existing_fee_overdue_sms_stages_for_fees,
     resolve_guardian_user_ids_for_students,
+    resolve_guardians_without_account_for_students,
 )
+from app.modules.organizations.models import Organization
 from app.modules.schools.models import School
 from app.modules.students.models import Student
 
@@ -153,6 +173,9 @@ class OverdueReminderRunResult:
     # ligne `FeeOverdueEmailReminder` déjà créée) pour que l'appelant puisse y reporter le
     # résultat réel du transport une fois l'envoi tenté.
     emails: list[tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]] = field(default_factory=list)
+    # PR #16 — SMS prêts à envoyer, même découplage préparation/envoi que `emails` ci-dessus (voir
+    # `send_overdue_fee_reminder_sms`). Tuple : (reminder_id, numéro E.164, corps du message).
+    sms: list[tuple[uuid.UUID, str, str]] = field(default_factory=list)
 
 
 async def _list_eligible_overdue_fees(db: AsyncSession) -> list[tuple[StudentFee, str, str]]:
@@ -176,6 +199,17 @@ def _format_reminder_body(student: Student, schedule_name: str, balance: Decimal
     return (
         f"Le paiement de {student.first_name} {student.last_name} pour « {schedule_name} » "
         f"est en retard. Montant restant : {balance} {currency}."
+    )
+
+
+def _format_sms_body(student: Student) -> str:
+    """PR #16 — message volontairement très court et générique (cahier des charges §9) : jamais
+    de montant, de solde, de nom de barème ni de lien — seul le prénom de l'élève, pour rester
+    sous la longueur d'un segment SMS standard (~160 caractères GSM-7) et ne jamais exposer de
+    détail financier par un canal non authentifié."""
+    return (
+        f"EduLinkage : le paiement scolaire de {student.first_name} est en retard. "
+        "Connectez-vous à votre espace parent pour consulter votre situation."
     )
 
 
@@ -329,6 +363,96 @@ async def _prepare_overdue_emails(
     return emails
 
 
+async def _prepare_overdue_sms(
+    db: AsyncSession,
+    *,
+    fee: StudentFee,
+    sms_body: str,
+    candidates: list[tuple[uuid.UUID, str]],
+    reminder_stage: str,
+) -> list[tuple[uuid.UUID, str, str]]:
+    """PR #16 — pendant SMS de `_prepare_overdue_emails` ci-dessus, même mécanisme exact : écrit
+    une ligne `FeeOverdueSmsReminder` à `ATTEMPTED` sous son propre `SAVEPOINT` (une collision sur
+    la contrainte unique n'annule que CETTE ligne, jamais le reste du lot) ; `candidates` est déjà
+    filtré par l'appelant (`send_overdue_fee_reminders`, via `_route_guardians_without_account`)
+    pour ne contenir que les tuteurs dont CE `reminder_stage` précis est le prochain palier dû
+    PAR CE canal — la garantie "jamais deux fois le même palier" reste assurée EN BASE par la
+    contrainte unique `uq_fee_overdue_sms_reminder_stage` (migration 0022), jamais seulement par
+    ce pré-filtrage. `candidates` porte déjà le numéro normalisé en E.164 (voir
+    `app/core/phone.py`) — jamais le numéro brut saisi par l'école."""
+    if not candidates:
+        return []
+
+    sms: list[tuple[uuid.UUID, str, str]] = []
+    for guardian_id, phone_e164 in candidates:
+        reminder_id = uuid.uuid4()
+        try:
+            async with db.begin_nested():
+                db.add(
+                    FeeOverdueSmsReminder(
+                        id=reminder_id,
+                        school_id=fee.school_id,
+                        organization_id=fee.organization_id,
+                        student_fee_id=fee.id,
+                        guardian_id=guardian_id,
+                        reminder_stage=reminder_stage,
+                        transport_status="ATTEMPTED",
+                    )
+                )
+                await db.flush()
+        except IntegrityError:
+            logger.warning(
+                "overdue_fee_reminders: SMS déjà tracé pour "
+                "(student_fee_id=%s, guardian_id=%s, stage=%s), ignoré.",
+                fee.id,
+                guardian_id,
+                reminder_stage,
+            )
+            continue
+        sms.append((reminder_id, phone_e164, sms_body))
+
+    return sms
+
+
+def _route_guardians_without_account(
+    candidates: list[tuple[uuid.UUID, str, str | None, str | None]], default_region: str
+) -> tuple[list[tuple[uuid.UUID, str]], list[tuple[uuid.UUID, str, str]]]:
+    """Règle de routage SMS/email pour les tuteurs SANS compte utilisateur (cahier des charges
+    PR #16 §7) — appliquée AVANT toute résolution de palier, pour que SMS et email restent
+    strictement mutuellement exclusifs PAR TUTEUR, jamais les deux pour un même palier :
+
+    1. Numéro de téléphone normalisable en E.164 (et `SMS_ENABLED=true`, vérifié par l'appelant
+       via `default_region` — voir `send_overdue_fee_reminders`) -> SMS, prioritaire.
+    2. Sinon, adresse email renseignée -> email, en repli.
+    3. Sinon -> aucun canal (NO_CHANNEL côté `/fees/overdue`, voir fees/service.py).
+
+    Retourne deux listes déjà disjointes : `(guardian_id, phone_e164)` pour le canal SMS,
+    `(guardian_id, full_name, email)` pour le canal email (même forme qu'avant ce PR, pour ne pas
+    toucher `_prepare_overdue_emails`).
+
+    LIMITE CONNUE, ACCEPTÉE ET DOCUMENTÉE (cahier des charges PR #16 §7 : "respecter les
+    mécanismes d'idempotence séparés... in-app/email/SMS") : le routage est réévalué à CHAQUE
+    exécution depuis l'état COURANT du tuteur (téléphone/email renseignés, `SMS_ENABLED`) — il
+    n'existe PAS de vérification croisée entre les trois tables de suivi. Si un tuteur a reçu un
+    palier par email avant que SMS_ENABLED ne soit activé (ou avant qu'un numéro valide ne soit
+    renseigné), puis que le routage bascule vers SMS à une exécution suivante, la progression SMS
+    repart de son propre J0, indépendamment de l'historique email — jamais une fusion/migration
+    automatique entre canaux. Ce choix est délibéré (trois tables indépendantes, explicitement
+    demandées) plutôt qu'une complexité supplémentaire de déduplication inter-canaux non demandée
+    par ce PR ; voir `tests/test_fee_reminder_sms.py::test_channel_switch_after_email_history_starts_fresh_sms_cadence`
+    pour le comportement exact, vérifié et documenté plutôt que fortuit."""
+    sms_candidates: list[tuple[uuid.UUID, str]] = []
+    email_candidates: list[tuple[uuid.UUID, str, str]] = []
+    for guardian_id, full_name, email, phone in candidates:
+        normalized_phone = normalize_phone_to_e164(phone, default_region) if settings.sms_enabled else None
+        if normalized_phone is not None:
+            sms_candidates.append((guardian_id, normalized_phone))
+        elif email is not None:
+            email_candidates.append((guardian_id, full_name, email))
+        # sinon : NO_CHANNEL, aucun des deux canaux n'est utilisable pour ce tuteur.
+    return sms_candidates, email_candidates
+
+
 async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResult:
     """Point d'entrée unique du job (voir `app/jobs/overdue_fee_reminders.py`). Commit sa propre
     transaction en fin d'exécution — même convention que `notifications/service.py::
@@ -356,23 +480,35 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
     schools_result = await db.execute(select(School).where(School.id.in_(school_ids)))
     schools_by_id = {school.id: school for school in schools_result.scalars().all()}
 
-    # Phase 27 Sprint 1.2bis — les 4 lectures suivantes étaient auparavant refaites À CHAQUE frais
+    # PR #16 — résolution de la région par défaut pour la normalisation E.164 (voir
+    # app/core/phone.py) : `Organization.country_code`, jamais une valeur figée en dur. Lookup
+    # groupé, même discipline anti-N+1 que `students_by_id`/`schools_by_id` ci-dessus.
+    organization_ids = {fee.organization_id for fee, _, _ in overdue_rows}
+    organizations_result = await db.execute(select(Organization).where(Organization.id.in_(organization_ids)))
+    country_code_by_org_id = {org.id: org.country_code for org in organizations_result.scalars().all()}
+
+    # Phase 27 Sprint 1.2bis — les lectures suivantes étaient auparavant refaites À CHAQUE frais
     # (jusqu'à ~5600 requêtes SQL confirmées par mesure pour ~1400 frais éligibles en pratique) :
     # un seul aller-retour par lookup, pour TOUS les frais de cette exécution, même discipline
-    # anti-N+1 que `students_by_id`/`schools_by_id` ci-dessus. PR #15 — les deux derniers lookups
-    # renvoient désormais, par destinataire, l'ENSEMBLE des paliers déjà atteints (plus un simple
-    # ensemble de destinataires) — voir notifications/service.py.
+    # anti-N+1 que `students_by_id`/`schools_by_id` ci-dessus. PR #15 — les lookups de suivi
+    # renvoient, par destinataire, l'ENSEMBLE des paliers déjà atteints (plus un simple ensemble de
+    # destinataires) — voir notifications/service.py. PR #16 —
+    # `resolve_guardians_without_account_for_students` remplace l'ancienne version limitée au seul
+    # canal email : elle renvoie désormais email ET téléphone, le routage SMS/email se faisant
+    # ensuite par tuteur (voir `_route_guardians_without_account`).
     student_school_pairs = {(fee.student_id, fee.school_id) for fee, _, _ in overdue_rows}
     fee_ids = {fee.id for fee, _, _ in overdue_rows}
     guardian_user_ids_by_pair = await resolve_guardian_user_ids_for_students(db, student_school_pairs)
     already_notified_stages_by_fee = await existing_fee_overdue_recipient_stages_for_fees(db, fee_ids)
-    guardian_emails_by_pair = await resolve_guardian_emails_without_account_for_students(db, student_school_pairs)
+    guardians_without_account_by_pair = await resolve_guardians_without_account_for_students(db, student_school_pairs)
     already_emailed_stages_by_fee = await existing_fee_overdue_emailed_guardian_stages_for_fees(db, fee_ids)
+    already_smsed_stages_by_fee = await existing_fee_overdue_sms_stages_for_fees(db, fee_ids)
 
     notifications_created = 0
     fees_with_new_notifications = 0
     notifications_created_by_stage: dict[str, int] = {}
     emails: list[tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]] = []
+    sms: list[tuple[uuid.UUID, str, str]] = []
     for fee, schedule_name, currency in overdue_rows:
         student = students_by_id.get(fee.student_id)
         if student is None:
@@ -407,17 +543,35 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
                 fees_with_new_notifications += 1
                 notifications_created_by_stage[stage] = notifications_created_by_stage.get(stage, 0) + created
 
-        # --- Canal email : même principe de regroupement par palier, pour les tuteurs SANS
-        # compte utilisateur mais avec une adresse email. ---
+        # --- Tuteurs SANS compte utilisateur : routage SMS/email (PR #16 §7 — jamais les deux
+        # pour un même tuteur), puis même principe de regroupement par palier pour chaque canal. ---
+        without_account = guardians_without_account_by_pair.get((fee.student_id, fee.school_id), [])
+        default_region = country_code_by_org_id.get(fee.organization_id, "TG")
+        sms_route_candidates, email_route_candidates = _route_guardians_without_account(without_account, default_region)
+
+        already_smsed_by_guardian = already_smsed_stages_by_fee.get(fee.id, {})
+        sms_body = _format_sms_body(student)
+        sms_candidates_by_stage: dict[str, list[tuple[uuid.UUID, str]]] = {}
+        for guardian_id, phone_e164 in sms_route_candidates:
+            stage = _next_stage_to_send(fee.due_date, today, already_smsed_by_guardian.get(guardian_id, set()))
+            if stage is not None:
+                sms_candidates_by_stage.setdefault(stage, []).append((guardian_id, phone_e164))
+
+        for stage, stage_sms_candidates in sms_candidates_by_stage.items():
+            sms.extend(
+                await _prepare_overdue_sms(
+                    db, fee=fee, sms_body=sms_body, candidates=stage_sms_candidates, reminder_stage=stage
+                )
+            )
+
         already_emailed_by_guardian = already_emailed_stages_by_fee.get(fee.id, {})
-        candidates = guardian_emails_by_pair.get((fee.student_id, fee.school_id), [])
-        candidates_by_stage: dict[str, list[tuple[uuid.UUID, str, str]]] = {}
-        for guardian_id, full_name, email in candidates:
+        email_candidates_by_stage: dict[str, list[tuple[uuid.UUID, str, str]]] = {}
+        for guardian_id, full_name, email in email_route_candidates:
             stage = _next_stage_to_send(fee.due_date, today, already_emailed_by_guardian.get(guardian_id, set()))
             if stage is not None:
-                candidates_by_stage.setdefault(stage, []).append((guardian_id, full_name, email))
+                email_candidates_by_stage.setdefault(stage, []).append((guardian_id, full_name, email))
 
-        for stage, stage_candidates in candidates_by_stage.items():
+        for stage, stage_email_candidates in email_candidates_by_stage.items():
             emails.extend(
                 await _prepare_overdue_emails(
                     db,
@@ -425,7 +579,7 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
                     fee=fee,
                     reminder_body=reminder_body,
                     school=schools_by_id.get(fee.school_id),
-                    candidates=stage_candidates,
+                    candidates=stage_email_candidates,
                     reminder_stage=stage,
                 )
             )
@@ -437,6 +591,7 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
         fees_with_new_notifications=fees_with_new_notifications,
         notifications_created_by_stage=notifications_created_by_stage,
         emails=emails,
+        sms=sms,
     )
 
 
@@ -488,6 +643,32 @@ async def send_overdue_fee_reminder_emails(
             .values(
                 transport_status="TRANSPORT_ACCEPTED" if accepted else "TRANSPORT_FAILED",
                 transport_checked_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+
+async def send_overdue_fee_reminder_sms(
+    db: AsyncSession, sms: list[tuple[uuid.UUID, str, str]]
+) -> None:
+    """PR #16 — pendant SMS de `send_overdue_fee_reminder_emails` ci-dessus, même mécanisme exact
+    (découplage préparation/envoi, commit PAR ligne, `set_platform_wide_context` réappliqué à
+    CHAQUE itération — même correctif Sprint 1.8.1 que pour les emails, appliqué ici
+    proactivement). `send_sms_best_effort` ne lève jamais — un échec d'envoi n'affecte donc jamais
+    les autres lignes de ce lot ni le reste du job. Un échec (`TRANSPORT_FAILED`) n'est jamais
+    retenté automatiquement pour ce MÊME palier (voir fees/models.py::FeeOverdueSmsReminder pour
+    la justification complète de ce choix, cohérent avec l'email depuis PR #15) — seul le palier
+    SUIVANT sera tenté normalement au prochain passage du job."""
+    for reminder_id, to, body in sms:
+        accepted, provider_message_id = await send_sms_best_effort(to, body)
+        await set_platform_wide_context(db)
+        await db.execute(
+            update(FeeOverdueSmsReminder)
+            .where(FeeOverdueSmsReminder.id == reminder_id)
+            .values(
+                transport_status="TRANSPORT_ACCEPTED" if accepted else "TRANSPORT_FAILED",
+                transport_checked_at=datetime.now(timezone.utc),
+                provider_message_id=provider_message_id,
             )
         )
         await db.commit()

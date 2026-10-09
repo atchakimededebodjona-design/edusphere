@@ -21,6 +21,11 @@ const STATUS_LABELS: Record<OverdueContactChannel, string> = {
   EMAIL_ATTEMPTED: "Email en attente de confirmation",
   EMAIL_TRANSPORT_ACCEPTED: "Email transmis",
   EMAIL_TRANSPORT_FAILED: "Échec d'envoi",
+  // PR #16 — mêmes libellés prudents que pour l'email : un SMS "transmis" n'est jamais une
+  // preuve de remise au téléphone, seulement que le fournisseur l'a accepté pour traitement.
+  SMS_ATTEMPTED: "SMS en attente de confirmation",
+  SMS_TRANSPORT_ACCEPTED: "SMS transmis",
+  SMS_TRANSPORT_FAILED: "Échec d'envoi SMS",
   NO_CHANNEL: "Aucun canal",
 };
 
@@ -29,6 +34,9 @@ const STATUS_STYLES: Record<OverdueContactChannel, string> = {
   EMAIL_ATTEMPTED: "bg-slate-100 text-slate-700 border-slate-200",
   EMAIL_TRANSPORT_ACCEPTED: "bg-amber-50 text-amber-700 border-amber-200",
   EMAIL_TRANSPORT_FAILED: "bg-red-50 text-red-700 border-red-200",
+  SMS_ATTEMPTED: "bg-slate-100 text-slate-700 border-slate-200",
+  SMS_TRANSPORT_ACCEPTED: "bg-amber-50 text-amber-700 border-amber-200",
+  SMS_TRANSPORT_FAILED: "bg-red-50 text-red-700 border-red-200",
   NO_CHANNEL: "bg-red-50 text-red-700 border-red-200",
 };
 

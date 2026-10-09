@@ -20,7 +20,11 @@ import sys
 
 from app.core.logging_config import configure_logging
 from app.db.session import AsyncSessionLocal
-from app.modules.fees.overdue_reminders import send_overdue_fee_reminder_emails, send_overdue_fee_reminders
+from app.modules.fees.overdue_reminders import (
+    send_overdue_fee_reminder_emails,
+    send_overdue_fee_reminder_sms,
+    send_overdue_fee_reminders,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +46,19 @@ async def _run() -> int:
     # maintenant besoin d'écrire (par ligne, son propre commit) le résultat réel du transport.
     async with AsyncSessionLocal() as send_db:
         await send_overdue_fee_reminder_emails(send_db, result.emails)
+    # PR #16 — session neuve dédiée, même motif que ci-dessus pour les emails (étape d'envoi
+    # réseau séparée de la transaction métier déjà committée).
+    async with AsyncSessionLocal() as sms_send_db:
+        await send_overdue_fee_reminder_sms(sms_send_db, result.sms)
 
     logger.info(
         "overdue_fee_reminders: terminé — %d frais éligibles, %d notification(s) créée(s) pour %d frais distinct(s), "
-        "%d email(s) préparé(s) pour les tuteurs sans compte.",
+        "%d email(s) préparé(s) pour les tuteurs sans compte, %d SMS préparé(s).",
         result.eligible_fees,
         result.notifications_created,
         result.fees_with_new_notifications,
         len(result.emails),
+        len(result.sms),
     )
     return 0
 

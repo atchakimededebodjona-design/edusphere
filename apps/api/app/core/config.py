@@ -106,6 +106,28 @@ class Settings(BaseSettings):
     # défaut (comportement inchangé si la variable n'est pas définie).
     smtp_timeout_seconds: int = 10
 
+    # SMS transactionnel (PR #16 — canal SMS pour les rappels de frais en retard, interface
+    # abstraite SmsProvider, même principe qu'EmailProvider/StorageProvider ci-dessus).
+    #
+    # SMS_ENABLED : coupe-circuit dédié, séparé du choix de fournisseur ci-dessous — `false` par
+    # défaut, y compris si SMS_PROVIDER="http" est configuré par ailleurs (ex. préparation d'une
+    # future activation sans basculer immédiatement). Le job de rappels (fees/overdue_reminders.py)
+    # ne considère JAMAIS le canal SMS tant que ce drapeau est faux, quelle que soit la validité
+    # des numéros de téléphone en base.
+    sms_enabled: bool = False
+    # SMS_PROVIDER : "local" en dev/tests (rien n'est réellement envoyé, écrit sous
+    # SMS_LOCAL_PATH, voir app/core/sms.py) ; "http" pour un envoi réel via un endpoint HTTP
+    # générique (configurer SMS_HTTP_* ci-dessous) — jamais le SDK d'un fournisseur particulier,
+    # pour ne verrouiller le code métier à aucun opérateur SMS précis.
+    sms_provider: str = "local"
+    sms_local_path: str = "./sms"
+    sms_http_url: str = ""
+    sms_http_auth_token: str = ""
+    sms_http_timeout_seconds: int = 10
+    # Identifiant d'expéditeur optionnel (beaucoup de fournisseurs SMS en exigent un, ex. un nom
+    # court affiché comme expéditeur) — vide par défaut, jamais un secret.
+    sms_sender_id: str = ""
+
     # URL de base utilisée pour construire les liens de vérification QR des bulletins (Phase 5).
     # Aucun hébergeur n'est encore choisi (règle Phase 0) — reste configurable via env var.
     public_base_url: str = "http://localhost:8000"
