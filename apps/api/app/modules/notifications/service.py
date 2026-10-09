@@ -247,41 +247,49 @@ async def existing_fee_overdue_emailed_guardian_ids(db: AsyncSession, student_fe
     return {row[0] for row in result.all()}
 
 
-async def existing_fee_overdue_recipient_ids_for_fees(
+async def existing_fee_overdue_recipient_stages_for_fees(
     db: AsyncSession, student_fee_ids: set[uuid.UUID]
-) -> dict[uuid.UUID, set[uuid.UUID]]:
-    """Version batchée de `existing_fee_overdue_recipient_ids` ci-dessus — même motif que
-    `resolve_guardian_user_ids_for_students` (Phase 27 Sprint 1.2bis)."""
+) -> dict[uuid.UUID, dict[uuid.UUID, set[str]]]:
+    """PR #15 — remplace `existing_fee_overdue_recipient_ids_for_fees` (même motif de batching,
+    Phase 27 Sprint 1.2bis) : renvoie désormais, pour chaque frais et chaque destinataire, l'
+    ENSEMBLE des paliers ("J0"/"J7"/"J30") déjà notifiés — plus un simple ensemble de
+    destinataires — pour que l'appelant puisse déterminer le PROCHAIN palier non encore envoyé
+    (voir `fees/overdue_reminders.py::_next_stage_to_send`). Un destinataire peut légitimement
+    apparaître avec plusieurs paliers au fil des exécutions successives du job."""
     if not student_fee_ids:
         return {}
     await set_platform_wide_context(db)
     result = await db.execute(
-        select(Notification.student_fee_id, Notification.recipient_user_id).where(
+        select(Notification.student_fee_id, Notification.recipient_user_id, Notification.reminder_stage).where(
             Notification.student_fee_id.in_(student_fee_ids), Notification.type == "FEE_OVERDUE"
         )
     )
-    by_fee: dict[uuid.UUID, set[uuid.UUID]] = {fee_id: set() for fee_id in student_fee_ids}
-    for fee_id, recipient_id in result.all():
-        by_fee[fee_id].add(recipient_id)
+    by_fee: dict[uuid.UUID, dict[uuid.UUID, set[str]]] = {fee_id: {} for fee_id in student_fee_ids}
+    for fee_id, recipient_id, stage in result.all():
+        if stage is None:
+            continue
+        by_fee[fee_id].setdefault(recipient_id, set()).add(stage)
     return by_fee
 
 
-async def existing_fee_overdue_emailed_guardian_ids_for_fees(
+async def existing_fee_overdue_emailed_guardian_stages_for_fees(
     db: AsyncSession, student_fee_ids: set[uuid.UUID]
-) -> dict[uuid.UUID, set[uuid.UUID]]:
-    """Version batchée de `existing_fee_overdue_emailed_guardian_ids` ci-dessus — même motif que
-    `resolve_guardian_user_ids_for_students` (Phase 27 Sprint 1.2bis)."""
+) -> dict[uuid.UUID, dict[uuid.UUID, set[str]]]:
+    """PR #15 — pendant email de `existing_fee_overdue_recipient_stages_for_fees` ci-dessus,
+    remplace `existing_fee_overdue_emailed_guardian_ids_for_fees` (même motif de batching)."""
     if not student_fee_ids:
         return {}
     await set_platform_wide_context(db)
     result = await db.execute(
-        select(FeeOverdueEmailReminder.student_fee_id, FeeOverdueEmailReminder.guardian_id).where(
-            FeeOverdueEmailReminder.student_fee_id.in_(student_fee_ids)
-        )
+        select(
+            FeeOverdueEmailReminder.student_fee_id,
+            FeeOverdueEmailReminder.guardian_id,
+            FeeOverdueEmailReminder.reminder_stage,
+        ).where(FeeOverdueEmailReminder.student_fee_id.in_(student_fee_ids))
     )
-    by_fee: dict[uuid.UUID, set[uuid.UUID]] = {fee_id: set() for fee_id in student_fee_ids}
-    for fee_id, guardian_id in result.all():
-        by_fee[fee_id].add(guardian_id)
+    by_fee: dict[uuid.UUID, dict[uuid.UUID, set[str]]] = {fee_id: {} for fee_id in student_fee_ids}
+    for fee_id, guardian_id, stage in result.all():
+        by_fee[fee_id].setdefault(guardian_id, set()).add(stage)
     return by_fee
 
 

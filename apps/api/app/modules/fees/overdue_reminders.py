@@ -1,19 +1,27 @@
 """Sprint 1.2 — rappels automatiques de frais scolaires impayés/échus.
 
-Un seul rappel par (StudentFee, tuteur avec compte) — voir
-`notifications/service.py::notify_fee_overdue` pour la base structurelle de l'idempotence.
+PR #15 — fait évoluer ce rappel, jusqu'ici à usage unique par (StudentFee, tuteur), en une
+cadence à trois paliers (voir `app/modules/fees/models.py::REMINDER_STAGES` : "J0"/"J7"/"J30").
+Voir `_next_stage_to_send` ci-dessous pour la règle de progression exacte et sa justification.
+
 Traite TOUTES les organisations en une seule exécution (job batch plateforme, pas une requête
 utilisateur scopée) : le contexte tenant est explicitement élargi via `set_platform_wide_context`
 avant toute lecture, motif déjà utilisé par `notifications/service.py::list_school_announcements`.
 
-Règle d'éligibilité (voir Discovery, état production validé) :
+Règle d'éligibilité à l'EXISTENCE dans le lot traité (inchangée depuis le Sprint 1.2, voir
+Discovery, état production validé) :
 - `status != 'CANCELLED'` ;
 - `due_date` non nul et strictement dans le passé (`< date.today()`) ;
 - solde réel (`amount_due` - paiements `COMPLETED` alloués, jamais le seul champ `status` mis en
   cache — voir `fees/service.py::compute_remaining_balances`) strictement positif.
 
+Au sein de ce lot, QUEL palier envoyer à QUEL destinataire est déterminé séparément pour chacun
+(voir `_next_stage_to_send`) : deux tuteurs d'un même frais peuvent légitimement se voir proposer
+des paliers différents à la même exécution (ex. un tuteur ajouté récemment n'a encore reçu aucun
+palier, un autre a déjà reçu J0 et J7).
+
 Ne cible que les tuteurs dont `Guardian.user_id` est renseigné (réutilise
-`notifications/service.py::resolve_guardian_user_ids_for_student`, déjà utilisé par
+`notifications/service.py::resolve_guardian_user_ids_for_students`, déjà utilisé par
 `notify_payment_recorded`/`notify_report_card_published`/`notify_student_absent` — même règle,
 aucune logique nouvelle). Un même élève peut avoir plusieurs tuteurs avec compte : chacun reçoit
 sa propre notification.
@@ -21,19 +29,22 @@ sa propre notification.
 Sprint 1.3 — canal EMAIL, en complément du canal in-app ci-dessus, réservé aux tuteurs SANS
 compte utilisateur (`Guardian.user_id IS NULL`) mais avec une adresse email renseignée. Un tuteur
 avec compte ne reçoit jamais d'email en plus de sa notification in-app — les deux canaux sont
-mutuellement exclusifs par construction (`resolve_guardian_user_ids_for_student` vs
-`resolve_guardian_emails_without_account_for_student`, voir notifications/service.py). Idempotence
-par tuteur (`fee_overdue_email_reminders`, unique par `(student_fee_id, guardian_id)`), pas par
-adresse email — au maximum UN email par (StudentFee, tuteur), jamais renvoyé même si le frais
-reste impayé (pas de relance J+7/J+30 dans ce sprint).
+mutuellement exclusifs par construction (`resolve_guardian_user_ids_for_students` vs
+`resolve_guardian_emails_without_account_for_students`, voir notifications/service.py).
+
+PR #15 — l'idempotence par tuteur (table `fee_overdue_email_reminders`, et index unique partiel
+pour les notifications in-app) porte maintenant sur (StudentFee, tuteur, PALIER) — au maximum UN
+email/UNE notification par (StudentFee, tuteur, palier), jamais renvoyé pour un palier déjà
+atteint, même si le frais reste impayé.
 
 Sprint 1.6 — `send_overdue_fee_reminder_emails` enregistre désormais le résultat RÉEL du
 transport SMTP (`TRANSPORT_ACCEPTED`/`TRANSPORT_FAILED`) sur la ligne de suivi déjà créée
 (`ATTEMPTED` à la préparation), une ligne à la fois, chacune avec son propre commit — jamais un
 commit unique pour tout le lot, pour qu'une interruption n'affecte jamais plus d'UNE ligne (voir
 SPRINT 1.6 IMPLEMENTATION PLAN §7/§8). Aucun retry automatique, aucune queue : un
-`TRANSPORT_FAILED` reste tel quel jusqu'à une décision produit explicite et distincte (non prise
-dans ce sprint)."""
+`TRANSPORT_FAILED` reste tel quel jusqu'à une décision produit explicite et distincte — et,
+depuis PR #15, un `TRANSPORT_FAILED` à un palier n'empêche jamais le palier SUIVANT d'être tenté
+à son tour (paliers indépendants, lignes indépendantes)."""
 
 import logging
 import uuid
@@ -47,12 +58,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.email import send_email_best_effort
 from app.core.tenancy import set_platform_wide_context
-from app.modules.fees.models import FeeOverdueEmailReminder, FeeSchedule, StudentFee
+from app.modules.fees.models import REMINDER_STAGES, FeeOverdueEmailReminder, FeeSchedule, StudentFee
 from app.modules.fees.service import compute_remaining_balances
+from app.modules.notifications.models import Notification
 from app.modules.notifications.service import (
-    create_notifications,
-    existing_fee_overdue_emailed_guardian_ids_for_fees,
-    existing_fee_overdue_recipient_ids_for_fees,
+    existing_fee_overdue_emailed_guardian_stages_for_fees,
+    existing_fee_overdue_recipient_stages_for_fees,
     resolve_guardian_emails_without_account_for_students,
     resolve_guardian_user_ids_for_students,
 )
@@ -61,12 +72,80 @@ from app.modules.students.models import Student
 
 logger = logging.getLogger(__name__)
 
+# PR #15 — seuil (en jours écoulés depuis `due_date`) à partir duquel chaque palier devient
+# éligible. Jamais stocké en base : toujours recalculé à la volée depuis `StudentFee.due_date` et
+# `date.today()` (voir `_next_stage_to_send`) — si `due_date` est modifiée via
+# `PATCH /student-fees/{id}`, les paliers encore non envoyés se recalculent donc naturellement sur
+# la NOUVELLE date au prochain passage du job, sans aucune migration de données ni "nombre de
+# jours de retard" à corriger quelque part.
+_STAGE_THRESHOLD_DAYS: dict[str, int] = {"J0": 0, "J7": 7, "J30": 30}
+
+
+def _next_stage_to_send(due_date: date, today: date, already_sent: set[str]) -> str | None:
+    """Détermine le palier à envoyer AUJOURD'HUI à un destinataire donné, ou `None` si aucun
+    n'est dû.
+
+    Définition de chaque palier (seuil en jours écoulés depuis `due_date`, voir
+    `_STAGE_THRESHOLD_DAYS` ci-dessus) :
+    - "J0"  : premier palier — éligible dès que `due_date` est strictement dépassée (seuil 0).
+    - "J7"  : éligible à partir de `due_date + 7` jours.
+    - "J30" : éligible à partir de `due_date + 30` jours.
+
+    IMPORTANT — ce que "J0" désigne RÉELLEMENT : "J0" est le nom du PREMIER palier dans l'ordre de
+    progression (J0 -> J7 -> J30), **pas** une promesse que le message a été envoyé le jour civil
+    même de l'échéance. Si le job tourne quotidiennement, J0 sera en pratique envoyé le lendemain
+    du jour où `due_date` est dépassée (le job tourne une fois par jour, à 06:00 — voir
+    `deploy/systemd/edusphere-overdue-reminders.timer`). Si le job n'a pas tourné depuis longtemps
+    sur un frais donné (panne, nouvelle mise en service du produit, frais déjà ancien au moment où
+    ce PR est déployé), "J0" sera le PREMIER palier jamais envoyé à ce destinataire pour ce frais,
+    même si `due_date` remonte en réalité à plusieurs semaines — jamais un indicateur de date
+    calendaire absolue, toujours un indicateur de PROGRESSION relative ("le palier le plus
+    précoce pas encore traité"). Voir le point 2 ci-dessous pour la conséquence directe de cette
+    définition sur les anciennes relances (migration 0021).
+
+    Règle de progression (choix architectural explicite, voir cahier des charges PR #15 §2/§7) : JAMAIS plus
+    d'UN palier par exécution du job et par destinataire, même si plusieurs seuils sont déjà
+    dépassés. Concrètement, c'est le PREMIER palier (dans l'ordre J0 -> J7 -> J30) qui est à la
+    fois (a) déjà éligible par son seuil et (b) jamais encore envoyé à ce destinataire pour ce
+    frais. Les paliers suivants, même si leur seuil est également dépassé, sont volontairement
+    reportés à une exécution future du job.
+
+    Pourquoi ce choix plutôt que d'envoyer directement le palier le plus avancé déjà atteint :
+    un frais resté 35 jours sans que le job n'ait jamais tourné sur lui (ex. tout premier passage
+    après une longue coupure, `Persistent=true` du timer systemd ne couvrant qu'UNE exécution
+    manquée) a ses trois seuils déjà dépassés dès le premier traitement. Envoyer les 3 messages
+    d'un coup au même destinataire serait une rafale artificielle, jamais vue par un tuteur dont
+    le frais aurait été traité au jour le jour. Ce choix garantit au contraire une progression
+    IDENTIQUE, qu'elle soit étalée sur 30 jours de fonctionnement normal ou rattrapée sur 3
+    exécutions consécutives après une interruption : J0 d'abord, puis J7 au prochain passage (le
+    lendemain si le job tourne quotidiennement), puis J30 au passage suivant — jamais les trois
+    ensemble, jamais dans le désordre.
+
+    En cas de `due_date` déplacée (report d'échéance) : rien n'est stocké ici en dehors de
+    `already_sent` (les paliers RÉELLEMENT déjà envoyés, lus depuis la base) — `elapsed` est
+    recalculé à chaque appel depuis la `due_date` ACTUELLE. Un report d'échéance réduit
+    simplement le nombre de paliers éligibles au prochain passage ; les paliers déjà envoyés le
+    restent pour toujours (jamais "désenvoyés"), conformément à l'exigence de ne jamais perdre
+    l'historique existant."""
+    elapsed = (today - due_date).days
+    for stage in REMINDER_STAGES:
+        if elapsed < _STAGE_THRESHOLD_DAYS[stage]:
+            break
+        if stage not in already_sent:
+            return stage
+    return None
+
 
 @dataclass
 class OverdueReminderRunResult:
     eligible_fees: int
     notifications_created: int
     fees_with_new_notifications: int
+    # PR #15 — répartition par palier, pour l'observabilité du job (voir le message de log final
+    # dans app/jobs/overdue_fee_reminders.py) : ne change rien au comportement, utile pour
+    # distinguer "0 nouvelle notification parce que tout est déjà à jour" de "0 parce qu'aucun
+    # palier n'est encore dû".
+    notifications_created_by_stage: dict[str, int] = field(default_factory=dict)
     # Sprint 1.3 — emails prêts à envoyer, déjà enregistrés comme tentés (voir
     # `_prepare_overdue_emails` ci-dessous) au moment où cette liste est renvoyée : l'envoi réseau
     # proprement dit reste la responsabilité de l'appelant, APRÈS son commit (voir
@@ -78,7 +157,8 @@ class OverdueReminderRunResult:
 
 async def _list_eligible_overdue_fees(db: AsyncSession) -> list[tuple[StudentFee, str, str]]:
     """`StudentFee` en retard, avec le nom et la devise de leur barème (une seule requête,
-    jamais de N+1 — même exigence que `fees/service.py::_allocations_by_fee`)."""
+    jamais de N+1 — même exigence que `fees/service.py::_allocations_by_fee`). Soutenue par
+    l'index `ix_student_fees_status_due_date` (migration 0021 — PR #15)."""
     today = date.today()
     result = await db.execute(
         select(StudentFee, FeeSchedule.name, FeeSchedule.currency)
@@ -99,6 +179,66 @@ def _format_reminder_body(student: Student, schedule_name: str, balance: Decimal
     )
 
 
+async def _create_overdue_in_app_notifications(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    school_id: uuid.UUID,
+    recipient_user_ids: set[uuid.UUID],
+    title: str,
+    body: str,
+    student_fee_id: uuid.UUID,
+    reminder_stage: str,
+) -> int:
+    """PR #15 — remplace l'appel à `notifications/service.py::create_notifications` (qui insère
+    tout le lot sous un seul `flush()`) pour CE job précis uniquement : chaque ligne est insérée
+    sous son PROPRE `SAVEPOINT` (`db.begin_nested()`), exactement le même motif déjà en place
+    pour le canal email ci-dessous (`_prepare_overdue_emails`).
+
+    Pourquoi ce n'est pas un simple changement cosmétique : `notifications` porte désormais un
+    index unique PARTIEL sur (recipient_user_id, student_fee_id, reminder_stage) — une exécution
+    réellement concurrente du job (deux workers futurs, ou un redémarrage qui relance le job alors
+    qu'une exécution précédente n'a pas fini de committer) pourrait faire gagner la course à DEUX
+    processus sur la MÊME ligne. Avec un unique `add_all()`+`flush()` pour tout le lot, cette
+    collision ferait échouer la transaction ENTIÈRE (y compris les destinataires légitimes du
+    même lot qui n'étaient en course avec personne). Avec un `SAVEPOINT` par ligne, seule la
+    ligne réellement en collision est annulée — jamais les autres, jamais la transaction globale.
+    `create_notifications` lui-même reste inchangé : ses 4 autres appelants (bulletins, paiements,
+    absences, annonces) n'ont aucune contrainte unique de ce genre et ne nécessitent pas cette
+    protection."""
+    if not recipient_user_ids:
+        return 0
+    created = 0
+    for recipient_id in recipient_user_ids:
+        try:
+            async with db.begin_nested():
+                db.add(
+                    Notification(
+                        id=uuid.uuid4(),
+                        school_id=school_id,
+                        organization_id=organization_id,
+                        recipient_user_id=recipient_id,
+                        type="FEE_OVERDUE",
+                        title=title,
+                        body=body,
+                        student_fee_id=student_fee_id,
+                        reminder_stage=reminder_stage,
+                    )
+                )
+                await db.flush()
+        except IntegrityError:
+            logger.warning(
+                "overdue_fee_reminders: notification déjà tracée pour "
+                "(student_fee_id=%s, recipient_user_id=%s, stage=%s), ignorée.",
+                student_fee_id,
+                recipient_id,
+                reminder_stage,
+            )
+            continue
+        created += 1
+    return created
+
+
 async def _prepare_overdue_emails(
     db: AsyncSession,
     *,
@@ -107,7 +247,7 @@ async def _prepare_overdue_emails(
     reminder_body: str,
     school: School | None,
     candidates: list[tuple[uuid.UUID, str, str]],
-    already_emailed: set[uuid.UUID],
+    reminder_stage: str,
 ) -> list[tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]]:
     """Sprint 1.3 — enregistrement du suivi d'idempotence (dans la transaction en cours), pour les
     tuteurs SANS compte utilisateur de cet élève. L'envoi réseau réel n'a lieu qu'après le commit
@@ -115,23 +255,24 @@ async def _prepare_overdue_emails(
     `report_cards/service.py::prepare_report_card_published_notifications` /
     `send_report_card_published_notifications`.
 
+    PR #15 — `candidates` est déjà filtré par l'appelant pour ne contenir que les tuteurs pour
+    qui CE `reminder_stage` précis est le prochain palier dû (voir `send_overdue_fee_reminders`) ;
+    cette fonction ne reçoit donc plus de liste `already_emailed` séparée — la garantie
+    "jamais deux fois le même palier" reste néanmoins assurée EN BASE, jamais seulement par ce
+    pré-filtrage en mémoire : la contrainte unique `uq_fee_overdue_email_reminder_stage`
+    (migration 0021) reste la seule autorité réelle, le `SAVEPOINT` ci-dessous n'isolant qu'une
+    collision par ailleurs déjà improbable (pré-filtrage déjà fait) plutôt que de faire échouer
+    tout le lot.
+
     Phase 24B — `school` reçue déjà résolue par l'appelant (`send_overdue_fee_reminders`, via un
     lookup groupé par `school_id`) : ce job traite potentiellement des frais de PLUSIEURS écoles
     en une seule exécution, un `db.get(School, ...)` par frais individuel ici recréerait le même
     N+1 déjà évité pour `Student`.
 
-    Phase 27 Sprint 1.2bis — `candidates`/`already_emailed` reçus déjà résolus en LOT par
-    l'appelant (`resolve_guardian_emails_without_account_for_students`/
-    `existing_fee_overdue_emailed_guardian_ids_for_fees`, un seul aller-retour pour TOUS les frais
-    de cette exécution) plutôt que requêtés ici un frais à la fois — corrige un N+1 confirmé par
-    mesure (~1400 frais éligibles en pratique, jusqu'à 4 requêtes par frais). Comportement de cette
-    fonction strictement inchangé, seule la provenance des deux listes change.
-
     Chaque ligne de suivi est écrite dans un SAVEPOINT dédié (`db.begin_nested`) : une exécution
     réellement concurrente du job (hors usage normal — un seul timer, séquentiel) qui gagnerait la
-    course sur la contrainte unique `(student_fee_id, guardian_id)` ne doit annuler que CET envoi,
-    jamais la transaction entière (qui contient aussi les notifications in-app déjà `flush`ées pour
-    d'autres frais).
+    course sur la contrainte unique ne doit annuler que CET envoi, jamais la transaction entière
+    (qui contient aussi les notifications in-app déjà `flush`ées pour d'autres frais).
 
     Sprint 1.6 — `transport_status="ATTEMPTED"` est renseigné explicitement dès la création (déjà
     la valeur par défaut en base, mais explicite ici pour rester lisible sans consulter le
@@ -148,8 +289,6 @@ async def _prepare_overdue_emails(
 
     emails: list[tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]] = []
     for guardian_id, full_name, email in candidates:
-        if guardian_id in already_emailed:
-            continue
         reminder_id = uuid.uuid4()
         try:
             async with db.begin_nested():
@@ -161,14 +300,17 @@ async def _prepare_overdue_emails(
                         student_fee_id=fee.id,
                         guardian_id=guardian_id,
                         transport_status="ATTEMPTED",
+                        reminder_stage=reminder_stage,
                     )
                 )
                 await db.flush()
         except IntegrityError:
             logger.warning(
-                "overdue_fee_reminders: email déjà tracé pour (student_fee_id=%s, guardian_id=%s), ignoré.",
+                "overdue_fee_reminders: email déjà tracé pour "
+                "(student_fee_id=%s, guardian_id=%s, stage=%s), ignoré.",
                 fee.id,
                 guardian_id,
+                reminder_stage,
             )
             continue
         emails.append(
@@ -194,6 +336,7 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
     d'exception non atteinte jusqu'ici."""
     await set_platform_wide_context(db)
 
+    today = date.today()
     rows = await _list_eligible_overdue_fees(db)
     balances = await compute_remaining_balances(db, [row[0] for row in rows])
     overdue_rows = [(fee, schedule_name, currency) for fee, schedule_name, currency in rows if balances[fee.id] > 0]
@@ -216,62 +359,83 @@ async def send_overdue_fee_reminders(db: AsyncSession) -> OverdueReminderRunResu
     # Phase 27 Sprint 1.2bis — les 4 lectures suivantes étaient auparavant refaites À CHAQUE frais
     # (jusqu'à ~5600 requêtes SQL confirmées par mesure pour ~1400 frais éligibles en pratique) :
     # un seul aller-retour par lookup, pour TOUS les frais de cette exécution, même discipline
-    # anti-N+1 que `students_by_id`/`schools_by_id` ci-dessus. Résultat métier strictement
-    # identique (mêmes destinataires, même idempotence) — seule la provenance des données change,
-    # jamais les règles de sélection ni le comportement multi-organisation/multi-école du job.
+    # anti-N+1 que `students_by_id`/`schools_by_id` ci-dessus. PR #15 — les deux derniers lookups
+    # renvoient désormais, par destinataire, l'ENSEMBLE des paliers déjà atteints (plus un simple
+    # ensemble de destinataires) — voir notifications/service.py.
     student_school_pairs = {(fee.student_id, fee.school_id) for fee, _, _ in overdue_rows}
     fee_ids = {fee.id for fee, _, _ in overdue_rows}
     guardian_user_ids_by_pair = await resolve_guardian_user_ids_for_students(db, student_school_pairs)
-    already_notified_by_fee = await existing_fee_overdue_recipient_ids_for_fees(db, fee_ids)
+    already_notified_stages_by_fee = await existing_fee_overdue_recipient_stages_for_fees(db, fee_ids)
     guardian_emails_by_pair = await resolve_guardian_emails_without_account_for_students(db, student_school_pairs)
-    already_emailed_by_fee = await existing_fee_overdue_emailed_guardian_ids_for_fees(db, fee_ids)
+    already_emailed_stages_by_fee = await existing_fee_overdue_emailed_guardian_stages_for_fees(db, fee_ids)
 
     notifications_created = 0
     fees_with_new_notifications = 0
+    notifications_created_by_stage: dict[str, int] = {}
     emails: list[tuple[uuid.UUID, str, str, str, str | None, str | None, uuid.UUID | None]] = []
     for fee, schedule_name, currency in overdue_rows:
         student = students_by_id.get(fee.student_id)
         if student is None:
             continue
+        assert fee.due_date is not None  # garanti par `_list_eligible_overdue_fees`
         balance = balances[fee.id]
         reminder_body = _format_reminder_body(student, schedule_name, balance, currency)
 
-        # Même règle exacte que l'ancien `notify_fee_overdue` (désormais inlinée ici avec des
-        # lookups déjà en mémoire) : un seul rappel par (StudentFee, tuteur avec compte).
+        # --- Canal in-app : regroupe les destinataires par PROCHAIN palier dû (jamais deux
+        # paliers dans la même exécution pour un même destinataire, voir _next_stage_to_send). ---
         recipient_ids = guardian_user_ids_by_pair.get((fee.student_id, fee.school_id), set())
-        already_notified = already_notified_by_fee.get(fee.id, set())
-        to_notify = recipient_ids - already_notified
-        created = await create_notifications(
-            db,
-            organization_id=fee.organization_id,
-            school_id=fee.school_id,
-            recipient_user_ids=to_notify,
-            type_="FEE_OVERDUE",
-            title="Paiement en retard",
-            body=reminder_body,
-            student_fee_id=fee.id,
-        )
-        notifications_created += created
-        if created > 0:
-            fees_with_new_notifications += 1
+        already_sent_by_recipient = already_notified_stages_by_fee.get(fee.id, {})
+        recipients_by_stage: dict[str, set[uuid.UUID]] = {}
+        for recipient_id in recipient_ids:
+            stage = _next_stage_to_send(fee.due_date, today, already_sent_by_recipient.get(recipient_id, set()))
+            if stage is not None:
+                recipients_by_stage.setdefault(stage, set()).add(recipient_id)
 
-        emails.extend(
-            await _prepare_overdue_emails(
+        for stage, stage_recipients in recipients_by_stage.items():
+            created = await _create_overdue_in_app_notifications(
                 db,
-                student=student,
-                fee=fee,
-                reminder_body=reminder_body,
-                school=schools_by_id.get(fee.school_id),
-                candidates=guardian_emails_by_pair.get((fee.student_id, fee.school_id), []),
-                already_emailed=already_emailed_by_fee.get(fee.id, set()),
+                organization_id=fee.organization_id,
+                school_id=fee.school_id,
+                recipient_user_ids=stage_recipients,
+                title="Paiement en retard",
+                body=reminder_body,
+                student_fee_id=fee.id,
+                reminder_stage=stage,
             )
-        )
+            notifications_created += created
+            if created > 0:
+                fees_with_new_notifications += 1
+                notifications_created_by_stage[stage] = notifications_created_by_stage.get(stage, 0) + created
+
+        # --- Canal email : même principe de regroupement par palier, pour les tuteurs SANS
+        # compte utilisateur mais avec une adresse email. ---
+        already_emailed_by_guardian = already_emailed_stages_by_fee.get(fee.id, {})
+        candidates = guardian_emails_by_pair.get((fee.student_id, fee.school_id), [])
+        candidates_by_stage: dict[str, list[tuple[uuid.UUID, str, str]]] = {}
+        for guardian_id, full_name, email in candidates:
+            stage = _next_stage_to_send(fee.due_date, today, already_emailed_by_guardian.get(guardian_id, set()))
+            if stage is not None:
+                candidates_by_stage.setdefault(stage, []).append((guardian_id, full_name, email))
+
+        for stage, stage_candidates in candidates_by_stage.items():
+            emails.extend(
+                await _prepare_overdue_emails(
+                    db,
+                    student=student,
+                    fee=fee,
+                    reminder_body=reminder_body,
+                    school=schools_by_id.get(fee.school_id),
+                    candidates=stage_candidates,
+                    reminder_stage=stage,
+                )
+            )
 
     await db.commit()
     return OverdueReminderRunResult(
         eligible_fees=len(overdue_rows),
         notifications_created=notifications_created,
         fees_with_new_notifications=fees_with_new_notifications,
+        notifications_created_by_stage=notifications_created_by_stage,
         emails=emails,
     )
 
@@ -292,7 +456,9 @@ async def send_overdue_fee_reminder_emails(
     prouvé). `send_email_best_effort` ne lève jamais — un échec d'envoi n'affecte donc jamais les
     notifications in-app ni les lignes de suivi déjà committées, seul le report du résultat en
     tient compte ici. Aucun retry automatique : un `TRANSPORT_FAILED` reste tel quel jusqu'à une
-    décision produit explicite, hors périmètre de ce sprint.
+    décision produit explicite, hors périmètre de ce sprint. PR #15 — un `TRANSPORT_FAILED` à un
+    palier (ex. J0) n'affecte jamais la ligne, indépendante, d'un palier ultérieur (J7) : chaque
+    palier a sa propre ligne, son propre `transport_status`, jamais de dépendance entre elles.
 
     `db` est une session neuve (voir `app/jobs/overdue_fee_reminders.py::_run`), sans contexte
     tenant encore posé sur CETTE session — `fee_overdue_email_reminders` a la policy RLS

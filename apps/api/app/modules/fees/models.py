@@ -35,6 +35,11 @@ PAYMENT_METHODS = ("CASH", "BANK_TRANSFER", "CHEQUE", "AGENT_DEPOSIT", "OTHER")
 STUDENT_FEE_STATUSES = ("PENDING", "PARTIALLY_PAID", "PAID", "CANCELLED")
 PAYMENT_STATUSES = ("COMPLETED", "CANCELLED")
 FEE_SCOPE_TYPES = ("SCHOOL", "CLASS", "LEVEL")
+# PR #15 (cadence des relances de frais en retard) — paliers successifs, dans l'ORDRE où ils
+# doivent être franchis (jamais J30 avant J7, jamais J7 avant J0). Voir
+# `fees/overdue_reminders.py::_next_stage_to_send` pour la règle de progression (au plus un
+# palier par exécution du job et par destinataire).
+REMINDER_STAGES = ("J0", "J7", "J30")
 
 
 class FeeCategory(Base):
@@ -248,10 +253,20 @@ class FeeOverdueEmailReminder(Base):
     SMTP (`TRANSPORT_ACCEPTED` — le serveur a accepté le message, ce qui n'est PAS une preuve de
     remise ni de lecture) ou d'un échec (`TRANSPORT_FAILED`). Pas de `Literal` Python ni de
     contrainte CHECK en base — même convention que `notifications.type`/`student_fees.status`,
-    déjà de simples `String` non contraints côté base dans ce dépôt."""
+    déjà de simples `String` non contraints côté base dans ce dépôt.
+
+    PR #15 — `reminder_stage` (voir `REMINDER_STAGES` ci-dessus) distingue désormais À QUEL PALIER
+    cette tentative appartient : un même (StudentFee, tuteur) a maintenant JUSQU'À 3 lignes au
+    fil du temps (une par palier effectivement atteint), jamais plus d'une par palier — la
+    contrainte unique porte donc sur les trois colonnes ensemble (migration 0021, qui réécrit
+    `uq_fee_overdue_email_reminder` en `uq_fee_overdue_email_reminder_stage`). `server_default`
+    permanent à "J0" (même convention que `transport_status` ci-dessus) : les lignes créées avant
+    ce PR sont back-fillées à "J0" par la migration (c'est exactement ce qu'elles représentaient)."""
 
     __tablename__ = "fee_overdue_email_reminders"
-    __table_args__ = (UniqueConstraint("student_fee_id", "guardian_id", name="uq_fee_overdue_email_reminder"),)
+    __table_args__ = (
+        UniqueConstraint("student_fee_id", "guardian_id", "reminder_stage", name="uq_fee_overdue_email_reminder_stage"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     school_id: Mapped[uuid.UUID] = mapped_column(
@@ -269,3 +284,4 @@ class FeeOverdueEmailReminder(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     transport_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ATTEMPTED", server_default="ATTEMPTED")
     transport_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reminder_stage: Mapped[str] = mapped_column(String(8), nullable=False, default="J0", server_default="J0")
