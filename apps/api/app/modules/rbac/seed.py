@@ -176,3 +176,54 @@ AUDIT_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "SCHOOL_ADMIN": ["audit.read"],
     "DIRECTOR": ["audit.read"],
 }
+
+# --- PR #17 (Platform Owner & Partner isolation) --------------------------------
+# Nouveau rôle PLATFORM_OWNER, déclaré dans un dict DISTINCT de `ROLE_NAMES` (volontairement) :
+# `ROLE_NAMES` est importé tel quel par la migration 0002 au moment de son exécution — y ajouter
+# PLATFORM_OWNER ferait insérer ce rôle par 0002 sur toute base créée from scratch (modifiant
+# rétroactivement le comportement d'une migration déjà appliquée), puis 0023 tenterait de
+# l'insérer une seconde fois (violation d'unicité sur `roles.code`). Seule la migration 0023 lit
+# ce dict.
+PR17_ROLE_NAMES: dict[str, str] = {
+    "PLATFORM_OWNER": "Propriétaire de la plateforme",
+}
+
+# Permissions plateforme (métadonnées uniquement) et partenaire. Construites pour ne JAMAIS
+# recouvrir un code du domaine scolaire (students.*, grades.*, attendance.*, report_cards.*,
+# fees.*, payments.*, academics.*, organizations.*, schools.*, users.*, roles.*, announcements.*,
+# audit.*) : `get_scoped_permission_codes` applique sans condition les permissions d'une UserRole
+# globale à n'importe quelle portée demandée — PLATFORM_OWNER/PARTNER_ADMIN ne doivent donc
+# jamais en détenir aucune (voir tests/test_partner_isolation.py). `platform.organizations.read`/
+# `platform.schools.read` sont des codes DISTINCTS de `organizations.read`/`schools.read` (qui
+# signifient « lire MON organisation/école » pour SCHOOL_ADMIN/DIRECTOR) : jamais d'alias.
+# `*.subscriptions.read`/`*.commissions.read` sont réservés à la PR #18 (moteur financier de
+# commissions) : aucun endpoint, aucune table, aucune logique derrière dans cette PR.
+PR17_PLATFORM_PERMISSIONS: dict[str, str] = {
+    "platform.dashboard.read": "Consulter le tableau de bord plateforme (organisations, écoles, comptes, partenaires)",
+    "platform.organizations.read": "Consulter la liste et les métadonnées de toutes les organisations",
+    "platform.schools.read": "Consulter la liste et les métadonnées de toutes les écoles",
+    "platform.schools.enroll": "Inscrire une nouvelle organisation/école sur la plateforme",
+    "platform.accounts.read": "Consulter les comptes utilisateurs de la plateforme (métadonnées uniquement)",
+    "platform.partners.read": "Consulter la liste des partenaires commerciaux",
+    "platform.partners.manage": "Créer/gérer un compte partenaire commercial",
+    "platform.subscriptions.read": "Consulter les abonnements SaaS des organisations (réservé PR #18, aucun endpoint dans cette PR)",
+    "platform.commissions.read": "Consulter les commissions dues aux partenaires (réservé PR #18, aucun endpoint dans cette PR)",
+}
+
+PR17_PLATFORM_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": list(PR17_PLATFORM_PERMISSIONS.keys()),
+    "PLATFORM_OWNER": list(PR17_PLATFORM_PERMISSIONS.keys()),
+}
+
+PR17_PARTNER_PERMISSIONS: dict[str, str] = {
+    "partner.dashboard.read": "Consulter le tableau de bord du partenaire (ses propres écoles inscrites)",
+    "partner.schools.read": "Consulter les écoles inscrites par ce partenaire",
+    "partner.schools.enroll": "Inscrire une nouvelle organisation/école via ce partenaire",
+    "partner.accounts.read": "Consulter les comptes utilisateurs des écoles inscrites par ce partenaire (métadonnées uniquement)",
+    "partner.commissions.read": "Consulter les commissions de ce partenaire (réservé PR #18, aucun endpoint dans cette PR)",
+}
+
+PR17_PARTNER_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": list(PR17_PARTNER_PERMISSIONS.keys()),
+    "PARTNER_ADMIN": list(PR17_PARTNER_PERMISSIONS.keys()),
+}

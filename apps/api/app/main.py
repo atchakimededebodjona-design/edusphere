@@ -24,6 +24,7 @@ from app.modules.grades.router import router as grades_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.parent.router import router as parent_router
+from app.modules.partners.router import router as partners_router
 from app.modules.platform.router import router as platform_router
 from app.modules.teacher.router import router as teacher_router
 from app.modules.rbac.router import router as rbac_router
@@ -153,4 +154,5 @@ app.include_router(fees_router, prefix=settings.api_v1_prefix, tags=["fees"])
 app.include_router(notifications_router, prefix=settings.api_v1_prefix, tags=["notifications"])
 app.include_router(parent_router, prefix=settings.api_v1_prefix, tags=["parent"])
 app.include_router(platform_router, prefix=settings.api_v1_prefix, tags=["platform"])
+app.include_router(partners_router, prefix=settings.api_v1_prefix, tags=["partners"])
 app.include_router(teacher_router, prefix=settings.api_v1_prefix, tags=["teacher"])
