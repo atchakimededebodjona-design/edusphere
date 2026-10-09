@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tenancy import set_platform_wide_context
 from app.modules.academics.models import ClassSubject, SchoolClass, TeacherAssignment
 from app.modules.attendance.models import AttendanceAbsenceEmailReminder, AttendanceRecord
-from app.modules.fees.models import FeeOverdueEmailReminder, Payment
+from app.modules.fees.models import FeeOverdueEmailReminder, FeeOverdueSmsReminder, Payment
 from app.modules.notifications.models import Notification
 from app.modules.notifications.schemas import NotificationType
 from app.modules.rbac.models import Role, UserRole
@@ -204,31 +204,44 @@ async def resolve_guardian_user_ids_for_students(
     return by_pair
 
 
-async def resolve_guardian_emails_without_account_for_students(
+async def resolve_guardians_without_account_for_students(
     db: AsyncSession, student_school_pairs: set[tuple[uuid.UUID, uuid.UUID]]
-) -> dict[tuple[uuid.UUID, uuid.UUID], list[tuple[uuid.UUID, str, str]]]:
-    """Version batchée de `resolve_guardian_emails_without_account_for_student` ci-dessus — même
-    motif et mêmes garanties que `resolve_guardian_user_ids_for_students`. N'affecte pas
-    `attendance/service.py`, seul autre appelant de la version singulière, qui reste inchangée."""
+) -> dict[tuple[uuid.UUID, uuid.UUID], list[tuple[uuid.UUID, str, str | None, str | None]]]:
+    """PR #16 — remplace `resolve_guardian_emails_without_account_for_students` : renvoie
+    désormais À LA FOIS `email` et `phone` (chacun potentiellement `None`) pour chaque tuteur SANS
+    compte utilisateur, plutôt que de ne sélectionner que ceux ayant un email — l'appelant
+    (`fees/overdue_reminders.py`) décide seul, pour chaque tuteur, quel canal utiliser (SMS
+    prioritaire si un numéro valide existe, email en repli sinon) : cette fonction ne filtre plus
+    sur un canal précis, elle résout seulement "les tuteurs sans compte de ces élèves", une seule
+    fois, en lot — même motif et mêmes garanties que `resolve_guardian_user_ids_for_students`
+    (Phase 27 Sprint 1.2bis). N'affecte pas `attendance/service.py`
+    (`resolve_guardian_emails_without_account_for_student`, version singulière, reste inchangée,
+    seul appelant distinct)."""
     if not student_school_pairs:
         return {}
     student_ids = {student_id for student_id, _ in student_school_pairs}
     result = await db.execute(
-        select(StudentGuardian.student_id, StudentGuardian.school_id, Guardian.id, Guardian.full_name, Guardian.email)
+        select(
+            StudentGuardian.student_id,
+            StudentGuardian.school_id,
+            Guardian.id,
+            Guardian.full_name,
+            Guardian.email,
+            Guardian.phone,
+        )
         .join(Guardian, Guardian.id == StudentGuardian.guardian_id)
         .where(
             StudentGuardian.student_id.in_(student_ids),
             Guardian.user_id.is_(None),
-            Guardian.email.isnot(None),
         )
     )
-    by_pair: dict[tuple[uuid.UUID, uuid.UUID], list[tuple[uuid.UUID, str, str]]] = {
+    by_pair: dict[tuple[uuid.UUID, uuid.UUID], list[tuple[uuid.UUID, str, str | None, str | None]]] = {
         pair: [] for pair in student_school_pairs
     }
-    for student_id, school_id, guardian_id, full_name, email in result.all():
+    for student_id, school_id, guardian_id, full_name, email, phone in result.all():
         pair = (student_id, school_id)
-        if pair in by_pair and email is not None:
-            by_pair[pair].append((guardian_id, full_name, email))
+        if pair in by_pair:
+            by_pair[pair].append((guardian_id, full_name, email, phone))
     return by_pair
 
 
@@ -286,6 +299,29 @@ async def existing_fee_overdue_emailed_guardian_stages_for_fees(
             FeeOverdueEmailReminder.guardian_id,
             FeeOverdueEmailReminder.reminder_stage,
         ).where(FeeOverdueEmailReminder.student_fee_id.in_(student_fee_ids))
+    )
+    by_fee: dict[uuid.UUID, dict[uuid.UUID, set[str]]] = {fee_id: {} for fee_id in student_fee_ids}
+    for fee_id, guardian_id, stage in result.all():
+        by_fee[fee_id].setdefault(guardian_id, set()).add(stage)
+    return by_fee
+
+
+async def existing_fee_overdue_sms_stages_for_fees(
+    db: AsyncSession, student_fee_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, dict[uuid.UUID, set[str]]]:
+    """PR #16 — pendant SMS de `existing_fee_overdue_emailed_guardian_stages_for_fees` ci-dessus,
+    même motif de batching. Lit `fee_overdue_sms_reminders` par `guardian_id` — JAMAIS par numéro
+    de téléphone (voir app/core/phone.py et fees/models.py::FeeOverdueSmsReminder) : un tuteur qui
+    change de numéro entre deux exécutions reste le même destinataire pour la cadence."""
+    if not student_fee_ids:
+        return {}
+    await set_platform_wide_context(db)
+    result = await db.execute(
+        select(
+            FeeOverdueSmsReminder.student_fee_id,
+            FeeOverdueSmsReminder.guardian_id,
+            FeeOverdueSmsReminder.reminder_stage,
+        ).where(FeeOverdueSmsReminder.student_fee_id.in_(student_fee_ids))
     )
     by_fee: dict[uuid.UUID, dict[uuid.UUID, set[str]]] = {fee_id: {} for fee_id in student_fee_ids}
     for fee_id, guardian_id, stage in result.all():

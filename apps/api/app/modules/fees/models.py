@@ -285,3 +285,59 @@ class FeeOverdueEmailReminder(Base):
     transport_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ATTEMPTED", server_default="ATTEMPTED")
     transport_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reminder_stage: Mapped[str] = mapped_column(String(8), nullable=False, default="J0", server_default="J0")
+
+
+class FeeOverdueSmsReminder(Base):
+    """PR #16 — pendant SMS de `FeeOverdueEmailReminder` ci-dessus, pour les tuteurs SANS compte
+    utilisateur disposant d'un numéro de téléphone normalisable en E.164 (voir
+    `app/core/phone.py`) — canal PRIORITAIRE sur l'email pour ces tuteurs (voir
+    `fees/overdue_reminders.py` pour la règle de routage exacte : jamais les deux canaux pour un
+    même tuteur et un même palier).
+
+    Table dédiée, jamais une colonne supplémentaire sur `fee_overdue_email_reminders` : un même
+    tuteur n'emprunte jamais les deux canaux pour un même frais, mais les deux tables restent
+    structurellement indépendantes (idempotence, policy RLS, cycle de vie propres à chacune),
+    même raisonnement que la table email vis-à-vis de `notifications` en son temps.
+
+    Idempotence par `guardian_id`, JAMAIS par numéro de téléphone (voir `app/core/phone.py`) : un
+    tuteur qui corrige son numéro entre deux exécutions du job reste le même destinataire pour la
+    cadence J0/J7/J30 — changer son numéro ne doit ni créer une deuxième ligne pour un palier déjà
+    tenté, ni en bloquer un nouveau légitime.
+
+    `transport_status` (`ATTEMPTED`/`TRANSPORT_ACCEPTED`/`TRANSPORT_FAILED`) : même sémantique
+    exacte que pour l'email — `TRANSPORT_ACCEPTED` signifie que le FOURNISSEUR a accepté le
+    message, jamais qu'il a été livré au téléphone. Décision retry explicite (cahier des charges
+    PR #16 §8, cohérente avec l'architecture déjà en place pour l'email depuis PR #15) : un
+    `TRANSPORT_FAILED` n'est JAMAIS réessayé automatiquement pour le MÊME palier — la ligne existe
+    déjà, donc ce palier est considéré "tenté" par `_next_stage_to_send` (fees/overdue_reminders.py),
+    qui ne regarde jamais `transport_status` pour décider d'une répétition. Le palier SUIVANT
+    (ex. J7 après un J0 en échec) reste, lui, tenté normalement — jamais bloqué par l'échec du
+    précédent. Aucun retry automatique du même palier n'est introduit dans ce PR.
+
+    `provider_message_id` : identifiant opaque renvoyé par le fournisseur (jamais un secret,
+    jamais réutilisé comme clé d'idempotence), nullable — un fournisseur peut ne pas en renvoyer,
+    ou l'envoi peut avoir échoué avant d'en recevoir un."""
+
+    __tablename__ = "fee_overdue_sms_reminders"
+    __table_args__ = (
+        UniqueConstraint("student_fee_id", "guardian_id", "reminder_stage", name="uq_fee_overdue_sms_reminder_stage"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    student_fee_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("student_fees.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    guardian_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("guardians.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reminder_stage: Mapped[str] = mapped_column(String(8), nullable=False)
+    transport_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ATTEMPTED", server_default="ATTEMPTED")
+    transport_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    provider_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
