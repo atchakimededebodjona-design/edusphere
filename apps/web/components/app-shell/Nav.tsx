@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
-import { hasTeacherRole, isPlatformAdmin } from "@/lib/auth/roles";
+import { hasTeacherRole, isPartnerOnlyAccount, isPlatformAdmin } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 
 type NavItem = {
@@ -31,6 +31,25 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/audit-logs", label: "Journal d'audit", permission: "audit.read" },
 ];
 
+// PR #17 — menus des espaces Plateforme et Partenaire. Filtrés par code de permission pour la
+// lisibilité uniquement : CE N'EST PAS UNE FRONTIÈRE DE SÉCURITÉ (chaque endpoint `/platform/*` et
+// `/partner/*` vérifie lui-même sa permission côté API, voir app/(app)/AuthGate.tsx).
+// Libellés volontairement distincts des cartes du tableau de bord plateforme ("Organisations",
+// "Écoles"...) pour ne pas créer d'ambiguïté de texte à l'écran (voir e2e/platform-admin.spec.ts).
+const PLATFORM_NAV_ITEMS: NavItem[] = [
+  { href: "/dashboard", label: "Tableau de bord" },
+  { href: "/platform/organizations", label: "Groupes scolaires", permission: "platform.organizations.read" },
+  { href: "/platform/schools", label: "Établissements", permission: "platform.schools.read" },
+  { href: "/platform/accounts", label: "Comptes", permission: "platform.accounts.read" },
+  { href: "/platform/partners", label: "Partenaires", permission: "platform.partners.read" },
+];
+
+const PARTNER_NAV_ITEMS: NavItem[] = [
+  { href: "/partner", label: "Tableau de bord", permission: "partner.dashboard.read" },
+  { href: "/partner/schools", label: "Mes écoles", permission: "partner.schools.read" },
+  { href: "/partner/accounts", label: "Comptes", permission: "partner.accounts.read" },
+];
+
 export function Nav() {
   const { permissions, user, roles } = useAuth();
   const pathname = usePathname();
@@ -40,9 +59,15 @@ export function Nav() {
   // supposent tous une école courante (currentSchoolId), toujours nulle pour ce compte (aucune
   // organisation/école, voir lib/auth/roles.ts::isPlatformAdmin). Seul le tableau de bord
   // (qui bascule lui-même vers la vue plateforme, voir app/(app)/dashboard/page.tsx) a un sens ici.
+  // PR #17 — même logique pour un PLATFORM_OWNER (is_platform_admin=true) : uniquement le menu
+  // plateforme ; un partenaire pur ne voit que le menu partenaire. Rappel : navigation seulement,
+  // jamais un contrôle d'accès (l'API refuse elle-même tout endpoint hors permission).
+  const allowed = (item: NavItem) => !item.permission || permissions.includes(item.permission);
   const items = isPlatformAdmin(user)
-    ? NAV_ITEMS.filter((item) => item.href === "/dashboard")
-    : NAV_ITEMS.filter((item) => !item.permission || permissions.includes(item.permission));
+    ? PLATFORM_NAV_ITEMS.filter(allowed)
+    : isPartnerOnlyAccount(user, roles)
+      ? PARTNER_NAV_ITEMS.filter(allowed)
+      : NAV_ITEMS.filter(allowed);
 
   // Compte mixte (rôle TEACHER en plus d'un rôle admin/staff) : reste sur l'espace admin par
   // défaut (voir lib/auth/roles.ts::isTeacherOnlyAccount, jamais vrai pour ce cas — aucune
@@ -56,7 +81,9 @@ export function Nav() {
         <BrandSymbol className="h-10 w-10" />
       </div>
       {items.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        // `/partner` est aussi le préfixe de ses sous-pages : correspondance exacte pour cet accueil.
+        const active =
+          pathname === item.href || (item.href !== "/partner" && pathname.startsWith(`${item.href}/`));
         return (
           <Link
             key={item.href}

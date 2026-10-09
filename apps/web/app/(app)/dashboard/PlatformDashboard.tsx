@@ -55,6 +55,8 @@ export function PlatformDashboard() {
           <MetricCard label="Écoles" value={String(dashboard.school_count)} />
           <MetricCard label="Utilisateurs" value={String(dashboard.user_count)} />
           <MetricCard label="Élèves" value={String(dashboard.student_count)} />
+          <MetricCard label="Partenaires" value={String(dashboard.partner_count)} />
+          <MetricCard label="Inscriptions suivies" value={String(dashboard.enrollment_count)} />
         </div>
       )}
     </div>

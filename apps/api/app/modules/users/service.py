@@ -12,7 +12,7 @@ from app.core.security import generate_opaque_token, hash_opaque_token, hash_pas
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.modules.audit import service as audit_service
 from app.modules.auth.models import PasswordResetToken
-from app.modules.rbac.models import PLATFORM_ROLE_CODES, Role, UserRole
+from app.modules.rbac.models import ISOLATED_GLOBAL_ROLE_CODES, NON_SCHOOL_ROLE_CODES, Role, UserRole
 from app.modules.schools.models import School
 from app.modules.users.models import User
 from app.modules.users.schemas import UserCreateRequest, UserUpdateRequest
@@ -31,13 +31,35 @@ class RoleData(NamedTuple):
     school_id: uuid.UUID | None
 
 
+async def _holds_isolated_global_role(db: AsyncSession, user_id: uuid.UUID, current_user_id: uuid.UUID) -> bool:
+    """True si `user_id` détient un rôle global isolé (ISOLATED_GLOBAL_ROLE_CODES).
+
+    Ces UserRole ont `organization_id` NULL : invisibles sous le contexte RLS d'un admin d'école
+    (policy `user_roles_tenant_isolation`). Lecture ponctuelle en contexte platform-wide, filtrée
+    explicitement sur CE `user_id` et ces codes, puis contexte de l'appelant restauré
+    immédiatement (même motif que l'insertion du PasswordResetToken ci-dessous)."""
+    await set_platform_wide_context(db)
+    result = await db.execute(
+        select(UserRole.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(UserRole.user_id == user_id, Role.code.in_(sorted(ISOLATED_GLOBAL_ROLE_CODES)))
+        .limit(1)
+    )
+    found = result.scalar_one_or_none() is not None
+    await apply_tenant_context(db, current_user_id)
+    return found
+
+
 async def create_or_attach_user(
     db: AsyncSession, school: School, payload: UserCreateRequest, current_user_id: uuid.UUID
 ) -> tuple[User, list[RoleData], str | None]:
     """Crée un utilisateur (avec un token de reset mot de passe, cf. schemas.py) ou, si l'email
     existe déjà, attache seulement le nouveau rôle au compte existant (ex. enseignant déjà
     inscrit dans une autre école) — jamais de doublon de compte sur un email."""
-    if payload.role_code in PLATFORM_ROLE_CODES:
+    # PR #17 — NON_SCHOOL_ROLE_CODES (rôles plateforme + PARTNER_ADMIN), pas seulement
+    # PLATFORM_ROLE_CODES : ni PLATFORM_OWNER ni PARTNER_ADMIN ne s'attribuent via un endpoint
+    # scopé école (même réponse 400 qu'avant pour SUPER_ADMIN/PLATFORM_SUPPORT).
+    if payload.role_code in NON_SCHOOL_ROLE_CODES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a platform-wide role here")
 
     role_result = await db.execute(select(Role).where(Role.code == payload.role_code))
@@ -47,6 +69,14 @@ async def create_or_attach_user(
 
     existing_result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = existing_result.scalar_one_or_none()
+    if user is not None and await _holds_isolated_global_role(db, user.id, current_user_id):
+        # PR #17 (audit de durcissement) — un compte PLATFORM_OWNER/PARTNER_ADMIN existant ne doit
+        # JAMAIS recevoir de rôle scolaire par simple saisie de son email ici : sinon il obtiendrait
+        # un `tenant_org_ids` (visibilité RLS sur l'organisation) et cesserait d'être un compte
+        # global isolé. Aucune procédure produit ne transforme ces comptes en compte scolaire.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="This account cannot be attached to a school"
+        )
     dev_reset_token: str | None = None
     # Sprint 1.7 — préparé ici, envoyé APRÈS le commit final de cette fonction (voir plus bas) :
     # avant ce correctif, l'email était envoyé immédiatement après ce bloc, alors que le compte et
@@ -174,7 +204,7 @@ async def update_user_in_school(
     previous_is_active = user.is_active
 
     if payload.role_code is not None:
-        if payload.role_code in PLATFORM_ROLE_CODES:
+        if payload.role_code in NON_SCHOOL_ROLE_CODES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a platform-wide role here")
         role_result = await db.execute(select(Role).where(Role.code == payload.role_code))
         role = role_result.scalar_one_or_none()

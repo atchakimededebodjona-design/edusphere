@@ -1,7 +1,9 @@
 import re
+import uuid
+from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.modules.auth.schemas import UserOut
 from app.modules.organizations.schemas import OrganizationOut
@@ -28,6 +30,9 @@ class PlatformDashboardOut(BaseModel):
     school_count: int
     user_count: int
     student_count: int
+    # PR #17
+    partner_count: int
+    enrollment_count: int
 
 
 class PlatformOrganizationInput(BaseModel):
@@ -87,3 +92,87 @@ class PlatformOrganizationCreated(BaseModel):
     school: SchoolOut
     admin: UserOut
     admin_role_code: str = "SCHOOL_ADMIN"
+
+
+# --- PR #17 — lectures plateforme (métadonnées uniquement, jamais de donnée scolaire) ----------
+
+
+class PlatformOrganizationListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    country_code: str
+    created_at: datetime
+
+
+class PlatformSchoolListItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    organization_id: uuid.UUID
+    slug: str
+    created_at: datetime
+    # "PLATFORM_OWNER" | "PARTNER", ou None pour une école antérieure à la PR #17 (aucune ligne
+    # partner_school_enrollments rétroactive n'est créée par la migration 0023).
+    acquisition_source: str | None
+
+
+class PlatformAccountOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    is_active: bool
+    created_at: datetime
+    role_codes: list[str]
+
+
+class PlatformPartnerOut(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    display_name: str
+    phone: str | None
+    email: str | None
+    status: str
+    created_at: datetime
+    enrollment_count: int
+
+
+class PlatformPartnerCreate(BaseModel):
+    """Création d'un compte partenaire. Aucun mot de passe : le partenaire reçoit un lien
+    d'activation (même motif que users/schemas.py::UserCreateRequest)."""
+
+    display_name: str = Field(min_length=2, max_length=255)
+    full_name: str = Field(min_length=2, max_length=255)
+    email: EmailStr
+    phone: str | None = Field(default=None, max_length=32)
+
+
+class PlatformPartnerCreated(BaseModel):
+    partner: PlatformPartnerOut
+    # Même règle que users/schemas.py::UserCreateResponse.dev_reset_token (jamais en production).
+    dev_reset_token: str | None
+
+
+# Enveloppes paginées (même forme que fees/schemas.py::OverdueFeesOut).
+class _PageMeta(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+
+class PlatformOrganizationsPage(_PageMeta):
+    items: list[PlatformOrganizationListItem]
+
+
+class PlatformSchoolsPage(_PageMeta):
+    items: list[PlatformSchoolListItem]
+
+
+class PlatformAccountsPage(_PageMeta):
+    items: list[PlatformAccountOut]
+
+
+class PlatformPartnersPage(_PageMeta):
+    items: list[PlatformPartnerOut]

@@ -44,3 +44,21 @@ export function hasTeacherRole(user: Me["user"] | null, roles: RoleAssignment[])
   if (isPlatformAdmin(user)) return false;
   return roles.some((role) => role.role_code === "TEACHER" && role.school_id !== null);
 }
+
+// PR #17 — un compte partenaire commercial (PARTNER_ADMIN, rôle global sans organisation ni école)
+// n'a sa place ni dans l'espace école ni dans l'espace plateforme : il est envoyé vers `/partner`.
+// Jamais `is_platform_admin` (décidé côté serveur — voir apps/api/app/modules/platform/service.py
+// ::create_partner). AIDE DE NAVIGATION UNIQUEMENT, PAS UNE FRONTIÈRE DE SÉCURITÉ : l'API refuse
+// d'elle-même (403/404) toute donnée scolaire ou plateforme à ce compte, quoi qu'affiche le frontend.
+export function isPartnerOnlyAccount(user: Me["user"] | null, roles: RoleAssignment[]): boolean {
+  if (isPlatformAdmin(user)) return false;
+  return roles.length > 0 && roles.every((role) => role.role_code === "PARTNER_ADMIN");
+}
+
+// PR #17 — compte Propriétaire de la plateforme pur (tous ses rôles sont PLATFORM_OWNER) : jamais
+// routé vers un écran scolaire, seulement `/dashboard` (vue plateforme) et `/platform/*`. Le
+// SUPER_ADMIN hérité garde son comportement de navigation existant. NAVIGATION UNIQUEMENT : l'API
+// refuse elle-même toute donnée scolaire à PLATFORM_OWNER (aucune permission scolaire).
+export function isPlatformOwnerOnlyAccount(user: Me["user"] | null, roles: RoleAssignment[]): boolean {
+  return isPlatformAdmin(user) && roles.length > 0 && roles.every((role) => role.role_code === "PLATFORM_OWNER");
+}
