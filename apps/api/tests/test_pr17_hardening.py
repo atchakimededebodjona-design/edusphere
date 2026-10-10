@@ -407,22 +407,33 @@ async def test_existing_owner_or_partner_cannot_be_attached_to_a_school(
 
 
 async def test_attach_of_ordinary_existing_user_still_works(client: AsyncClient) -> None:
-    """Non-régression : le rattachement d'un compte scolaire existant à une 2e école reste permis."""
+    """Non-régression : le rattachement d'un compte scolaire existant à une 2e école reste permis.
+
+    Correctif d'autorité (P0-1, audit PR #21) : uniquement au sein de la MÊME organisation (ce
+    test utilisait auparavant deux organisations différentes, rattachement désormais refusé — voir
+    tests/test_admin_authority_scope.py::test_p0_1_cross_org_attach_is_refused)."""
     school_a = await register_school(client, "hdattachoka")
-    school_b = await register_school(client, "hdattachokb")
+    headers = auth(school_a["tokens"]["access_token"])
+    school_b = await client.post(
+        "/api/v1/schools",
+        json={"organization_id": school_a["organization"]["id"], "name": "Seconde ecole", "slug": "seconde"},
+        headers=headers,
+    )
+    assert school_b.status_code == 201, school_b.text
     email = unique_email("hdattachok")
     first = await client.post(
         "/api/v1/users",
         json={"email": email, "full_name": "Ens", "school_id": school_a["school"]["id"], "role_code": "TEACHER"},
-        headers=auth(school_a["tokens"]["access_token"]),
+        headers=headers,
     )
     assert first.status_code == 201
     second = await client.post(
         "/api/v1/users",
-        json={"email": email, "full_name": "Ens", "school_id": school_b["school"]["id"], "role_code": "TEACHER"},
-        headers=auth(school_b["tokens"]["access_token"]),
+        json={"email": email, "full_name": "Ens", "school_id": school_b.json()["id"], "role_code": "TEACHER"},
+        headers=headers,
     )
     assert second.status_code == 201, second.text
+    assert second.json()["user"]["id"] == first.json()["user"]["id"]
 
 
 async def test_school_user_list_contains_school_accounts_but_never_global_accounts(client: AsyncClient) -> None:

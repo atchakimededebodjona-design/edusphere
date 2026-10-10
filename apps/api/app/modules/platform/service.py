@@ -27,7 +27,7 @@ from app.modules.platform.schemas import (
     PlatformSchoolInput,
     SchoolAdminInput,
 )
-from app.modules.rbac.models import NON_SCHOOL_ROLE_CODES, Role, UserRole
+from app.modules.rbac.models import NON_SCHOOL_ROLE_CODES, REUSABLE_ADMIN_ROLE_CODES, Role, UserRole
 from app.modules.schools.models import School
 from app.modules.students.models import Student
 from app.modules.users.models import User
@@ -146,7 +146,7 @@ SCHOOL_CONFLICT_DETAIL = "School slug or admin email already in use"
 # PR #20 — seuls les comptes détenant DÉJÀ l'un de ces rôles dans l'organisation cible peuvent être
 # réutilisés comme SCHOOL_ADMIN d'une nouvelle école de cette organisation. Tout autre rôle
 # (PARENT, STUDENT, TEACHER, ACCOUNTANT, STAFF) est refusé : jamais d'élévation silencieuse.
-REUSABLE_ADMIN_ROLE_CODES = {"SCHOOL_ADMIN", "DIRECTOR"}
+# Constante désormais définie une seule fois dans rbac/models.py (partagée avec users/service.py).
 
 # Statut renvoyé à l'appelant (champ `admin_access` des réponses d'inscription).
 ADMIN_ACCESS_NEW_ACCOUNT = "NEW_ACCOUNT"

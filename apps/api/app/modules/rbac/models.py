@@ -24,6 +24,10 @@ NON_SCHOOL_ROLE_CODES = PLATFORM_ROLE_CODES | {"PARTNER_ADMIN"}
 # opérateur de promotion refuse un compte déjà rattaché à une école (platform/owner.py). Les rôles
 # hérités SUPER_ADMIN/PLATFORM_SUPPORT n'y figurent pas : comportement historique inchangé.
 ISOLATED_GLOBAL_ROLE_CODES = {"PLATFORM_OWNER", "PARTNER_ADMIN"}
+# PR #20 (puis correctif d'autorité) — rôles qui rendent un compte EXISTANT réutilisable comme
+# SCHOOL_ADMIN d'une autre école de la MÊME organisation. Source unique, partagée par
+# platform/service.py::resolve_or_create_school_admin et users/service.py::create_or_attach_user.
+REUSABLE_ADMIN_ROLE_CODES = {"SCHOOL_ADMIN", "DIRECTOR"}
 ALL_ROLE_CODES = [
     "SUPER_ADMIN",
     "PLATFORM_SUPPORT",

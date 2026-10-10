@@ -360,8 +360,17 @@ async def test_reattaching_existing_user_does_not_send_a_new_invitation(
     data = await register_school(client, "emailreattach")
     headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
     school_id = data["school"]["id"]
-    other_school = await register_school(client, "emailreattach-other")
-    other_headers = {"Authorization": f"Bearer {await _login(client, other_school['user']['email'])}"}
+    # Correctif d'autorité (P0-1, audit PR #21) : rattachement d'un compte existant uniquement au
+    # sein de la MÊME organisation (ce test utilisait auparavant une école d'une autre organisation,
+    # désormais refusé). Intention inchangée : aucun second email d'invitation pour un compte existant.
+    second_school = await client.post(
+        "/api/v1/schools",
+        json={"organization_id": data["organization"]["id"], "name": "Seconde ecole", "slug": "seconde"},
+        headers=headers,
+    )
+    assert second_school.status_code == 201, second_school.text
+    other_school = {"school": second_school.json()}
+    other_headers = headers
 
     shared_email = unique_email("shared.emailreattach")
     first = await client.post(
