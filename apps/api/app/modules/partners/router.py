@@ -115,15 +115,17 @@ async def add_partner_school_to_organization(
     organization_id: uuid.UUID, payload: PlatformSchoolAdd, db: DbSession, current_user: SchoolsEnroller
 ) -> PartnerSchoolEnrolled:
     partner = await service.get_own_partner(db, current_user.id)
-    organization, school, admin = await service.add_school_to_own_organization(
+    organization, school, resolution = await service.add_school_to_own_organization(
         db, partner, organization_id, payload, current_user.id
     )
     return PartnerSchoolEnrolled(
         organization=OrganizationOut.model_validate(organization),
         school=SchoolOut.model_validate(school),
-        admin=UserOut.model_validate(admin),
+        admin=UserOut.model_validate(resolution.user),
         acquisition_source=ACQUISITION_SOURCE_PARTNER,
         commission_eligible=True,
+        admin_account_reused=resolution.reused,
+        admin_access=resolution.access,
     )
 
 

@@ -163,12 +163,29 @@ async def test_owner_cannot_create_the_same_school_twice(client: AsyncClient) ->
     assert same_slug.status_code == 409
     primary_name = await client.post(url, json=_school_payload("Primaire La Référence"), headers=owner["headers"])
     assert primary_name.status_code == 409
-    existing_admin = await client.post(
-        url, json=_school_payload("Lycée Mail", admin_email=created["admin"]["email"]), headers=owner["headers"]
+    # PR #20 — l'email d'un administrateur d'une AUTRE organisation reste refusé (409), sans ligne
+    # partielle. (Avant la PR #20, ce cas utilisait l'email du premier admin de CETTE organisation,
+    # désormais légitimement réutilisable — voir la fin de ce test et test_reuse_school_admin.py.)
+    other_org = await _owner_org_with_primary(client, owner, "msdupother")
+    other_org_admin = await client.post(
+        url, json=_school_payload("Lycée Mail", admin_email=other_org["admin"]["email"]), headers=owner["headers"]
     )
-    assert existing_admin.status_code == 409
+    assert other_org_admin.status_code == 409
+    assert other_org_admin.json()["detail"] == "School slug or admin email already in use"
     org_count, schools = await _org_rows(org_id)
     assert org_count == 1 and len(schools) == 2  # aucune ligne partielle
+
+    # PR #20 — même organisation : le premier admin (rôle SCHOOL_ADMIN org-wide) est réutilisé ;
+    # son rôle couvre déjà la nouvelle école, donc AUCUN rôle n'est ajouté et aucun compte créé.
+    same_org_admin = await client.post(
+        url, json=_school_payload("Lycée Mail", admin_email=created["admin"]["email"]), headers=owner["headers"]
+    )
+    assert same_org_admin.status_code == 201, same_org_admin.text
+    assert same_org_admin.json()["admin_account_reused"] is True
+    assert same_org_admin.json()["admin_access"] == "ORGANIZATION_WIDE_ROLE"
+    assert same_org_admin.json()["admin"]["id"] == created["admin"]["id"]
+    assert await _admin_roles(created["admin"]["id"]) == [("SCHOOL_ADMIN", org_id, None)]
+    assert len((await _org_rows(org_id))[1]) == 3
 
 
 async def test_owner_add_school_to_unknown_org_is_404_and_never_creates_org(client: AsyncClient) -> None:

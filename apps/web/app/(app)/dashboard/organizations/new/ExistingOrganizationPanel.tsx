@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
-import { ExistingSchoolsList, NewSchoolForm } from "@/components/enrollment/NewSchoolForm";
+import { ExistingSchoolsList, NewSchoolForm, schoolAddedMessage } from "@/components/enrollment/NewSchoolForm";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
 import {
   addPlatformSchool,
@@ -104,7 +104,7 @@ export function ExistingOrganizationPanel() {
             onSubmit={async (payload) => {
               const added = await addPlatformSchool(detail.organization.id, payload);
               await loadDetail(detail.organization.id);
-              return `Établissement « ${added.school.name} » ajouté à « ${added.organization.name} ». Son administrateur peut se connecter.`;
+              return schoolAddedMessage(added);
             }}
           />
         </section>
