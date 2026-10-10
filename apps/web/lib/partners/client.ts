@@ -17,6 +17,9 @@ export type PartnerSchool = {
   organization_name: string;
   enrolled_at: string;
   status: string;
+  // Agrégats uniquement (COUNT côté API) — jamais de donnée individuelle d'élève.
+  student_count: number;
+  active_student_count: number;
 };
 
 export type PartnerAccount = {

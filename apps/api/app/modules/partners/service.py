@@ -62,7 +62,10 @@ async def get_partner_dashboard(db: AsyncSession, partner: Partner) -> dict[str,
 
 async def list_partner_schools(
     db: AsyncSession, partner: Partner
-) -> list[tuple[PartnerSchoolEnrollment, School, Organization]]:
+) -> list[tuple[PartnerSchoolEnrollment, School, Organization, int, int]]:
+    """Écoles inscrites par CE partenaire + agrégats élèves (COUNT uniquement, calculés sur la
+    seule liste blanche des écoles de ce partenaire — voir
+    platform/service.py::student_counts_by_school). Jamais de donnée individuelle d'élève."""
     await set_platform_wide_context(db)
     result = await db.execute(
         select(PartnerSchoolEnrollment, School, Organization)
@@ -71,7 +74,13 @@ async def list_partner_schools(
         .where(PartnerSchoolEnrollment.partner_id == partner.id)
         .order_by(PartnerSchoolEnrollment.enrolled_at.desc())
     )
-    return [(enrollment, school, organization) for enrollment, school, organization in result.all()]
+    rows = result.all()
+    counts = await platform_service.student_counts_by_school(db, [school.id for _, school, _ in rows])
+    items: list[tuple[PartnerSchoolEnrollment, School, Organization, int, int]] = []
+    for enrollment, school, organization in rows:
+        total, active = counts.get(school.id, (0, 0))
+        items.append((enrollment, school, organization, total, active))
+    return items
 
 
 async def enroll_school(

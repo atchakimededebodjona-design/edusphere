@@ -159,6 +159,7 @@ export default function PartnerSchoolsPage() {
                 <tr>
                   <th className="px-3 py-2 text-left font-medium text-slate-600">École</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600">Organisation</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600">Élèves</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600">Inscrite le</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600">Statut</th>
                 </tr>
@@ -168,6 +169,7 @@ export default function PartnerSchoolsPage() {
                   <tr key={school.school_id}>
                     <td className="px-3 py-2 text-slate-700">{school.school_name}</td>
                     <td className="px-3 py-2 text-slate-700">{school.organization_name}</td>
+                    <td className="px-3 py-2 text-slate-700">{school.student_count}</td>
                     <td className="px-3 py-2 text-slate-700">{new Date(school.enrolled_at).toLocaleDateString("fr-FR")}</td>
                     <td className="px-3 py-2 text-slate-700">{school.status === "ACTIVE" ? "Active" : school.status}</td>
                   </tr>

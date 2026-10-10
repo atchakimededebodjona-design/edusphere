@@ -101,8 +101,10 @@ async def list_platform_schools(db: DbSession, page: Page = 1, page_size: PageSi
                 slug=school.slug,
                 created_at=school.created_at,
                 acquisition_source=source,
+                student_count=student_count,
+                active_student_count=active_student_count,
             )
-            for school, source in rows
+            for school, source, student_count, active_student_count in rows
         ],
         **_page_meta(page, page_size, total),
     )
