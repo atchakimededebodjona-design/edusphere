@@ -49,8 +49,19 @@ async def test_create_with_existing_email_attaches_role_without_duplicate(client
     headers = {"Authorization": f"Bearer {await _login(client, data['user']['email'])}"}
     school_id = data["school"]["id"]
 
-    other_school = await register_school(client, "usersexisting-other")
-    other_headers = {"Authorization": f"Bearer {await _login(client, other_school['user']['email'])}"}
+    # Correctif d'autorité (P0-1, audit PR #21) : un compte existant n'est plus rattachable qu'au
+    # sein de la MÊME organisation. Ce test utilisait auparavant une école d'une AUTRE organisation
+    # (désormais refusé : voir test_create_with_existing_email_from_other_organization_is_refused) ;
+    # il vérifie maintenant la même chose (aucun doublon de compte, pas de nouveau token) avec une
+    # seconde école de la même organisation, créée par l'admin org-wide via POST /schools.
+    second_school = await client.post(
+        "/api/v1/schools",
+        json={"organization_id": data["organization"]["id"], "name": "Seconde ecole", "slug": "seconde"},
+        headers=headers,
+    )
+    assert second_school.status_code == 201, second_school.text
+    other_school = {"school": second_school.json()}
+    other_headers = headers
 
     shared_email = unique_email("shared.teacher")
     first_response = await client.post(
@@ -76,15 +87,29 @@ async def test_create_with_existing_email_attaches_role_without_duplicate(client
     assert second_response.json()["user"]["id"] == first_user_id
     # Le mot de passe existe déjà — pas de nouveau token de reset.
     assert second_response.json()["dev_reset_token"] is None
-    # RLS sur user_roles limite la réponse au(x) rôle(s) visibles depuis le tenant de l'appelant
-    # (l'admin de other_school) — le rôle de ce même utilisateur dans la première école n'est pas
-    # exposé ici, ce qui est le comportement voulu (pas de fuite inter-tenant).
+    # Même organisation : l'admin org-wide voit les deux rôles scopés de ce compte.
     roles = second_response.json()["roles"]
-    assert len(roles) == 1
-    assert roles[0]["school_id"] == other_school["school"]["id"]
+    assert sorted(r["school_id"] for r in roles) == sorted([school_id, other_school["school"]["id"]])
 
     list_response = await client.get(f"/api/v1/users?school_id={school_id}", headers=headers)
     assert any(u["user"]["id"] == first_user_id for u in list_response.json())
+
+
+async def test_create_with_existing_email_from_other_organization_is_refused(client: AsyncClient) -> None:
+    """P0-1 — l'email d'un compte d'une AUTRE organisation n'est jamais rattaché (409 générique),
+    rien n'est créé et le compte existant n'est pas modifié."""
+    data = await register_school(client, "usersxorg")
+    other = await register_school(client, "usersxorg-other")
+    other_headers = {"Authorization": f"Bearer {await _login(client, other['user']['email'])}"}
+    response = await client.post(
+        "/api/v1/users",
+        json={"email": data["user"]["email"], "full_name": "Intrus", "school_id": other["school"]["id"], "role_code": "TEACHER"},
+        headers=other_headers,
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This account cannot be attached to a school"
+    listed = await client.get(f"/api/v1/users?school_id={other['school']['id']}", headers=other_headers)
+    assert data["user"]["id"] not in {u["user"]["id"] for u in listed.json()}
 
 
 async def test_rejects_platform_role(client: AsyncClient) -> None:
