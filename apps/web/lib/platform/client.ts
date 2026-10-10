@@ -96,6 +96,9 @@ export type PlatformSchool = {
   slug: string;
   created_at: string;
   acquisition_source: AcquisitionSource | null;
+  // Agrégats uniquement (COUNT côté API) — jamais de donnée individuelle d'élève.
+  student_count: number;
+  active_student_count: number;
 };
 
 export type PlatformAccount = {

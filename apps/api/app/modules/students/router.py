@@ -509,10 +509,13 @@ async def upload_student_photo(
 @router.get("/students/{student_id}/photo")
 async def get_student_photo(student_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> Response:
     student = await _get_student_or_404(db, student_id)
-    if student.photo_path is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student photo not found")
+    # PR #17 (audit) — autorisation AVANT tout test sur la présence de la photo : sinon un compte
+    # voyant la ligne via RLS sans `students.read` (ex. PLATFORM_OWNER, platform-wide) apprenait,
+    # par 404 vs 403, si un élève précis possède une photo — une donnée individuelle.
     await ensure_permission(db, current_user, "students.read", organization_id=student.organization_id, school_id=student.school_id)
     await _ensure_student_in_teacher_scope(db, current_user, student)
+    if student.photo_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student photo not found")
 
     content = await storage.download(student.photo_path)
     media_type = mimetypes.guess_type(student.photo_path)[0] or "application/octet-stream"

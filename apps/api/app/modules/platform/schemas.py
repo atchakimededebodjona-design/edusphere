@@ -116,6 +116,12 @@ class PlatformSchoolListItem(BaseModel):
     # "PLATFORM_OWNER" | "PARTNER", ou None pour une école antérieure à la PR #17 (aucune ligne
     # partner_school_enrollments rétroactive n'est créée par la migration 0023).
     acquisition_source: str | None
+    # Agrégats uniquement (COUNT), jamais de donnée individuelle d'élève — voir
+    # platform/service.py::student_counts_by_school. `active_student_count` = élèves au statut
+    # ACTIVE (même définition que le tableau de bord école) ; base envisagée pour la tarification
+    # SaaS de la PR #18, AUCUNE logique de tarification ici.
+    student_count: int
+    active_student_count: int
 
 
 class PlatformAccountOut(BaseModel):

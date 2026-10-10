@@ -217,7 +217,37 @@ async def list_organizations(db: AsyncSession, page: int, page_size: int) -> tup
     return list(result.scalars().all()), await _count(db, Organization)
 
 
-async def list_schools(db: AsyncSession, page: int, page_size: int) -> tuple[list[tuple[School, str | None]], int]:
+async def student_counts_by_school(
+    db: AsyncSession, school_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, tuple[int, int]]:
+    """Agrégats élèves par école : `(student_count, active_student_count)`.
+
+    PR #17 (ajustement produit) — AGRÉGATION PURE : un seul `SELECT school_id, COUNT(*), COUNT(*)
+    FILTER (status = 'ACTIVE') … GROUP BY school_id`. Aucune ligne `Student` n'est jamais chargée,
+    aucune colonne individuelle (nom, matricule, date de naissance, sexe, classe…) n'est lue ni
+    renvoyée. Ne dépend d'AUCUNE permission `students.*` : PLATFORM_OWNER/PARTNER_ADMIN ne
+    détiennent jamais `students.read` ; c'est l'appelant (permission `platform.*`/`partner.*`
+    vérifiée + liste blanche explicite `school_ids`, contexte platform-wide déjà posé) qui borne ce
+    calcul. `active_student_count` reprend EXACTEMENT la définition existante du tableau de bord
+    école (schools/service.py : `Student.status == "ACTIVE"`) — aucune nouvelle règle métier, et
+    aucune tarification/abonnement n'est construit dessus (réservé PR #18)."""
+    if not school_ids:
+        return {}
+    result = await db.execute(
+        select(
+            Student.school_id,
+            func.count(),
+            func.count().filter(Student.status == "ACTIVE"),
+        )
+        .where(Student.school_id.in_(school_ids))
+        .group_by(Student.school_id)
+    )
+    return {school_id: (int(total), int(active)) for school_id, total, active in result.all()}
+
+
+async def list_schools(
+    db: AsyncSession, page: int, page_size: int
+) -> tuple[list[tuple[School, str | None, int, int]], int]:
     await set_platform_wide_context(db)
     result = await db.execute(
         select(School, PartnerSchoolEnrollment.acquisition_source)
@@ -226,7 +256,13 @@ async def list_schools(db: AsyncSession, page: int, page_size: int) -> tuple[lis
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    return [(school, source) for school, source in result.all()], await _count(db, School)
+    rows = result.all()
+    counts = await student_counts_by_school(db, [school.id for school, _ in rows])
+    items: list[tuple[School, str | None, int, int]] = []
+    for school, source in rows:
+        total, active = counts.get(school.id, (0, 0))
+        items.append((school, source, total, active))
+    return items, await _count(db, School)
 
 
 async def role_codes_by_user(db: AsyncSession, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:

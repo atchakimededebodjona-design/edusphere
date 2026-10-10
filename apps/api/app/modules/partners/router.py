@@ -51,8 +51,10 @@ async def list_partner_schools(db: DbSession, current_user: SchoolsReader) -> li
             organization_name=organization.name,
             enrolled_at=enrollment.enrolled_at,
             status=enrollment.status,
+            student_count=student_count,
+            active_student_count=active_student_count,
         )
-        for enrollment, school, organization in rows
+        for enrollment, school, organization, student_count, active_student_count in rows
     ]
 
 

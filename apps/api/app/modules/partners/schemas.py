@@ -23,6 +23,9 @@ class PartnerSchoolOut(BaseModel):
     organization_name: str
     enrolled_at: datetime
     status: str
+    # Agrégats uniquement (COUNT) sur les écoles de CE partenaire — jamais de donnée individuelle.
+    student_count: int
+    active_student_count: int
 
 
 class PartnerSchoolEnrollCreate(PlatformOrganizationCreate):
