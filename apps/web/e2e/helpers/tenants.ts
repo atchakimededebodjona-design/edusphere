@@ -23,7 +23,17 @@ export function unique(prefix: string): string {
   return `${prefix}${Date.now()}${uniqueCounter}${Math.floor(Math.random() * 10000)}`;
 }
 
+// Optionnel (PR #19) : nom d'un conteneur API isolé (ex. conteneur éphémère dont le code est monté
+// en lecture seule depuis un autre worktree). Si défini, le script est exécuté via stdin
+// (`docker exec -i -w /app <conteneur> python -`) au lieu du service compose `api` — n'écrit jamais
+// dans un conteneur qui n'appartient pas au code testé. Absent : comportement historique inchangé.
+const API_CONTAINER = process.env.PLAYWRIGHT_API_CONTAINER;
+
 function runInApiContainer(script: string): void {
+  if (API_CONTAINER) {
+    execFileSync("docker", ["exec", "-i", "-w", "/app", API_CONTAINER, "python", "-"], { input: script });
+    return;
+  }
   const tmpFile = path.join(os.tmpdir(), `platform_admin_${unique("e2e")}.py`);
   writeFileSync(tmpFile, script, "utf-8");
   // Copié sous /app (WORKDIR du backend) : `python /chemin.py` n'ajoute que le répertoire du script

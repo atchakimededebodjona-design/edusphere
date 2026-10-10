@@ -18,7 +18,13 @@ from app.modules.partners.models import (
     Partner,
     PartnerSchoolEnrollment,
 )
-from app.modules.platform.schemas import PlatformOrganizationCreate, PlatformPartnerCreate
+from app.modules.platform.schemas import (
+    PlatformAdminInput,
+    PlatformOrganizationCreate,
+    PlatformPartnerCreate,
+    PlatformSchoolAdd,
+    PlatformSchoolInput,
+)
 from app.modules.rbac.models import Role, UserRole
 from app.modules.schools.models import School
 from app.modules.students.models import Student
@@ -73,16 +79,9 @@ async def create_organization_school_admin(
     annule l'ensemble, sans organisation ni école orpheline. Le mot de passe n'est jamais
     stocké ni journalisé en clair — seul son hash bcrypt (app/core/security.py) est persisté.
     """
-    result = await db.execute(select(Role).where(Role.code == "SCHOOL_ADMIN"))
-    school_admin_role = result.scalar_one_or_none()
-    if school_admin_role is None:
-        raise RuntimeError("SCHOOL_ADMIN role is missing — RBAC seed data was not applied")
-
+    school_admin_role = await _school_admin_role(db)
     await set_platform_wide_context(db)
-
     org_input = payload.organization
-    school_input = payload.school
-    admin_input = payload.admin
 
     try:
         # Flush après chaque ajout (même motif que l'ancien auth/service.py::register) : sans
@@ -99,55 +98,18 @@ async def create_organization_school_admin(
         db.add(organization)
         await db.flush()
 
-        school = School(
-            id=uuid.uuid4(),
-            organization_id=organization.id,
-            name=school_input.name,
-            slug=school_input.slug,
-            address=school_input.address,
-            phone=school_input.phone,
-            email=str(school_input.email) if school_input.email else None,
-            timezone=school_input.timezone,
-            currency=school_input.currency,
+        # Premier SCHOOL_ADMIN : rôle org-wide (`school_id` NULL), comportement historique conservé.
+        school, user = await _create_school_admin_enrollment(
+            db,
+            organization,
+            payload.school,
+            payload.admin,
+            school_admin_role=school_admin_role,
+            admin_school_scoped=False,
+            enrolled_by_user_id=enrolled_by_user_id,
+            partner_id=partner_id,
+            acquisition_source=acquisition_source,
         )
-        db.add(school)
-        await db.flush()
-
-        user = User(
-            id=uuid.uuid4(),
-            email=str(admin_input.email).lower(),
-            full_name=admin_input.full_name,
-            phone=admin_input.phone,
-            hashed_password=hash_password(admin_input.password),
-        )
-        db.add(user)
-        await db.flush()
-
-        db.add(
-            UserRole(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                role_id=school_admin_role.id,
-                organization_id=organization.id,
-                school_id=None,
-            )
-        )
-        await db.flush()
-
-        # PR #17 — dans la MÊME transaction : l'école n'existe jamais sans sa source d'acquisition
-        # (UNIQUE(school_id) en base : une école n'est inscrite qu'une fois, par une seule source).
-        db.add(
-            PartnerSchoolEnrollment(
-                id=uuid.uuid4(),
-                partner_id=partner_id,
-                organization_id=organization.id,
-                school_id=school.id,
-                enrolled_by_user_id=enrolled_by_user_id,
-                acquisition_source=acquisition_source,
-                commission_eligible=acquisition_source == ACQUISITION_SOURCE_PARTNER,
-            )
-        )
-        await db.flush()
 
         await db.refresh(organization)
         await db.refresh(school)
@@ -158,6 +120,161 @@ async def create_organization_school_admin(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Organization slug or admin email already in use",
+        ) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+    return organization, school, user
+
+
+async def _school_admin_role(db: AsyncSession) -> Role:
+    result = await db.execute(select(Role).where(Role.code == "SCHOOL_ADMIN"))
+    school_admin_role = result.scalar_one_or_none()
+    if school_admin_role is None:
+        raise RuntimeError("SCHOOL_ADMIN role is missing — RBAC seed data was not applied")
+    return school_admin_role
+
+
+async def _create_school_admin_enrollment(
+    db: AsyncSession,
+    organization: Organization,
+    school_input: PlatformSchoolInput,
+    admin_input: PlatformAdminInput,
+    *,
+    school_admin_role: Role,
+    admin_school_scoped: bool,
+    enrolled_by_user_id: uuid.UUID,
+    partner_id: uuid.UUID | None,
+    acquisition_source: str,
+) -> tuple[School, User]:
+    """CŒUR MÉTIER UNIQUE (PR #19) — crée, dans l'organisation DÉJÀ résolue par l'appelant :
+    l'école, son SCHOOL_ADMIN et la ligne `partner_school_enrollments`. Utilisé par les deux
+    parcours (nouvelle organisation / organisation existante) et par les deux sources
+    (PLATFORM_OWNER / PARTNER) — jamais dupliqué. Ne commite pas : l'appelant gère la
+    transaction (tout ou rien) et la traduction des IntegrityError en 409.
+
+    `partner_id`/`acquisition_source`/`enrolled_by_user_id` viennent TOUJOURS du serveur (compte
+    authentifié), jamais du payload ; `commission_eligible` est dérivé de la source.
+    `admin_school_scoped=True` (école ajoutée à une organisation existante) : le nouvel admin est
+    scopé à CETTE école uniquement (`school_id` renseigné) — il n'administre jamais les autres
+    établissements de l'organisation."""
+    school = School(
+        id=uuid.uuid4(),
+        organization_id=organization.id,
+        name=school_input.name,
+        slug=school_input.slug,
+        address=school_input.address,
+        phone=school_input.phone,
+        email=str(school_input.email) if school_input.email else None,
+        timezone=school_input.timezone,
+        currency=school_input.currency,
+    )
+    db.add(school)
+    await db.flush()
+
+    user = User(
+        id=uuid.uuid4(),
+        email=str(admin_input.email).lower(),
+        full_name=admin_input.full_name,
+        phone=admin_input.phone,
+        hashed_password=hash_password(admin_input.password),
+    )
+    db.add(user)
+    await db.flush()
+
+    db.add(
+        UserRole(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            role_id=school_admin_role.id,
+            organization_id=organization.id,
+            school_id=school.id if admin_school_scoped else None,
+        )
+    )
+    await db.flush()
+
+    # PR #17 — dans la MÊME transaction : l'école n'existe jamais sans sa source d'acquisition
+    # (UNIQUE(school_id) en base : une école n'est inscrite qu'une fois, par une seule source).
+    db.add(
+        PartnerSchoolEnrollment(
+            id=uuid.uuid4(),
+            partner_id=partner_id,
+            organization_id=organization.id,
+            school_id=school.id,
+            enrolled_by_user_id=enrolled_by_user_id,
+            acquisition_source=acquisition_source,
+            commission_eligible=acquisition_source == ACQUISITION_SOURCE_PARTNER,
+        )
+    )
+    await db.flush()
+    return school, user
+
+
+def _normalized_name(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+async def add_school_to_organization(
+    db: AsyncSession,
+    organization_id: uuid.UUID,
+    payload: PlatformSchoolAdd,
+    *,
+    enrolled_by_user_id: uuid.UUID,
+    partner_id: uuid.UUID | None,
+    acquisition_source: str,
+) -> tuple[Organization, School, User]:
+    """PR #19 — ajoute une école (+ son SCHOOL_ADMIN + son inscription) à une organisation
+    EXISTANTE. N'en crée jamais une nouvelle : organisation inconnue => 404.
+
+    L'appelant a déjà vérifié son autorisation ET, pour un partenaire, que `organization_id`
+    appartient à son périmètre (partners/service.py::get_partner_organization_or_404) — cette
+    fonction ne fait confiance à aucun autre identifiant client.
+
+    Doublons : la ligne `organizations` est verrouillée (`SELECT … FOR UPDATE`) pour sérialiser
+    les ajouts concurrents dans une même organisation, puis un même nom d'école (casse/espaces
+    ignorés) y est refusé (409). Le slug reste garanti en base par `uq_school_org_slug`
+    (organization_id, slug) — stratégie d'unicité existante inchangée ; un conflit de slug ou
+    d'email administrateur se traduit aussi en 409, transaction annulée."""
+    school_admin_role = await _school_admin_role(db)
+    await set_platform_wide_context(db)
+    try:
+        organization = (
+            await db.execute(select(Organization).where(Organization.id == organization_id).with_for_update())
+        ).scalar_one_or_none()
+        if organization is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+        existing_names = (
+            (await db.execute(select(School.name).where(School.organization_id == organization.id))).scalars().all()
+        )
+        wanted = _normalized_name(payload.school.name)
+        if any(_normalized_name(name) == wanted for name in existing_names):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A school with this name already exists in this organization",
+            )
+
+        school, user = await _create_school_admin_enrollment(
+            db,
+            organization,
+            payload.school,
+            payload.admin,
+            school_admin_role=school_admin_role,
+            admin_school_scoped=True,
+            enrolled_by_user_id=enrolled_by_user_id,
+            partner_id=partner_id,
+            acquisition_source=acquisition_source,
+        )
+        await db.refresh(organization)
+        await db.refresh(school)
+        await db.refresh(user)
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="School slug or admin email already in use",
         ) from exc
     except Exception:
         await db.rollback()
@@ -206,15 +323,55 @@ async def _count(db: AsyncSession, model: type) -> int:
     return int((await db.execute(select(func.count()).select_from(model))).scalar_one())
 
 
-async def list_organizations(db: AsyncSession, page: int, page_size: int) -> tuple[list[Organization], int]:
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def list_organizations(
+    db: AsyncSession, page: int, page_size: int, q: str | None = None
+) -> tuple[list[Organization], int]:
+    """PR #19 — `q` (optionnel) : recherche insensible à la casse sur le nom OU le slug, pour
+    sélectionner une organisation existante. Sans `q` : comportement PR #17 inchangé."""
     await set_platform_wide_context(db)
+    stmt = select(Organization)
+    count_stmt = select(func.count()).select_from(Organization)
+    term = (q or "").strip()
+    if term:
+        pattern = f"%{_escape_like(term)}%"
+        condition = Organization.name.ilike(pattern, escape="\\") | Organization.slug.ilike(pattern, escape="\\")
+        stmt = stmt.where(condition)
+        count_stmt = count_stmt.where(condition)
     result = await db.execute(
-        select(Organization)
-        .order_by(Organization.created_at.desc(), Organization.id)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        stmt.order_by(Organization.created_at.desc(), Organization.id).offset((page - 1) * page_size).limit(page_size)
     )
-    return list(result.scalars().all()), await _count(db, Organization)
+    total = int((await db.execute(count_stmt)).scalar_one())
+    return list(result.scalars().all()), total
+
+
+async def list_organization_schools(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> tuple[Organization, list[tuple[School, str | None, int, int]]]:
+    """PR #19 — établissements d'UNE organisation (métadonnées + agrégats élèves COUNT
+    uniquement, jamais de donnée individuelle), pour afficher l'existant avant d'ajouter une école.
+    Organisation inconnue => 404."""
+    await set_platform_wide_context(db)
+    organization = await db.get(Organization, organization_id)
+    if organization is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    rows = (
+        await db.execute(
+            select(School, PartnerSchoolEnrollment.acquisition_source)
+            .outerjoin(PartnerSchoolEnrollment, PartnerSchoolEnrollment.school_id == School.id)
+            .where(School.organization_id == organization.id)
+            .order_by(School.created_at, School.id)
+        )
+    ).all()
+    counts = await student_counts_by_school(db, [school.id for school, _ in rows])
+    items: list[tuple[School, str | None, int, int]] = []
+    for school, source in rows:
+        total, active = counts.get(school.id, (0, 0))
+        items.append((school, source, total, active))
+    return organization, items
 
 
 async def student_counts_by_school(

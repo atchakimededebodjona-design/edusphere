@@ -56,3 +56,12 @@ class PartnerAccountOut(BaseModel):
     is_active: bool
     created_at: datetime
     role_codes: list[str]
+
+
+class PartnerOrganizationOut(BaseModel):
+    """PR #19 — organisation du périmètre de CE partenaire (au moins une école inscrite par lui)
+    et SES écoles dans cette organisation (métadonnées + agrégats élèves uniquement)."""
+
+    organization_id: uuid.UUID
+    organization_name: str
+    schools: list[PartnerSchoolOut]

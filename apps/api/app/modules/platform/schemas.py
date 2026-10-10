@@ -182,3 +182,36 @@ class PlatformAccountsPage(_PageMeta):
 
 class PlatformPartnersPage(_PageMeta):
     items: list[PlatformPartnerOut]
+
+
+# --- PR #19 — plusieurs établissements par organisation --------------------------------------
+
+
+class PlatformSchoolAdd(BaseModel):
+    """Ajout d'un établissement à une organisation EXISTANTE (désignée par le chemin de l'URL,
+    jamais par le corps) : nouvelle école + son premier SCHOOL_ADMIN.
+
+    `extra="forbid"` : tout champ inconnu (organization/organization_id/partner_id/school_id/
+    acquisition_source/commission_eligible...) est rejeté en 422 — ce parcours ne crée ni ne
+    redésigne jamais d'organisation, et la source d'acquisition est toujours décidée côté serveur."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    school: PlatformSchoolInput
+    admin: PlatformAdminInput
+
+
+class PlatformSchoolAdded(BaseModel):
+    organization: OrganizationOut
+    school: SchoolOut
+    admin: UserOut
+    admin_role_code: str = "SCHOOL_ADMIN"
+    acquisition_source: str
+    commission_eligible: bool
+
+
+class PlatformOrganizationSchoolsOut(BaseModel):
+    """Une organisation et ses établissements (métadonnées + agrégats élèves uniquement)."""
+
+    organization: PlatformOrganizationListItem
+    schools: list[PlatformSchoolListItem]

@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api/client";
-import type { PlatformOrganizationCreate } from "@/lib/platform/client";
+import type { PlatformOrganizationCreate, SchoolAddPayload, SchoolAdded } from "@/lib/platform/client";
 
 // PR #17 — espace partenaire. Aucun identifiant de partenaire n'est jamais envoyé : l'API le
 // dérive du compte authentifié (apps/api/app/modules/partners/service.py::get_own_partner) et
@@ -64,5 +64,28 @@ export async function enrollPartnerSchool(payload: PartnerSchoolEnrollCreate): P
 
 export async function listPartnerAccounts(): Promise<PartnerAccount[]> {
   const response = await apiFetch("/api/v1/partner/accounts");
+  return response.json();
+}
+
+// --- PR #19 — organisations du périmètre du partenaire -------------------------------------------
+// Uniquement les organisations où CE partenaire a déjà au moins une école inscrite (filtrage côté
+// API) ; l'ajout d'un établissement hors de ce périmètre est refusé par l'API (404).
+export type PartnerOrganization = {
+  organization_id: string;
+  organization_name: string;
+  schools: PartnerSchool[];
+};
+
+export async function listPartnerOrganizations(): Promise<PartnerOrganization[]> {
+  const response = await apiFetch("/api/v1/partner/organizations");
+  return response.json();
+}
+
+export async function addPartnerSchool(organizationId: string, payload: SchoolAddPayload): Promise<SchoolAdded> {
+  const response = await apiFetch(`/api/v1/partner/organizations/${encodeURIComponent(organizationId)}/schools`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
   return response.json();
 }

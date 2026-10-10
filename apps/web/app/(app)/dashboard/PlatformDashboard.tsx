@@ -45,6 +45,14 @@ export function PlatformDashboard() {
         >
           + Inscrire une organisation
         </Link>
+        {/* PR #19 — ajout d'un établissement à une organisation EXISTANTE (même page, parcours
+            « Organisation existante ») : l'organisation n'est jamais recréée. */}
+        <Link
+          href="/dashboard/organizations/new?mode=existing"
+          className="ml-3 inline-flex rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          + Ajouter un établissement
+        </Link>
       </div>
 
       {error && <ErrorRetry message={error} onRetry={load} />}
