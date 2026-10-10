@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { toErrorMessage, useAsyncData } from "@/lib/api/useAsyncData";
 import { enrollPartnerSchool, listPartnerSchools } from "@/lib/partners/client";
+import { ExistingOrganizationEnroll } from "./ExistingOrganizationEnroll";
 
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -139,6 +140,9 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
 
 export default function PartnerSchoolsPage() {
   const { data, error, isLoading, retry } = useAsyncData(listPartnerSchools, []);
+  // PR #19 — « Nouvelle organisation » (parcours historique) ou « Organisation existante » (ajout
+  // d'un établissement dans une organisation de VOTRE périmètre, vérifié côté API).
+  const [mode, setMode] = useState<"new" | "existing">("new");
 
   return (
     <div className="flex flex-col gap-4">
@@ -146,7 +150,25 @@ export default function PartnerSchoolsPage() {
         <h1 className="text-2xl font-bold text-slate-900">Mes écoles</h1>
         <p className="text-sm text-slate-600">Écoles inscrites via votre compte partenaire.</p>
       </div>
-      <EnrollSchoolForm onEnrolled={retry} />
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-medium text-slate-700">+ Inscrire une école</legend>
+        <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+          <label className="flex items-center gap-2">
+            <input type="radio" name="partner-enrollment-mode" checked={mode === "new"} onChange={() => setMode("new")} />
+            Nouvelle organisation
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="partner-enrollment-mode"
+              checked={mode === "existing"}
+              onChange={() => setMode("existing")}
+            />
+            Organisation existante
+          </label>
+        </div>
+      </fieldset>
+      {mode === "new" ? <EnrollSchoolForm onEnrolled={retry} /> : <ExistingOrganizationEnroll onEnrolled={retry} />}
       {error && <ErrorRetry message={error} onRetry={retry} />}
       {isLoading && !error && <p className="text-sm text-slate-400">Chargement...</p>}
       {data &&

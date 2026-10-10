@@ -137,8 +137,14 @@ function pageQuery(page: number, pageSize: number): string {
   return `?page=${encodeURIComponent(String(page))}&page_size=${encodeURIComponent(String(pageSize))}`;
 }
 
-export async function listPlatformOrganizations(page = 1, pageSize = 20): Promise<Page<PlatformOrganization>> {
-  const response = await apiFetch(`/api/v1/platform/organizations${pageQuery(page, pageSize)}`);
+export async function listPlatformOrganizations(
+  page = 1,
+  pageSize = 20,
+  q?: string,
+): Promise<Page<PlatformOrganization>> {
+  // PR #19 — `q` optionnel : recherche nom/slug (sélection d'une organisation existante).
+  const search = q && q.trim() ? `&q=${encodeURIComponent(q.trim())}` : "";
+  const response = await apiFetch(`/api/v1/platform/organizations${pageQuery(page, pageSize)}${search}`);
   return response.json();
 }
 
@@ -159,6 +165,42 @@ export async function listPlatformPartners(page = 1, pageSize = 20): Promise<Pag
 
 export async function createPlatformPartner(payload: PlatformPartnerCreate): Promise<PlatformPartnerCreated> {
   const response = await apiFetch("/api/v1/platform/partners", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
+
+// --- PR #19 — plusieurs établissements par organisation -----------------------------------------
+// Ajout d'un établissement à une organisation EXISTANTE : l'organisation est désignée par l'URL,
+// jamais recréée (l'API rejette tout champ `organization`/`organization_id`/`partner_id` du corps).
+export type SchoolAddPayload = {
+  school: PlatformSchoolInput;
+  admin: PlatformAdminInput;
+};
+
+export type SchoolAdded = {
+  organization: { id: string; name: string; slug: string };
+  school: { id: string; organization_id: string; name: string; slug: string };
+  admin: { id: string; email: string; full_name: string };
+  admin_role_code: string;
+  acquisition_source: AcquisitionSource;
+  commission_eligible: boolean;
+};
+
+export type PlatformOrganizationSchools = {
+  organization: PlatformOrganization;
+  schools: PlatformSchool[];
+};
+
+export async function getPlatformOrganizationSchools(organizationId: string): Promise<PlatformOrganizationSchools> {
+  const response = await apiFetch(`/api/v1/platform/organizations/${encodeURIComponent(organizationId)}/schools`);
+  return response.json();
+}
+
+export async function addPlatformSchool(organizationId: string, payload: SchoolAddPayload): Promise<SchoolAdded> {
+  const response = await apiFetch(`/api/v1/platform/organizations/${encodeURIComponent(organizationId)}/schools`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

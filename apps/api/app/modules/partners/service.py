@@ -28,7 +28,7 @@ from app.modules.partners.models import (
     PartnerSchoolEnrollment,
 )
 from app.modules.platform import service as platform_service
-from app.modules.platform.schemas import PlatformOrganizationCreate
+from app.modules.platform.schemas import PlatformOrganizationCreate, PlatformSchoolAdd
 from app.modules.rbac.models import NON_SCHOOL_ROLE_CODES, Role, UserRole
 from app.modules.schools.models import School
 from app.modules.users.models import User
@@ -81,6 +81,60 @@ async def list_partner_schools(
         total, active = counts.get(school.id, (0, 0))
         items.append((enrollment, school, organization, total, active))
     return items
+
+
+async def list_partner_organizations(
+    db: AsyncSession, partner: Partner
+) -> list[tuple[Organization, list[tuple[PartnerSchoolEnrollment, School, int, int]]]]:
+    """PR #19 — organisations SÉLECTIONNABLES par ce partenaire : uniquement celles où il a déjà
+    au moins une école inscrite (`partner_school_enrollments.partner_id == <ce partenaire>`), avec
+    SES propres écoles dans chacune (agrégats élèves COUNT uniquement). Jamais d'énumération des
+    organisations de la plateforme, jamais les écoles inscrites par un autre acteur."""
+    grouped: dict[uuid.UUID, tuple[Organization, list[tuple[PartnerSchoolEnrollment, School, int, int]]]] = {}
+    for enrollment, school, organization, total, active in await list_partner_schools(db, partner):
+        entry = grouped.setdefault(organization.id, (organization, []))
+        entry[1].append((enrollment, school, total, active))
+    return sorted(grouped.values(), key=lambda item: item[0].name.casefold())
+
+
+async def get_partner_organization_or_404(db: AsyncSession, partner: Partner, organization_id: uuid.UUID) -> Organization:
+    """PR #19 — `organization_id` vient du client (chemin d'URL) : il n'est accepté QUE s'il fait
+    partie du périmètre de CE partenaire (au moins une inscription `partner_id == partner.id` dans
+    cette organisation). Sinon 404 — même réponse qu'une organisation inexistante, pour qu'un
+    partenaire ne puisse jamais découvrir l'existence d'une organisation étrangère."""
+    await set_platform_wide_context(db)
+    organization = (
+        await db.execute(
+            select(Organization)
+            .join(PartnerSchoolEnrollment, PartnerSchoolEnrollment.organization_id == Organization.id)
+            .where(Organization.id == organization_id, PartnerSchoolEnrollment.partner_id == partner.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if organization is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    return organization
+
+
+async def add_school_to_own_organization(
+    db: AsyncSession,
+    partner: Partner,
+    organization_id: uuid.UUID,
+    payload: PlatformSchoolAdd,
+    current_user_id: uuid.UUID,
+) -> tuple[Organization, School, User]:
+    """PR #19 — ajout d'un établissement par ce partenaire dans une organisation de SON périmètre,
+    via le cœur métier unique (platform/service.py::add_school_to_organization) : `partner_id`
+    dérivé du compte authentifié, source "PARTNER" (donc `commission_eligible=True`)."""
+    await get_partner_organization_or_404(db, partner, organization_id)
+    return await platform_service.add_school_to_organization(
+        db,
+        organization_id,
+        payload,
+        enrolled_by_user_id=current_user_id,
+        partner_id=partner.id,
+        acquisition_source=ACQUISITION_SOURCE_PARTNER,
+    )
 
 
 async def enroll_school(

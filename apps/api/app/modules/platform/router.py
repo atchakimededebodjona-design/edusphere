@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -5,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.core.permissions import DbSession, require_permission, require_platform_admin
 from app.modules.auth.schemas import UserOut
 from app.modules.organizations.schemas import OrganizationOut
-from app.modules.partners.models import Partner
+from app.modules.partners.models import ACQUISITION_SOURCE_PLATFORM_OWNER, Partner
 from app.modules.platform import service
 from app.modules.platform.schemas import (
     PlatformAccountOut,
@@ -14,14 +15,18 @@ from app.modules.platform.schemas import (
     PlatformOrganizationCreate,
     PlatformOrganizationCreated,
     PlatformOrganizationListItem,
+    PlatformOrganizationSchoolsOut,
     PlatformOrganizationsPage,
     PlatformPartnerCreate,
     PlatformPartnerCreated,
     PlatformPartnerOut,
     PlatformPartnersPage,
+    PlatformSchoolAdd,
+    PlatformSchoolAdded,
     PlatformSchoolListItem,
     PlatformSchoolsPage,
 )
+from app.modules.schools.models import School
 from app.modules.schools.schemas import SchoolOut
 from app.modules.users.models import User
 
@@ -77,11 +82,74 @@ async def create_platform_organization(
     response_model=PlatformOrganizationsPage,
     dependencies=[Depends(require_permission("platform.organizations.read"))],
 )
-async def list_platform_organizations(db: DbSession, page: Page = 1, page_size: PageSize = 20) -> PlatformOrganizationsPage:
-    organizations, total = await service.list_organizations(db, page, page_size)
+async def list_platform_organizations(
+    db: DbSession,
+    page: Page = 1,
+    page_size: PageSize = 20,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+) -> PlatformOrganizationsPage:
+    # PR #19 — `q` optionnel (recherche nom/slug) pour choisir une organisation existante.
+    organizations, total = await service.list_organizations(db, page, page_size, q)
     return PlatformOrganizationsPage(
         items=[PlatformOrganizationListItem.model_validate(org) for org in organizations],
         **_page_meta(page, page_size, total),
+    )
+
+
+def _school_item(school: School, source: str | None, student_count: int, active_student_count: int) -> PlatformSchoolListItem:
+    return PlatformSchoolListItem(
+        id=school.id,
+        name=school.name,
+        organization_id=school.organization_id,
+        slug=school.slug,
+        created_at=school.created_at,
+        acquisition_source=source,
+        student_count=student_count,
+        active_student_count=active_student_count,
+    )
+
+
+# --- PR #19 — plusieurs établissements par organisation (parcours PLATFORM_OWNER) ---------------
+@router.get(
+    "/platform/organizations/{organization_id}/schools",
+    response_model=PlatformOrganizationSchoolsOut,
+    dependencies=[Depends(require_permission("platform.schools.read"))],
+)
+async def list_platform_organization_schools(organization_id: uuid.UUID, db: DbSession) -> PlatformOrganizationSchoolsOut:
+    organization, rows = await service.list_organization_schools(db, organization_id)
+    return PlatformOrganizationSchoolsOut(
+        organization=PlatformOrganizationListItem.model_validate(organization),
+        schools=[_school_item(*row) for row in rows],
+    )
+
+
+# Permission `platform.schools.enroll` (catalogue PR #17, jusqu'ici sans route) : SUPER_ADMIN et
+# PLATFORM_OWNER uniquement. N'a jamais créé ni ne crée d'organisation (404 si inconnue).
+@router.post(
+    "/platform/organizations/{organization_id}/schools",
+    response_model=PlatformSchoolAdded,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_platform_school(
+    organization_id: uuid.UUID,
+    payload: PlatformSchoolAdd,
+    db: DbSession,
+    current_user: Annotated[User, Depends(require_permission("platform.schools.enroll"))],
+) -> PlatformSchoolAdded:
+    organization, school, admin = await service.add_school_to_organization(
+        db,
+        organization_id,
+        payload,
+        enrolled_by_user_id=current_user.id,
+        partner_id=None,
+        acquisition_source=ACQUISITION_SOURCE_PLATFORM_OWNER,
+    )
+    return PlatformSchoolAdded(
+        organization=OrganizationOut.model_validate(organization),
+        school=SchoolOut.model_validate(school),
+        admin=UserOut.model_validate(admin),
+        acquisition_source=ACQUISITION_SOURCE_PLATFORM_OWNER,
+        commission_eligible=False,
     )
 
 
@@ -93,19 +161,7 @@ async def list_platform_organizations(db: DbSession, page: Page = 1, page_size: 
 async def list_platform_schools(db: DbSession, page: Page = 1, page_size: PageSize = 20) -> PlatformSchoolsPage:
     rows, total = await service.list_schools(db, page, page_size)
     return PlatformSchoolsPage(
-        items=[
-            PlatformSchoolListItem(
-                id=school.id,
-                name=school.name,
-                organization_id=school.organization_id,
-                slug=school.slug,
-                created_at=school.created_at,
-                acquisition_source=source,
-                student_count=student_count,
-                active_student_count=active_student_count,
-            )
-            for school, source, student_count, active_student_count in rows
-        ],
+        items=[_school_item(*row) for row in rows],
         **_page_meta(page, page_size, total),
     )
 
