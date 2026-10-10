@@ -45,6 +45,10 @@ class PartnerSchoolEnrolled(BaseModel):
     admin_role_code: str = "SCHOOL_ADMIN"
     acquisition_source: str
     commission_eligible: bool
+    # PR #20 — voir platform/schemas.py::PlatformSchoolAdded (valeurs par défaut : parcours
+    # « nouvelle organisation », où un compte existant est toujours refusé).
+    admin_account_reused: bool = False
+    admin_access: str = "NEW_ACCOUNT"
 
 
 class PartnerAccountOut(BaseModel):

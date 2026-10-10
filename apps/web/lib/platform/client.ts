@@ -175,10 +175,24 @@ export async function createPlatformPartner(payload: PlatformPartnerCreate): Pro
 // --- PR #19 — plusieurs établissements par organisation -----------------------------------------
 // Ajout d'un établissement à une organisation EXISTANTE : l'organisation est désignée par l'URL,
 // jamais recréée (l'API rejette tout champ `organization`/`organization_id`/`partner_id` du corps).
+// PR #20 — administrateur de l'établissement ajouté. `email` seul suffit pour réutiliser un compte
+// administrateur EXISTANT de la même organisation (SCHOOL_ADMIN ou DIRECTOR) : nom et mot de passe
+// sont alors ignorés par l'API (le compte n'est jamais modifié). Nouveau compte : nom + mot de passe.
+export type SchoolAdminInput = {
+  email: string;
+  full_name?: string | null;
+  phone?: string | null;
+  password?: string | null;
+};
+
 export type SchoolAddPayload = {
   school: PlatformSchoolInput;
-  admin: PlatformAdminInput;
+  admin: SchoolAdminInput;
 };
+
+// "NEW_ACCOUNT" : compte créé ; "SCHOOL_ROLE_ADDED" : compte existant réutilisé, rôle ajouté pour
+// cette école ; "ORGANIZATION_WIDE_ROLE" : compte existant qui administre déjà toute l'organisation.
+export type AdminAccess = "NEW_ACCOUNT" | "SCHOOL_ROLE_ADDED" | "ORGANIZATION_WIDE_ROLE";
 
 export type SchoolAdded = {
   organization: { id: string; name: string; slug: string };
@@ -187,6 +201,8 @@ export type SchoolAdded = {
   admin_role_code: string;
   acquisition_source: AcquisitionSource;
   commission_eligible: boolean;
+  admin_account_reused: boolean;
+  admin_access: AdminAccess;
 };
 
 export type PlatformOrganizationSchools = {

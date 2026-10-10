@@ -187,6 +187,22 @@ class PlatformPartnersPage(_PageMeta):
 # --- PR #19 — plusieurs établissements par organisation --------------------------------------
 
 
+class SchoolAdminInput(BaseModel):
+    """PR #20 — administrateur d'un établissement ajouté à une organisation EXISTANTE.
+
+    `email` seul suffit quand il désigne un compte existant réutilisable de la même organisation
+    (SCHOOL_ADMIN ou DIRECTOR) : `full_name`/`phone`/`password` sont alors IGNORÉS — le compte
+    réutilisé n'est jamais modifié, son mot de passe jamais lu ni changé. Pour un nouveau compte,
+    `full_name` (2+ caractères) et `password` (8 à 128 caractères) sont exigés côté service (422)
+    — volontairement sans contrainte ici, pour qu'un mot de passe envoyé avec un compte réutilisé
+    soit simplement ignoré, jamais rejeté."""
+
+    full_name: str | None = Field(default=None, max_length=255)
+    email: EmailStr
+    phone: str | None = Field(default=None, max_length=32)
+    password: str | None = None
+
+
 class PlatformSchoolAdd(BaseModel):
     """Ajout d'un établissement à une organisation EXISTANTE (désignée par le chemin de l'URL,
     jamais par le corps) : nouvelle école + son premier SCHOOL_ADMIN.
@@ -198,7 +214,7 @@ class PlatformSchoolAdd(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     school: PlatformSchoolInput
-    admin: PlatformAdminInput
+    admin: SchoolAdminInput
 
 
 class PlatformSchoolAdded(BaseModel):
@@ -208,6 +224,11 @@ class PlatformSchoolAdded(BaseModel):
     admin_role_code: str = "SCHOOL_ADMIN"
     acquisition_source: str
     commission_eligible: bool
+    # PR #20 — compte administrateur réutilisé (même organisation) plutôt que créé, et ce qui a été
+    # fait : "NEW_ACCOUNT" | "SCHOOL_ROLE_ADDED" | "ORGANIZATION_WIDE_ROLE" (rôle SCHOOL_ADMIN
+    # org-wide déjà détenu, qui couvre déjà la nouvelle école : aucun rôle ajouté).
+    admin_account_reused: bool = False
+    admin_access: str = "NEW_ACCOUNT"
 
 
 class PlatformOrganizationSchoolsOut(BaseModel):

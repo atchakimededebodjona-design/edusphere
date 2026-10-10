@@ -136,7 +136,7 @@ async def add_platform_school(
     db: DbSession,
     current_user: Annotated[User, Depends(require_permission("platform.schools.enroll"))],
 ) -> PlatformSchoolAdded:
-    organization, school, admin = await service.add_school_to_organization(
+    organization, school, resolution = await service.add_school_to_organization(
         db,
         organization_id,
         payload,
@@ -147,9 +147,11 @@ async def add_platform_school(
     return PlatformSchoolAdded(
         organization=OrganizationOut.model_validate(organization),
         school=SchoolOut.model_validate(school),
-        admin=UserOut.model_validate(admin),
+        admin=UserOut.model_validate(resolution.user),
         acquisition_source=ACQUISITION_SOURCE_PLATFORM_OWNER,
         commission_eligible=False,
+        admin_account_reused=resolution.reused,
+        admin_access=resolution.access,
     )
 
 

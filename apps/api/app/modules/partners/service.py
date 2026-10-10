@@ -122,7 +122,7 @@ async def add_school_to_own_organization(
     organization_id: uuid.UUID,
     payload: PlatformSchoolAdd,
     current_user_id: uuid.UUID,
-) -> tuple[Organization, School, User]:
+) -> tuple[Organization, School, platform_service.SchoolAdminResolution]:
     """PR #19 — ajout d'un établissement par ce partenaire dans une organisation de SON périmètre,
     via le cœur métier unique (platform/service.py::add_school_to_organization) : `partner_id`
     dérivé du compte authentifié, source "PARTNER" (donc `commission_eligible=True`)."""

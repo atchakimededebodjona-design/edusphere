@@ -1,8 +1,9 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,8 +25,9 @@ from app.modules.platform.schemas import (
     PlatformPartnerCreate,
     PlatformSchoolAdd,
     PlatformSchoolInput,
+    SchoolAdminInput,
 )
-from app.modules.rbac.models import Role, UserRole
+from app.modules.rbac.models import NON_SCHOOL_ROLE_CODES, Role, UserRole
 from app.modules.schools.models import School
 from app.modules.students.models import Student
 from app.modules.users.models import User
@@ -99,7 +101,10 @@ async def create_organization_school_admin(
         await db.flush()
 
         # Premier SCHOOL_ADMIN : rôle org-wide (`school_id` NULL), comportement historique conservé.
-        school, user = await _create_school_admin_enrollment(
+        # Nouvelle organisation : aucun compte existant ne peut y avoir de rôle, donc un email
+        # existant est toujours refusé (409, message historique) — PR #20, voir
+        # `resolve_or_create_school_admin`.
+        school, resolution = await _create_school_admin_enrollment(
             db,
             organization,
             payload.school,
@@ -109,7 +114,9 @@ async def create_organization_school_admin(
             enrolled_by_user_id=enrolled_by_user_id,
             partner_id=partner_id,
             acquisition_source=acquisition_source,
+            conflict_detail=ORGANIZATION_CONFLICT_DETAIL,
         )
+        user = resolution.user
 
         await db.refresh(organization)
         await db.refresh(school)
@@ -117,10 +124,7 @@ async def create_organization_school_admin(
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Organization slug or admin email already in use",
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ORGANIZATION_CONFLICT_DETAIL) from exc
     except Exception:
         await db.rollback()
         raise
@@ -136,18 +140,146 @@ async def _school_admin_role(db: AsyncSession) -> Role:
     return school_admin_role
 
 
+ORGANIZATION_CONFLICT_DETAIL = "Organization slug or admin email already in use"
+SCHOOL_CONFLICT_DETAIL = "School slug or admin email already in use"
+
+# PR #20 — seuls les comptes détenant DÉJÀ l'un de ces rôles dans l'organisation cible peuvent être
+# réutilisés comme SCHOOL_ADMIN d'une nouvelle école de cette organisation. Tout autre rôle
+# (PARENT, STUDENT, TEACHER, ACCOUNTANT, STAFF) est refusé : jamais d'élévation silencieuse.
+REUSABLE_ADMIN_ROLE_CODES = {"SCHOOL_ADMIN", "DIRECTOR"}
+
+# Statut renvoyé à l'appelant (champ `admin_access` des réponses d'inscription).
+ADMIN_ACCESS_NEW_ACCOUNT = "NEW_ACCOUNT"
+ADMIN_ACCESS_SCHOOL_ROLE_ADDED = "SCHOOL_ROLE_ADDED"
+ADMIN_ACCESS_ORGANIZATION_WIDE = "ORGANIZATION_WIDE_ROLE"
+
+
+@dataclass
+class SchoolAdminResolution:
+    """Résultat de `resolve_or_create_school_admin` : le compte (créé ou réutilisé) et ce qui a
+    réellement été fait pour lui donner l'administration de la nouvelle école."""
+
+    user: User
+    reused: bool
+    access: str
+
+
+async def resolve_or_create_school_admin(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    school: School,
+    admin_input: PlatformAdminInput | SchoolAdminInput,
+    school_admin_role: Role,
+    admin_school_scoped: bool,
+    conflict_detail: str,
+) -> SchoolAdminResolution:
+    """PR #20 — résout l'administrateur d'une NOUVELLE école : réutilise le compte existant quand
+    c'est légitime, sinon le crée. Ne commite pas (transaction de l'appelant, tout ou rien) ; le
+    contexte platform-wide est déjà posé par l'appelant (lecture des rôles de ce compte, toutes
+    organisations confondues, filtrée explicitement par `user_id`).
+
+    `User.email` reste UNIQUE (inchangé) : jamais deux comptes pour une même personne. Email
+    normalisé (espaces retirés, minuscules) ; verrou transactionnel `pg_advisory_xact_lock` sur cet
+    email pour sérialiser deux inscriptions concurrentes visant le même administrateur.
+
+    - Aucun compte : création (nom et mot de passe obligatoires — 422 sinon), puis rôle
+      SCHOOL_ADMIN (scopé à l'école si `admin_school_scoped`, org-wide pour la première école d'une
+      nouvelle organisation — comportement historique).
+    - Compte existant RÉUTILISABLE : actif, sans rôle plateforme/partenaire ni `is_platform_admin`,
+      et détenant déjà SCHOOL_ADMIN ou DIRECTOR dans CETTE organisation. Le mot de passe et le
+      profil ne sont JAMAIS lus ni modifiés (tout mot de passe envoyé est ignoré).
+        * Rôle SCHOOL_ADMIN org-wide déjà détenu dans l'organisation : il couvre déjà la nouvelle
+          école — AUCUN rôle ajouté (un rôle scopé en plus masquerait l'accès org-wide côté
+          frontend, voir lib/auth/tenantContext.ts::resolveSchoolScopedFastPath).
+        * Sinon : ajout d'UN rôle SCHOOL_ADMIN scopé à la nouvelle école (jamais org-wide), sans
+          doublon.
+    - Tout autre compte existant (autre organisation, inactif, rôle non éligible, compte plateforme
+      ou partenaire) : 409 avec EXACTEMENT le même message générique qu'avant la PR #20 — aucun
+      motif distinguable de l'extérieur, aucune école ni rôle créés (rollback de l'appelant)."""
+    email = str(admin_input.email).strip().lower()
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"school-admin-email:{email}"})
+
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None:
+        full_name = (admin_input.full_name or "").strip()
+        password = admin_input.password or ""
+        if len(full_name) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Administrator full name is required to create a new account",
+            )
+        if not 8 <= len(password) <= 128:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="A password of 8 to 128 characters is required to create a new administrator account",
+            )
+        user = User(
+            id=uuid.uuid4(),
+            email=email,
+            full_name=full_name,
+            phone=admin_input.phone,
+            hashed_password=hash_password(password),
+        )
+        db.add(user)
+        await db.flush()
+        db.add(
+            UserRole(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                role_id=school_admin_role.id,
+                organization_id=organization.id,
+                school_id=school.id if admin_school_scoped else None,
+            )
+        )
+        await db.flush()
+        return SchoolAdminResolution(user=user, reused=False, access=ADMIN_ACCESS_NEW_ACCOUNT)
+
+    refused = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflict_detail)
+    if not user.is_active or user.is_platform_admin:
+        raise refused
+    rows = (
+        await db.execute(
+            select(UserRole, Role.code).join(Role, Role.id == UserRole.role_id).where(UserRole.user_id == user.id)
+        )
+    ).all()
+    if any(code in NON_SCHOOL_ROLE_CODES for _, code in rows):
+        raise refused
+    in_org = [(ur, code) for ur, code in rows if ur.organization_id == organization.id]
+    if not any(code in REUSABLE_ADMIN_ROLE_CODES for _, code in in_org):
+        raise refused
+
+    if any(code == "SCHOOL_ADMIN" and ur.school_id is None for ur, code in in_org):
+        return SchoolAdminResolution(user=user, reused=True, access=ADMIN_ACCESS_ORGANIZATION_WIDE)
+
+    already = any(code == "SCHOOL_ADMIN" and ur.school_id == school.id for ur, code in in_org)
+    if not already:
+        db.add(
+            UserRole(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                role_id=school_admin_role.id,
+                organization_id=organization.id,
+                school_id=school.id,
+            )
+        )
+        await db.flush()
+    return SchoolAdminResolution(user=user, reused=True, access=ADMIN_ACCESS_SCHOOL_ROLE_ADDED)
+
+
 async def _create_school_admin_enrollment(
     db: AsyncSession,
     organization: Organization,
     school_input: PlatformSchoolInput,
-    admin_input: PlatformAdminInput,
+    admin_input: PlatformAdminInput | SchoolAdminInput,
     *,
     school_admin_role: Role,
     admin_school_scoped: bool,
     enrolled_by_user_id: uuid.UUID,
     partner_id: uuid.UUID | None,
     acquisition_source: str,
-) -> tuple[School, User]:
+    conflict_detail: str,
+) -> tuple[School, SchoolAdminResolution]:
     """CŒUR MÉTIER UNIQUE (PR #19) — crée, dans l'organisation DÉJÀ résolue par l'appelant :
     l'école, son SCHOOL_ADMIN et la ligne `partner_school_enrollments`. Utilisé par les deux
     parcours (nouvelle organisation / organisation existante) et par les deux sources
@@ -158,7 +290,10 @@ async def _create_school_admin_enrollment(
     authentifié), jamais du payload ; `commission_eligible` est dérivé de la source.
     `admin_school_scoped=True` (école ajoutée à une organisation existante) : le nouvel admin est
     scopé à CETTE école uniquement (`school_id` renseigné) — il n'administre jamais les autres
-    établissements de l'organisation."""
+    établissements de l'organisation.
+
+    PR #20 — l'administrateur est résolu par `resolve_or_create_school_admin` (création ou
+    réutilisation légitime d'un compte existant de la même organisation)."""
     school = School(
         id=uuid.uuid4(),
         organization_id=organization.id,
@@ -173,26 +308,15 @@ async def _create_school_admin_enrollment(
     db.add(school)
     await db.flush()
 
-    user = User(
-        id=uuid.uuid4(),
-        email=str(admin_input.email).lower(),
-        full_name=admin_input.full_name,
-        phone=admin_input.phone,
-        hashed_password=hash_password(admin_input.password),
+    resolution = await resolve_or_create_school_admin(
+        db,
+        organization=organization,
+        school=school,
+        admin_input=admin_input,
+        school_admin_role=school_admin_role,
+        admin_school_scoped=admin_school_scoped,
+        conflict_detail=conflict_detail,
     )
-    db.add(user)
-    await db.flush()
-
-    db.add(
-        UserRole(
-            id=uuid.uuid4(),
-            user_id=user.id,
-            role_id=school_admin_role.id,
-            organization_id=organization.id,
-            school_id=school.id if admin_school_scoped else None,
-        )
-    )
-    await db.flush()
 
     # PR #17 — dans la MÊME transaction : l'école n'existe jamais sans sa source d'acquisition
     # (UNIQUE(school_id) en base : une école n'est inscrite qu'une fois, par une seule source).
@@ -208,7 +332,7 @@ async def _create_school_admin_enrollment(
         )
     )
     await db.flush()
-    return school, user
+    return school, resolution
 
 
 def _normalized_name(value: str) -> str:
@@ -223,7 +347,7 @@ async def add_school_to_organization(
     enrolled_by_user_id: uuid.UUID,
     partner_id: uuid.UUID | None,
     acquisition_source: str,
-) -> tuple[Organization, School, User]:
+) -> tuple[Organization, School, SchoolAdminResolution]:
     """PR #19 — ajoute une école (+ son SCHOOL_ADMIN + son inscription) à une organisation
     EXISTANTE. N'en crée jamais une nouvelle : organisation inconnue => 404.
 
@@ -235,7 +359,10 @@ async def add_school_to_organization(
     les ajouts concurrents dans une même organisation, puis un même nom d'école (casse/espaces
     ignorés) y est refusé (409). Le slug reste garanti en base par `uq_school_org_slug`
     (organization_id, slug) — stratégie d'unicité existante inchangée ; un conflit de slug ou
-    d'email administrateur se traduit aussi en 409, transaction annulée."""
+    d'email administrateur se traduit aussi en 409, transaction annulée.
+
+    PR #20 — l'administrateur peut être un compte EXISTANT de la même organisation (voir
+    `resolve_or_create_school_admin`) ; le résultat indique ce qui a été fait."""
     school_admin_role = await _school_admin_role(db)
     await set_platform_wide_context(db)
     try:
@@ -255,7 +382,7 @@ async def add_school_to_organization(
                 detail="A school with this name already exists in this organization",
             )
 
-        school, user = await _create_school_admin_enrollment(
+        school, resolution = await _create_school_admin_enrollment(
             db,
             organization,
             payload.school,
@@ -265,22 +392,20 @@ async def add_school_to_organization(
             enrolled_by_user_id=enrolled_by_user_id,
             partner_id=partner_id,
             acquisition_source=acquisition_source,
+            conflict_detail=SCHOOL_CONFLICT_DETAIL,
         )
         await db.refresh(organization)
         await db.refresh(school)
-        await db.refresh(user)
+        await db.refresh(resolution.user)
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="School slug or admin email already in use",
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=SCHOOL_CONFLICT_DETAIL) from exc
     except Exception:
         await db.rollback()
         raise
 
-    return organization, school, user
+    return organization, school, resolution
 
 
 async def get_platform_dashboard_summary(db: AsyncSession) -> dict:

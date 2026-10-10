@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
-import { ExistingSchoolsList, NewSchoolForm } from "@/components/enrollment/NewSchoolForm";
+import { ExistingSchoolsList, NewSchoolForm, schoolAddedMessage } from "@/components/enrollment/NewSchoolForm";
 import { useAsyncData } from "@/lib/api/useAsyncData";
 import { addPartnerSchool, listPartnerOrganizations } from "@/lib/partners/client";
 
@@ -54,7 +54,7 @@ export function ExistingOrganizationEnroll({ onEnrolled }: { onEnrolled: () => v
               const added = await addPartnerSchool(selected.organization_id, payload);
               retry();
               onEnrolled();
-              return `Établissement « ${added.school.name} » inscrit dans « ${added.organization.name} ». Son administrateur peut se connecter.`;
+              return schoolAddedMessage(added, "inscrit dans");
             }}
           />
         </section>
