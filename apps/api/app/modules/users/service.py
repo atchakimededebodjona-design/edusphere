@@ -4,6 +4,7 @@ from typing import NamedTuple
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -42,6 +43,10 @@ class RoleData(NamedTuple):
 # organisation, compte inactif, rôle hors périmètre...) n'est distinguable de l'extérieur.
 ATTACH_REFUSED_DETAIL = "This account cannot be attached to a school"
 MODIFY_REFUSED_DETAIL = "This account cannot be modified from this school"
+# P1-1 (migration 0024) — conflit d'unicité détecté par la BASE lors d'une écriture concurrente
+# (même email créé deux fois, ou même attribution de rôle insérée deux fois) : transaction annulée,
+# réponse contrôlée, aucun état partiel, aucun email envoyé.
+CONCURRENT_CONFLICT_DETAIL = "This account or role assignment was modified concurrently; please retry"
 
 
 class _Footprint(NamedTuple):
@@ -183,76 +188,85 @@ async def create_or_attach_user(
     # `report_cards/service.py::prepare_report_card_published_notifications`).
     welcome_email: tuple[str, str, str] | None = None
 
-    if user is None:
-        user = User(
-            id=uuid.uuid4(),
-            email=payload.email.lower(),
-            full_name=payload.full_name,
-            phone=payload.phone,
-            hashed_password=hash_password(generate_opaque_token()),
-        )
-        db.add(user)
-        await db.flush()
-
-        raw_token = generate_opaque_token()
-        # Le nouveau compte n'est pas l'appelant courant (l'admin) — bypass RLS explicite pour cet
-        # INSERT, même motif que auth/service.py::request_password_reset (RETURNING implicite de
-        # l'ORM). Contexte restauré juste après (avant les lectures user_roles qui suivent, qui
-        # doivent rester filtrées par le tenant réel de l'admin — voir Phase 22 migration 0012).
-        await set_platform_wide_context(db)
-        db.add(
-            PasswordResetToken(
+    # P1-1 — la vérification ci-dessous (SELECT) reste le chemin rapide et idempotent (attribution
+    # déjà présente => aucune insertion, réponse 201 inchangée), mais la BASE est l'autorité finale
+    # (index uniques partiels de la migration 0024, et unicité de users.email) : une requête
+    # concurrente perdante obtient un 409 contrôlé, la transaction est annulée (aucun compte, token
+    # ni rôle partiel) et l'email de bienvenue, envoyé seulement APRÈS le commit, n'est jamais émis.
+    try:
+        if user is None:
+            user = User(
                 id=uuid.uuid4(),
-                user_id=user.id,
-                token_hash=hash_opaque_token(raw_token),
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+                email=payload.email.lower(),
+                full_name=payload.full_name,
+                phone=payload.phone,
+                hashed_password=hash_password(generate_opaque_token()),
+            )
+            db.add(user)
+            await db.flush()
+
+            raw_token = generate_opaque_token()
+            # Le nouveau compte n'est pas l'appelant courant (l'admin) — bypass RLS explicite pour cet
+            # INSERT, même motif que auth/service.py::request_password_reset (RETURNING implicite de
+            # l'ORM). Contexte restauré juste après (avant les lectures user_roles qui suivent, qui
+            # doivent rester filtrées par le tenant réel de l'admin — voir Phase 22 migration 0012).
+            await set_platform_wide_context(db)
+            db.add(
+                PasswordResetToken(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    token_hash=hash_opaque_token(raw_token),
+                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+                )
+            )
+            await db.flush()
+            await apply_tenant_context(db, current_user_id)
+            welcome_email = (
+                user.email,
+                "Bienvenue sur EduLinkage — activez votre compte",
+                f"Un compte a été créé pour vous sur EduLinkage. Pour définir votre mot de passe, "
+                f"ouvrez ce lien (valable {PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes) :\n"
+                f"{settings.public_web_base_url}/reset-password?token={raw_token}",
+            )
+            # dev_reset_token même règle que auth/service.py::request_password_reset (dev_token) :
+            # exposé hors production pour les tests/le développement, un email est envoyé dans tous
+            # les cas (voir app/core/email.py — LocalEmailProvider en dev, SMTP en production).
+            dev_reset_token = None if settings.environment == "production" else raw_token
+
+        duplicate_result = await db.execute(
+            select(UserRole).where(
+                UserRole.user_id == user.id,
+                UserRole.role_id == role.id,
+                UserRole.organization_id == school.organization_id,
+                UserRole.school_id == school.id,
             )
         )
-        await db.flush()
-        await apply_tenant_context(db, current_user_id)
-        welcome_email = (
-            user.email,
-            "Bienvenue sur EduLinkage — activez votre compte",
-            f"Un compte a été créé pour vous sur EduLinkage. Pour définir votre mot de passe, "
-            f"ouvrez ce lien (valable {PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes) :\n"
-            f"{settings.public_web_base_url}/reset-password?token={raw_token}",
-        )
-        # dev_reset_token même règle que auth/service.py::request_password_reset (dev_token) :
-        # exposé hors production pour les tests/le développement, un email est envoyé dans tous
-        # les cas (voir app/core/email.py — LocalEmailProvider en dev, SMTP en production).
-        dev_reset_token = None if settings.environment == "production" else raw_token
-
-    duplicate_result = await db.execute(
-        select(UserRole).where(
-            UserRole.user_id == user.id,
-            UserRole.role_id == role.id,
-            UserRole.organization_id == school.organization_id,
-            UserRole.school_id == school.id,
-        )
-    )
-    if not already_covered and duplicate_result.scalar_one_or_none() is None:
-        db.add(
-            UserRole(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                role_id=role.id,
-                organization_id=school.organization_id,
-                school_id=school.id,
+        if not already_covered and duplicate_result.scalar_one_or_none() is None:
+            db.add(
+                UserRole(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    role_id=role.id,
+                    organization_id=school.organization_id,
+                    school_id=school.id,
+                )
             )
+
+        await db.flush()
+        await db.refresh(user)
+
+        # UserRole n'a pas de relationship() ORM vers Role (cf. commentaire dans auth/service.py
+        # create_organization_with_admin()) — jointure explicite pour récupérer le code, même pattern que
+        # auth/router.py::me().
+        roles_result = await db.execute(
+            select(UserRole, Role.code).join(Role, Role.id == UserRole.role_id).where(UserRole.user_id == user.id)
         )
+        all_roles = [RoleData(role_code=code, organization_id=ur.organization_id, school_id=ur.school_id) for ur, code in roles_result.all()]
 
-    await db.flush()
-    await db.refresh(user)
-
-    # UserRole n'a pas de relationship() ORM vers Role (cf. commentaire dans auth/service.py
-    # create_organization_with_admin()) — jointure explicite pour récupérer le code, même pattern que
-    # auth/router.py::me().
-    roles_result = await db.execute(
-        select(UserRole, Role.code).join(Role, Role.id == UserRole.role_id).where(UserRole.user_id == user.id)
-    )
-    all_roles = [RoleData(role_code=code, organization_id=ur.organization_id, school_id=ur.school_id) for ur, code in roles_result.all()]
-
-    await db.commit()
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=CONCURRENT_CONFLICT_DETAIL) from exc
 
     # Sprint 1.7 — envoi réel (pur réseau, best-effort) APRÈS le commit ci-dessus : le compte et
     # son token de réinitialisation sont déjà durablement enregistrés, un échec d'envoi (ou toute
@@ -307,72 +321,78 @@ async def update_user_in_school(
 
     previous_is_active = user.is_active
 
-    if payload.role_code is not None:
-        if payload.role_code in NON_SCHOOL_ROLE_CODES:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a platform-wide role here")
-        role_result = await db.execute(select(Role).where(Role.code == payload.role_code))
-        role = role_result.scalar_one_or_none()
-        if role is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role code")
+    # P1-1 — deux changements de rôle concurrents sur la même école ne peuvent plus laisser deux
+    # attributions identiques (index `uq_user_roles_school`) : le perdant obtient un 409 contrôlé.
+    try:
+        if payload.role_code is not None:
+            if payload.role_code in NON_SCHOOL_ROLE_CODES:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a platform-wide role here")
+            role_result = await db.execute(select(Role).where(Role.code == payload.role_code))
+            role = role_result.scalar_one_or_none()
+            if role is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role code")
 
-        # PR #14 — code(s) précédent(s) capturé AVANT suppression, pour le résumé d'audit ci-dessous.
-        previous_codes_result = await db.execute(
-            select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(
-                UserRole.id.in_([row.id for row in role_rows])
+            # PR #14 — code(s) précédent(s) capturé AVANT suppression, pour le résumé d'audit ci-dessous.
+            previous_codes_result = await db.execute(
+                select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(
+                    UserRole.id.in_([row.id for row in role_rows])
+                )
             )
-        )
-        previous_role_codes = sorted({row[0] for row in previous_codes_result.all()})
+            previous_role_codes = sorted({row[0] for row in previous_codes_result.all()})
 
-        for row in role_rows:
-            await db.delete(row)
-        await db.flush()
-        db.add(
-            UserRole(
-                id=uuid.uuid4(),
-                user_id=target_user_id,
-                role_id=role.id,
-                organization_id=school.organization_id,
+            for row in role_rows:
+                await db.delete(row)
+            await db.flush()
+            db.add(
+                UserRole(
+                    id=uuid.uuid4(),
+                    user_id=target_user_id,
+                    role_id=role.id,
+                    organization_id=school.organization_id,
+                    school_id=school.id,
+                )
+            )
+            await audit_service.record_audit_event(
+                db,
                 school_id=school.id,
+                organization_id=school.organization_id,
+                actor_user_id=current_user_id,
+                action=audit_service.ACTION_USER_ROLE_CHANGED,
+                entity_type=audit_service.ENTITY_USER,
+                entity_id=target_user_id,
+                summary=f"Rôle de {user.email} changé de {'/'.join(previous_role_codes) or '—'} à {role.code}",
+                metadata={"previous_role_codes": previous_role_codes, "new_role_code": role.code},
             )
+
+        if payload.is_active is not None:
+            user.is_active = payload.is_active
+            await audit_service.record_audit_event(
+                db,
+                school_id=school.id,
+                organization_id=school.organization_id,
+                actor_user_id=current_user_id,
+                action=audit_service.ACTION_USER_STATUS_CHANGED,
+                entity_type=audit_service.ENTITY_USER,
+                entity_id=target_user_id,
+                summary=(
+                    f"Compte {user.email} {'activé' if payload.is_active else 'désactivé'} "
+                    f"(précédemment {'actif' if previous_is_active else 'inactif'})"
+                ),
+                metadata={"previous_is_active": previous_is_active, "new_is_active": payload.is_active},
+            )
+
+        await db.flush()
+        await db.refresh(user)
+
+        roles_result = await db.execute(
+            select(UserRole, Role.code).join(Role, Role.id == UserRole.role_id).where(UserRole.user_id == target_user_id)
         )
-        await audit_service.record_audit_event(
-            db,
-            school_id=school.id,
-            organization_id=school.organization_id,
-            actor_user_id=current_user_id,
-            action=audit_service.ACTION_USER_ROLE_CHANGED,
-            entity_type=audit_service.ENTITY_USER,
-            entity_id=target_user_id,
-            summary=f"Rôle de {user.email} changé de {'/'.join(previous_role_codes) or '—'} à {role.code}",
-            metadata={"previous_role_codes": previous_role_codes, "new_role_code": role.code},
-        )
+        all_roles = [RoleData(role_code=code, organization_id=ur.organization_id, school_id=ur.school_id) for ur, code in roles_result.all()]
 
-    if payload.is_active is not None:
-        user.is_active = payload.is_active
-        await audit_service.record_audit_event(
-            db,
-            school_id=school.id,
-            organization_id=school.organization_id,
-            actor_user_id=current_user_id,
-            action=audit_service.ACTION_USER_STATUS_CHANGED,
-            entity_type=audit_service.ENTITY_USER,
-            entity_id=target_user_id,
-            summary=(
-                f"Compte {user.email} {'activé' if payload.is_active else 'désactivé'} "
-                f"(précédemment {'actif' if previous_is_active else 'inactif'})"
-            ),
-            metadata={"previous_is_active": previous_is_active, "new_is_active": payload.is_active},
-        )
-
-    await db.flush()
-    await db.refresh(user)
-
-    roles_result = await db.execute(
-        select(UserRole, Role.code).join(Role, Role.id == UserRole.role_id).where(UserRole.user_id == target_user_id)
-    )
-    all_roles = [RoleData(role_code=code, organization_id=ur.organization_id, school_id=ur.school_id) for ur, code in roles_result.all()]
-
-    await db.commit()
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=CONCURRENT_CONFLICT_DETAIL) from exc
     return user, all_roles
 
 

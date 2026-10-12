@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -88,6 +88,34 @@ class UserRole(Base):
     """
 
     __tablename__ = "user_roles"
+    # P1-1 (migration 0024) — une attribution n'existe qu'une fois par portée, garanti EN BASE.
+    # Trois index UNIQUE PARTIELS car PostgreSQL traite deux NULL comme distincts : un index unique
+    # sur les quatre colonnes ne protégerait ni les rôles globaux ni les rôles org-wide.
+    __table_args__ = (
+        Index(
+            "uq_user_roles_global",
+            "user_id",
+            "role_id",
+            unique=True,
+            postgresql_where=text("organization_id IS NULL AND school_id IS NULL"),
+        ),
+        Index(
+            "uq_user_roles_org",
+            "user_id",
+            "role_id",
+            "organization_id",
+            unique=True,
+            postgresql_where=text("organization_id IS NOT NULL AND school_id IS NULL"),
+        ),
+        Index(
+            "uq_user_roles_school",
+            "user_id",
+            "role_id",
+            "school_id",
+            unique=True,
+            postgresql_where=text("school_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
