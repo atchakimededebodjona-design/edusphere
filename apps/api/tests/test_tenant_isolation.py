@@ -9,7 +9,7 @@ from datetime import date
 
 from httpx import AsyncClient
 
-from tests.conftest import register_school, unique_email
+from tests.conftest import add_school_to_organization, register_school, unique_email
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -84,16 +84,27 @@ async def test_admin_a_cannot_create_school_under_organization_b(client: AsyncCl
     school_b = await register_school(client, "isocreate-b")
     token_a = await _login(client, school_a["user"]["email"])
 
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+    # P1-2 — POST /api/v1/schools n'est plus un point d'entrée de création (410 pour tout appelant),
+    # même avec l'organization_id de B forgé dans le corps.
     response = await client.post(
         "/api/v1/schools",
-        json={
-            "organization_id": school_b["organization"]["id"],
-            "name": "École intruse",
-            "slug": "intruse",
-        },
-        headers={"Authorization": f"Bearer {token_a}"},
+        json={"organization_id": school_b["organization"]["id"], "name": "École intruse", "slug": "intruse"},
+        headers=headers_a,
+    )
+    assert response.status_code == 410
+    # Et le point d'entrée réel d'ajout d'école refuse l'admin de A sur l'organisation de B (403) :
+    # aucune permission plateforme pour un SCHOOL_ADMIN, quel que soit l'identifiant visé.
+    response = await client.post(
+        f"/api/v1/platform/organizations/{school_b['organization']['id']}/schools",
+        json={"school": {"name": "École intruse", "slug": "intruse"}, "admin": {"email": school_a["user"]["email"]}},
+        headers=headers_a,
     )
     assert response.status_code == 403
+    # B n'a toujours qu'une seule école.
+    headers_b = {"Authorization": f"Bearer {await _login(client, school_b['user']['email'])}"}
+    listed = await client.get(f"/api/v1/schools?organization_id={school_b['organization']['id']}", headers=headers_b)
+    assert [s["id"] for s in listed.json()] == [school_b["school"]["id"]]
 
 
 async def test_row_level_security_hides_school_row_even_bypassing_app_check(client: AsyncClient) -> None:
@@ -138,13 +149,9 @@ async def test_teacher_of_sibling_school_cannot_read_students_of_another_school_
     organization_id = data["organization"]["id"]
     school_a_id = data["school"]["id"]
 
-    school_b_response = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": organization_id, "name": "École B Sibling", "slug": "ecole-b-isosiblinga"},
-        headers=headers_admin,
-    )
-    assert school_b_response.status_code == 201, school_b_response.text
-    school_b_id = school_b_response.json()["id"]
+    school_b_id = (
+        await add_school_to_organization(client, organization_id, "École B Sibling", "ecole-b-isosiblinga", headers_admin)
+    )["id"]
 
     teacher_email = unique_email("teacher.isosiblinga")
     create_teacher = await client.post(
@@ -193,13 +200,9 @@ async def test_org_wide_admin_still_has_access_to_every_school_of_the_organizati
     headers_admin = {"Authorization": f"Bearer {await _login(client, data['user']['email'], 'SuperSecret123')}"}
     organization_id = data["organization"]["id"]
 
-    school_b_response = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": organization_id, "name": "École B OrgWide", "slug": "ecole-b-isoorgwidea"},
-        headers=headers_admin,
-    )
-    assert school_b_response.status_code == 201, school_b_response.text
-    school_b_id = school_b_response.json()["id"]
+    school_b_id = (
+        await add_school_to_organization(client, organization_id, "École B OrgWide", "ecole-b-isoorgwidea", headers_admin)
+    )["id"]
 
     response = await client.get(f"/api/v1/students?school_id={school_b_id}", headers=headers_admin)
     assert response.status_code == 200, response.text
@@ -219,13 +222,9 @@ async def test_cumulative_roles_stay_isolated_per_school_same_organization(clien
     organization_id = data["organization"]["id"]
     school_a_id = data["school"]["id"]
 
-    school_b_response = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": organization_id, "name": "École B Cumul", "slug": "ecole-b-isocumula"},
-        headers=headers_admin,
-    )
-    assert school_b_response.status_code == 201, school_b_response.text
-    school_b_id = school_b_response.json()["id"]
+    school_b_id = (
+        await add_school_to_organization(client, organization_id, "École B Cumul", "ecole-b-isocumula", headers_admin)
+    )["id"]
 
     shared_email = unique_email("cumul.isocumula")
     create_teacher_a = await client.post(

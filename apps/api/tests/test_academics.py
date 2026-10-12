@@ -5,7 +5,7 @@ from httpx import AsyncClient
 
 from app.db.session import AsyncSessionLocal
 from app.modules.users.models import User
-from tests.conftest import assign_role, create_platform_admin, register_school
+from tests.conftest import add_school_to_organization, assign_role, create_platform_admin, register_school
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -271,13 +271,10 @@ async def test_assign_rejects_non_teacher_role(client: AsyncClient) -> None:
 
 async def test_assign_rejects_teacher_of_another_school_same_organization(client: AsyncClient) -> None:
     setup = await _school_setup(client, "tasxschool")
-    other_school = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": setup["organization_id"], "name": "Autre ecole", "slug": "autre"},
-        headers=setup["headers"],
+    other_school = await add_school_to_organization(
+        client, setup["organization_id"], "Autre ecole", "autre", setup["headers"]
     )
-    assert other_school.status_code == 201, other_school.text
-    teacher = await _user_with_role(client, "tasxschoolt", "TEACHER", setup["organization_id"], other_school.json()["id"])
+    teacher = await _user_with_role(client, "tasxschoolt", "TEACHER", setup["organization_id"], other_school["id"])
 
     response = await _assign(client, setup, teacher)
     assert response.status_code == 400

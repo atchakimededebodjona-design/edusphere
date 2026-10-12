@@ -16,7 +16,7 @@ from app.core.tenancy import set_platform_wide_context
 from app.db.session import AsyncSessionLocal
 from app.modules.rbac.models import Role, UserRole
 from app.modules.users.models import User
-from tests.conftest import register_school
+from tests.conftest import add_school_to_organization, register_school
 from tests.test_teacher_portal import _portal_setup, _post, _teacher_in_school
 
 
@@ -180,15 +180,12 @@ async def test_teacher_can_read_report_card_of_assigned_class(client: AsyncClien
 # --- Isolation : école, organisation, rôle révoqué, compte inactif --------------------------------
 async def test_teacher_of_another_school_same_org_has_no_access(client: AsyncClient) -> None:
     setup = await _portal_setup(client, "scopexschool")
-    other_school = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": setup["organization_id"], "name": "Autre ecole", "slug": "autre-scope"},
-        headers=setup["headers"],
+    other_school = await add_school_to_organization(
+        client, setup["organization_id"], "Autre ecole", "autre-scope", setup["headers"]
     )
-    assert other_school.status_code == 201
     # Le TEACHER est rattaché à l'AUTRE école (même organisation) : aucun accès à celle du setup.
     _, other_headers = await _teacher_in_school(
-        client, {"organization_id": setup["organization_id"], "school_id": other_school.json()["id"]}, "scopexschoolt"
+        client, {"organization_id": setup["organization_id"], "school_id": other_school["id"]}, "scopexschoolt"
     )
 
     response = await client.get(f"/api/v1/students?school_id={setup['school_id']}", headers=other_headers)

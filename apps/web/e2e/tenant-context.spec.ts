@@ -3,7 +3,7 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { registerOrgAdminInBrowser } from "./helpers/tenants";
+import { addSchoolToOrganization, registerOrgAdminInBrowser } from "./helpers/tenants";
 
 // Sélection multi-organisation/multi-école (correctif du choix arbitraire du premier rôle
 // scopé organisation, voir lib/auth/AuthProvider.tsx + lib/auth/tenantContext.ts). Ce projet n'a
@@ -171,16 +171,10 @@ async function meOf(request: APIRequestContext, headers: Record<string, string>)
   return response.json();
 }
 
+// P1-2 — seconde école via le workflow d'enrôlement central (POST /api/v1/schools est désormais 410).
+// L'admin org-wide désigné par `headers` est réutilisé (aucun nouveau compte ni rôle).
 async function createSecondSchool(request: APIRequestContext, headers: Record<string, string>, organizationId: string, name: string) {
-  const slug = unique("second").toLowerCase();
-  const response = await request.post(`${API_BASE_URL}/api/v1/schools`, {
-    headers,
-    data: { organization_id: organizationId, name, slug },
-  });
-  if (!response.ok()) {
-    throw new Error(`createSecondSchool(${slug}) a échoué (${response.status()}) : ${await response.text()}`);
-  }
-  return response.json();
+  return addSchoolToOrganization(request, organizationId, name, headers);
 }
 
 async function login(page: Page, email: string, password: string) {

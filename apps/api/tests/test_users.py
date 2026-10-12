@@ -4,7 +4,7 @@ from httpx import AsyncClient
 
 from app.db.session import AsyncSessionLocal
 from app.modules.users.models import User
-from tests.conftest import assign_role, create_platform_admin, register_school, unique_email
+from tests.conftest import add_school_to_organization, assign_role, create_platform_admin, register_school, unique_email
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -53,14 +53,11 @@ async def test_create_with_existing_email_attaches_role_without_duplicate(client
     # sein de la MÊME organisation. Ce test utilisait auparavant une école d'une AUTRE organisation
     # (désormais refusé : voir test_create_with_existing_email_from_other_organization_is_refused) ;
     # il vérifie maintenant la même chose (aucun doublon de compte, pas de nouveau token) avec une
-    # seconde école de la même organisation, créée par l'admin org-wide via POST /schools.
-    second_school = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": data["organization"]["id"], "name": "Seconde ecole", "slug": "seconde"},
-        headers=headers,
+    # seconde école de la même organisation (ajoutée via le workflow d'enrôlement, P1-2).
+    second_school = await add_school_to_organization(
+        client, data["organization"]["id"], "Seconde ecole", "seconde", headers
     )
-    assert second_school.status_code == 201, second_school.text
-    other_school = {"school": second_school.json()}
+    other_school = {"school": second_school}
     other_headers = headers
 
     shared_email = unique_email("shared.teacher")
@@ -319,13 +316,10 @@ async def test_list_users_excludes_staff_exclusively_assigned_to_sibling_school(
 
     # Deuxième école de la MÊME organisation — l'admin org-scoped a déjà schools.manage sans
     # school_id (voir auth/service.py::register : rôle SCHOOL_ADMIN créé avec school_id=None).
-    school_b_response = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": organization_id, "name": "École B", "slug": "ecole-b-twoschoolsa"},
-        headers=headers,
+    school_b_response = await add_school_to_organization(
+        client, organization_id, "École B", "ecole-b-twoschoolsa", headers
     )
-    assert school_b_response.status_code == 201, school_b_response.text
-    school_b_id = school_b_response.json()["id"]
+    school_b_id = school_b_response["id"]
 
     # Cas 1 : enseignant affecté EXCLUSIVEMENT à School A.
     teacher_a = await _create_teacher(client, headers, school_a_id, "twoschoolsa-teachera")

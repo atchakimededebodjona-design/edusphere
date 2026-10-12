@@ -3,13 +3,12 @@ import uuid
 
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
 from app.core.storage import safe_filename, storage
 from app.modules.schools import service
 from app.modules.schools.models import School
-from app.modules.schools.schemas import SchoolCreate, SchoolDashboardOut, SchoolOut, SchoolUpdate
+from app.modules.schools.schemas import SchoolDashboardOut, SchoolOut, SchoolUpdate
 
 router = APIRouter()
 
@@ -25,26 +24,31 @@ async def list_schools(
     return list(result.scalars().all())
 
 
-@router.post("", response_model=SchoolOut, status_code=status.HTTP_201_CREATED)
-async def create_school(payload: SchoolCreate, db: DbSession, current_user: CurrentUser) -> School:
-    await ensure_permission(db, current_user, "schools.manage", organization_id=payload.organization_id)
+# P1-2 — POST /schools n'est PLUS un point d'entrée de création d'école.
+#
+# Il insérait directement `School(**payload)` : aucune ligne `partner_school_enrollments` (source
+# d'acquisition PR #17/#19), aucun administrateur résolu par le cœur central (PR #20), aucune
+# protection de doublon de nom (PR #19). Le modèle d'acquisition ne connaît que PLATFORM_OWNER
+# (inscription par la plateforme) et PARTNER (inscription par un partenaire) : une école créée par
+# l'admin de l'organisation elle-même n'est ni l'une ni l'autre — lui attribuer PLATFORM_OWNER serait
+# faux, hériter du partenaire de l'organisation inventerait une éligibilité à commission, et une
+# troisième source n'est pas un concept validé. Toute création passe donc par le workflow
+# d'enrôlement central (platform/service.py::create_organization_school_admin /
+# add_school_to_organization) via :
+#   - POST /api/v1/platform/organizations/{organization_id}/schools (PLATFORM_OWNER / SUPER_ADMIN)
+#   - POST /api/v1/partner/organizations/{organization_id}/schools  (PARTNER_ADMIN, son périmètre)
+# Réponse explicite 410 Gone (jamais un 404/405 silencieux) pour tout appelant authentifié, sans
+# lire ni créer quoi que ce soit. GET / PATCH / logo de /schools restent inchangés.
+SCHOOL_CREATION_MOVED_DETAIL = (
+    "School creation goes through the enrollment workflow: "
+    "POST /api/v1/platform/organizations/{organization_id}/schools or "
+    "POST /api/v1/partner/organizations/{organization_id}/schools"
+)
 
-    school = School(**payload.model_dump())
-    db.add(school)
-    try:
-        # refresh() AVANT commit : `schools` a RLS activé, la ligne n'est visible que le temps
-        # de la transaction courante (contexte tenant posé par apply_tenant_context / SET LOCAL
-        # via set_config, qui expire au commit). Voir app/modules/auth/service.py::register
-        # pour la même remarque détaillée.
-        await db.flush()
-        await db.refresh(school)
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="A school with this slug already exists in this organization"
-        ) from exc
-    return school
+
+@router.post("", status_code=status.HTTP_410_GONE, deprecated=True)
+async def create_school(_current_user: CurrentUser) -> None:
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail=SCHOOL_CREATION_MOVED_DETAIL)
 
 
 @router.get("/{school_id}", response_model=SchoolOut)

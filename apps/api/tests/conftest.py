@@ -134,6 +134,30 @@ async def register_school(client: AsyncClient, org_prefix: str = "org") -> dict:
     }
 
 
+async def add_school_to_organization(
+    client: AsyncClient, organization_id: str, name: str, slug: str, admin_headers: dict[str, str]
+) -> dict:
+    """Ajoute une école à une organisation EXISTANTE via le workflow d'enrôlement central
+    (POST /api/v1/platform/organizations/{id}/schools, compte plateforme partagé de la suite) et
+    retourne l'école créée.
+
+    P1-2 — remplace l'ancien POST /api/v1/schools (désormais 410) que de nombreux tests utilisaient
+    pour créer une seconde école. L'administrateur fourni est le compte identifié par
+    `admin_headers` (l'admin org-wide de l'organisation, résolu via /auth/me) : PR #20 le RÉUTILISE
+    sans créer de compte ni de rôle (son rôle org-wide couvre déjà la nouvelle école) — même effet
+    que l'ancien endpoint, qui ne créait aucun administrateur. L'école reçoit en plus sa ligne
+    `partner_school_enrollments` (source PLATFORM_OWNER), comme toute école réellement inscrite."""
+    me = await client.get("/api/v1/auth/me", headers=admin_headers)
+    assert me.status_code == 200, me.text
+    response = await client.post(
+        f"/api/v1/platform/organizations/{organization_id}/schools",
+        json={"school": {"name": name, "slug": slug}, "admin": {"email": me.json()["user"]["email"]}},
+        headers=await _platform_admin_headers(client),
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["school"]
+
+
 async def create_platform_admin(client: AsyncClient, prefix: str = "platformadmin") -> dict:
     """Crée un compte plateforme pur (is_platform_admin=True, SUPER_ADMIN, aucune organisation/
     école) et retourne ses tokens. Il n'existe pas de flux d'inscription public pour ce type de

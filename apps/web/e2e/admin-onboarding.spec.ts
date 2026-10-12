@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { registerOrgAdminInBrowser } from "./helpers/tenants";
+import { addSchoolToOrganization, registerOrgAdminInBrowser } from "./helpers/tenants";
 
 // Phase 8.1 — parcours d'onboarding admin réel : REGISTER -> LOGIN -> détermination du contexte
 // école -> DASHBOARD -> SETUP WIZARD. Couvre le bug corrigé : un admin créé par /register a un
@@ -51,12 +51,10 @@ test.describe("Plusieurs écoles pour la même organisation", () => {
     const me = await meResponse.json();
     const orgId: string = me.roles[0].organization_id;
 
+    // P1-2 — via le workflow d'enrôlement central (POST /api/v1/schools est désormais 410) ; l'admin
+    // org-wide connecté est réutilisé, aucun nouveau compte ni rôle.
     const slug = unique("secondschool").toLowerCase();
-    const createResponse = await request.post(`${API_BASE_URL}/api/v1/schools`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { organization_id: orgId, name: `Ecole B ${slug}`, slug },
-    });
-    return createResponse.json();
+    return addSchoolToOrganization(request, orgId, `Ecole B ${slug}`, { Authorization: `Bearer ${token}` });
   }
 
   test("admin avec 2 écoles : sélection explicite requise, jamais arbitraire, puis mémorisée", async ({
