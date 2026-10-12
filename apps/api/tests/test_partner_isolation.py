@@ -4,8 +4,10 @@ disjoint du domaine scolaire (pour PARTNER_ADMIN comme pour PLATFORM_OWNER)."""
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.permissions import get_all_permission_codes, get_scoped_permission_codes
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
@@ -241,10 +243,13 @@ async def test_owner_and_partner_never_listed_in_school_users(client: AsyncClien
     platform_school = await register_school(client, "c4platformschool")
     platform_school["admin_headers"] = {"Authorization": f"Bearer {platform_school['tokens']['access_token']}"}
 
-    # État « coïncident » : une seconde UserRole globale (organization_id ET school_id NULL) pour
-    # chacun — ne doit toujours jamais matcher une école précise (NULL n'égale jamais un UUID).
-    await assign_role(owner["user_id"], "PLATFORM_OWNER", organization_id=None, school_id=None)
-    await assign_role(partner["user_id"], "PARTNER_ADMIN", organization_id=None, school_id=None)
+    # État « coïncident » : avant P1-1, ce test insérait une SECONDE UserRole globale identique pour
+    # chacun. Depuis la migration 0024 (index `uq_user_roles_global`), cet état est rendu
+    # IMPOSSIBLE par la base : on vérifie ce refus, puis que ces comptes n'apparaissent toujours
+    # jamais dans la liste des utilisateurs d'une école (NULL n'égale jamais un UUID).
+    for user_id, role_code in ((owner["user_id"], "PLATFORM_OWNER"), (partner["user_id"], "PARTNER_ADMIN")):
+        with pytest.raises(IntegrityError):
+            await assign_role(user_id, role_code, organization_id=None, school_id=None)
 
     for school in (partner_school, platform_school):
         response = await client.get(f"/api/v1/users?school_id={school['school']['id']}", headers=school["admin_headers"])
