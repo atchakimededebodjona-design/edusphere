@@ -21,17 +21,6 @@ class SchoolOut(BaseModel):
     updated_at: datetime
 
 
-class SchoolCreate(BaseModel):
-    organization_id: uuid.UUID
-    name: str
-    slug: str
-    address: str | None = None
-    phone: str | None = None
-    email: str | None = None
-    timezone: str = "Africa/Lome"
-    currency: str = "XOF"
-
-
 class SchoolUpdate(BaseModel):
     name: str | None = None
     address: str | None = None

@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from app.core.tenancy import set_platform_wide_context
 from app.db.session import AsyncSessionLocal
 from app.modules.rbac.models import Role, UserRole
-from tests.conftest import assign_role, create_platform_admin, register_school
+from tests.conftest import add_school_to_organization, assign_role, create_platform_admin, register_school
 
 PASSWORD = "SuperSecret123"
 
@@ -305,17 +305,14 @@ async def test_revoked_teacher_role_loses_portal_access(client: AsyncClient) -> 
 async def test_teacher_role_in_other_school_gives_no_scope_here(client: AsyncClient) -> None:
     """Enseignant TEACHER de l'école 2 (même organisation) : aucun accès aux classes de l'école 1."""
     setup = await _portal_setup(client, "tpxschool")
-    other_school = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": setup["organization_id"], "name": "Autre ecole", "slug": "autre-tp"},
-        headers=setup["headers"],
+    other_school = await add_school_to_organization(
+        client, setup["organization_id"], "Autre ecole", "autre-tp", setup["headers"]
     )
-    assert other_school.status_code == 201, other_school.text
     other_teacher, other_headers = await _teacher_in_school(client, setup, "tpxschoolt")
     async with AsyncSessionLocal() as db:
         await set_platform_wide_context(db)
         await db.execute(delete(UserRole).where(UserRole.user_id == uuid.UUID(other_teacher)))
-        db.add(UserRole(id=uuid.uuid4(), user_id=uuid.UUID(other_teacher), role_id=(await db.execute(select(Role.id).where(Role.code == "TEACHER"))).scalar_one(), organization_id=setup["organization_id"], school_id=uuid.UUID(other_school.json()["id"])))
+        db.add(UserRole(id=uuid.uuid4(), user_id=uuid.UUID(other_teacher), role_id=(await db.execute(select(Role.id).where(Role.code == "TEACHER"))).scalar_one(), organization_id=setup["organization_id"], school_id=uuid.UUID(other_school["id"])))
         await db.commit()
 
     assert (await client.get("/api/v1/teacher/classes", headers=other_headers)).json() == []

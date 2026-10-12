@@ -195,6 +195,34 @@ export async function createOrganizationViaPlatform(request: APIRequestContext, 
   };
 }
 
+/** P1-2 — ajoute une école à une organisation EXISTANTE via le workflow d'enrôlement central
+ * (POST /api/v1/platform/organizations/{id}/schools, compte plateforme partagé). Remplace l'ancien
+ * POST /api/v1/schools (désormais 410). L'administrateur est le compte désigné par `adminHeaders`
+ * (l'admin org-wide de l'organisation, résolu via /auth/me) : il est RÉUTILISÉ sans nouveau compte
+ * ni nouveau rôle (son rôle org-wide couvre déjà l'école, PR #20) — même effet que l'ancien
+ * endpoint. Retourne l'école créée (même forme `SchoolOut` qu'avant). */
+export async function addSchoolToOrganization(
+  request: APIRequestContext,
+  organizationId: string,
+  name: string,
+  adminHeaders: Record<string, string>,
+) {
+  const meResponse = await request.get(`${API_BASE_URL}/api/v1/auth/me`, { headers: adminHeaders });
+  if (!meResponse.ok()) {
+    throw new Error(`addSchoolToOrganization: /auth/me a échoué (${meResponse.status()}) : ${await meResponse.text()}`);
+  }
+  const adminEmail: string = (await meResponse.json()).user.email;
+  const slug = unique("school").toLowerCase();
+  const response = await request.post(`${API_BASE_URL}/api/v1/platform/organizations/${organizationId}/schools`, {
+    headers: await platformAdminHeaders(request),
+    data: { school: { name, slug }, admin: { email: adminEmail } },
+  });
+  if (!response.ok()) {
+    throw new Error(`addSchoolToOrganization(${slug}) a échoué (${response.status()}) : ${await response.text()}`);
+  }
+  return (await response.json()).school;
+}
+
 /** Vide le compteur de `reset-password` (rate limit par IP, partagé par toutes les requêtes de la
  * suite e2e). Même motif que le nettoyage Redis de l'ancien rate limit d'inscription : on nettoie
  * l'état de test, jamais le seuil applicatif. Best-effort : Redis indisponible ne fait pas échouer. */

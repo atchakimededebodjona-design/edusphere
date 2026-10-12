@@ -16,6 +16,7 @@ from app.modules.academics.models import TeacherAssignment
 from app.modules.notifications.models import Notification
 from app.modules.rbac.models import Role, UserRole
 from app.modules.users.models import User
+from tests.conftest import add_school_to_organization
 from tests.test_teacher_portal import _portal_setup, _teacher_in_school
 
 
@@ -135,15 +136,12 @@ async def test_teacher_of_another_school_does_not_receive_despite_stale_assignme
     un enseignant dont le rôle TEACHER actif est désormais dans une AUTRE école ne doit jamais
     devenir destinataire via cette affectation périmée — la seule TeacherAssignment ne suffit pas."""
     setup = await _portal_setup(client, "annteacherxschool2")
-    other_school = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": setup["organization_id"], "name": "Autre ecole annonce", "slug": "autre-annonce"},
-        headers=setup["headers"],
+    other_school = await add_school_to_organization(
+        client, setup["organization_id"], "Autre ecole annonce", "autre-annonce", setup["headers"]
     )
-    assert other_school.status_code == 201, other_school.text
     other_teacher_id, _ = await _teacher_in_school(
         client,
-        {"organization_id": setup["organization_id"], "school_id": other_school.json()["id"]},
+        {"organization_id": setup["organization_id"], "school_id": other_school["id"]},
         "annteacherxschool2acct",
     )
     async with AsyncSessionLocal() as db:

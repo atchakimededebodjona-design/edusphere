@@ -15,7 +15,7 @@ from httpx import AsyncClient
 import app.core.email as email_module
 from app.core.config import settings
 from app.core.email import LocalEmailProvider, SmtpEmailProvider, get_email_provider, send_email_best_effort
-from tests.conftest import assign_role, register_school, unique_email
+from tests.conftest import add_school_to_organization, assign_role, register_school, unique_email
 
 
 async def _login(client: AsyncClient, email: str, password: str = "SuperSecret123") -> str:
@@ -363,13 +363,10 @@ async def test_reattaching_existing_user_does_not_send_a_new_invitation(
     # Correctif d'autorité (P0-1, audit PR #21) : rattachement d'un compte existant uniquement au
     # sein de la MÊME organisation (ce test utilisait auparavant une école d'une autre organisation,
     # désormais refusé). Intention inchangée : aucun second email d'invitation pour un compte existant.
-    second_school = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": data["organization"]["id"], "name": "Seconde ecole", "slug": "seconde"},
-        headers=headers,
+    second_school = await add_school_to_organization(
+        client, data["organization"]["id"], "Seconde ecole", "seconde", headers
     )
-    assert second_school.status_code == 201, second_school.text
-    other_school = {"school": second_school.json()}
+    other_school = {"school": second_school}
     other_headers = headers
 
     shared_email = unique_email("shared.emailreattach")

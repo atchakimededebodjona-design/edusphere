@@ -31,7 +31,7 @@ from app.modules.partners.models import PartnerSchoolEnrollment
 from app.modules.platform.owner import PromotionRefused, promote_to_platform_owner
 from app.modules.rbac.models import Role, UserRole
 from app.modules.users.models import User
-from tests.conftest import assign_role, create_platform_admin, register_school, unique_email
+from tests.conftest import add_school_to_organization, assign_role, create_platform_admin, register_school, unique_email
 from tests.pr17_helpers import (
     auth,
     create_partner,
@@ -414,12 +414,9 @@ async def test_attach_of_ordinary_existing_user_still_works(client: AsyncClient)
     tests/test_admin_authority_scope.py::test_p0_1_cross_org_attach_is_refused)."""
     school_a = await register_school(client, "hdattachoka")
     headers = auth(school_a["tokens"]["access_token"])
-    school_b = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": school_a["organization"]["id"], "name": "Seconde ecole", "slug": "seconde"},
-        headers=headers,
+    school_b = await add_school_to_organization(
+        client, school_a["organization"]["id"], "Seconde ecole", "seconde", headers
     )
-    assert school_b.status_code == 201, school_b.text
     email = unique_email("hdattachok")
     first = await client.post(
         "/api/v1/users",
@@ -429,7 +426,7 @@ async def test_attach_of_ordinary_existing_user_still_works(client: AsyncClient)
     assert first.status_code == 201
     second = await client.post(
         "/api/v1/users",
-        json={"email": email, "full_name": "Ens", "school_id": school_b.json()["id"], "role_code": "TEACHER"},
+        json={"email": email, "full_name": "Ens", "school_id": school_b["id"], "role_code": "TEACHER"},
         headers=headers,
     )
     assert second.status_code == 201, second.text

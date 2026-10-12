@@ -20,7 +20,7 @@ from app.db.session import AsyncSessionLocal
 from app.modules.auth.models import PasswordResetToken
 from app.modules.rbac.models import Role, UserRole
 from app.modules.users.models import User
-from tests.conftest import assign_role, register_school, unique_email
+from tests.conftest import add_school_to_organization, assign_role, register_school, unique_email
 from tests.pr17_helpers import auth
 
 CONFLICT = "This account or role assignment was modified concurrently; please retry"
@@ -102,17 +102,14 @@ async def test_c_school_duplicate_is_refused(client: AsyncClient) -> None:
 async def test_d_same_user_different_schools_allowed(client: AsyncClient) -> None:
     org = await register_school(client, "uqd")
     headers = auth(org["tokens"]["access_token"])
-    second = await client.post(
-        "/api/v1/schools",
-        json={"organization_id": org["organization"]["id"], "name": "Seconde ecole", "slug": "seconde"},
-        headers=headers,
+    second = await add_school_to_organization(
+        client, org["organization"]["id"], "Seconde ecole", "seconde", headers
     )
-    assert second.status_code == 201
     user_id = await _new_user()
     await assign_role(user_id, "TEACHER", org["organization"]["id"], org["school"]["id"])
-    await assign_role(user_id, "TEACHER", org["organization"]["id"], second.json()["id"])
+    await assign_role(user_id, "TEACHER", org["organization"]["id"], second["id"])
     assert await _count(user_id, "TEACHER", org["organization"]["id"], org["school"]["id"]) == 1
-    assert await _count(user_id, "TEACHER", org["organization"]["id"], second.json()["id"]) == 1
+    assert await _count(user_id, "TEACHER", org["organization"]["id"], second["id"]) == 1
 
 
 async def test_e_same_user_same_org_different_roles_allowed(client: AsyncClient) -> None:
