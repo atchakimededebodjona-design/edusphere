@@ -117,10 +117,10 @@ def _check_attach_eligibility(
     school: School,
     role_code: str,
 ) -> bool:
-    """P0-1 ? politique d'attachement d'un compte existant ? une ?cole.
+    """P0-1 — politique d'attachement d'un compte existant à une école.
 
-    Les r?gles g?n?rales d'appartenance restent dans le workflow users.
-    La r?gle de r?utilisation SCHOOL_ADMIN est centralis?e dans
+    Les règles générales d'appartenance restent dans le workflow users.
+    La règle de réutilisation SCHOOL_ADMIN est centralisée dans
     rbac/account_resolver.py.
     """
     refused = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ATTACH_REFUSED_DETAIL)
