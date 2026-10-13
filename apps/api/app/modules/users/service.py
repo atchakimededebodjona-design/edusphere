@@ -13,9 +13,15 @@ from app.core.security import generate_opaque_token, hash_opaque_token, hash_pas
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.modules.audit import service as audit_service
 from app.modules.auth.models import PasswordResetToken
+from app.modules.rbac.account_resolver import (
+    AccountRoleAssignment,
+    has_organization_wide_school_admin,
+    is_reusable_school_admin,
+    load_account_footprint,
+    normalize_email,
+)
 from app.modules.rbac.models import (
     NON_SCHOOL_ROLE_CODES,
-    REUSABLE_ADMIN_ROLE_CODES,
     Permission,
     Role,
     RolePermission,
@@ -49,10 +55,6 @@ MODIFY_REFUSED_DETAIL = "This account cannot be modified from this school"
 CONCURRENT_CONFLICT_DETAIL = "This account or role assignment was modified concurrently; please retry"
 
 
-class _Footprint(NamedTuple):
-    role_code: str
-    organization_id: uuid.UUID | None
-    school_id: uuid.UUID | None
 
 
 class _ManageScope(NamedTuple):
@@ -64,22 +66,6 @@ class _ManageScope(NamedTuple):
     school_ids: frozenset[uuid.UUID]
 
 
-async def _account_footprint(db: AsyncSession, user_id: uuid.UUID, current_user_id: uuid.UUID) -> list[_Footprint]:
-    """TOUS les rôles d'un compte, toutes organisations confondues.
-
-    Les lignes `user_roles` d'une autre organisation (ou globales) sont invisibles sous le contexte
-    RLS de l'admin appelant : lecture ponctuelle en contexte platform-wide, filtrée explicitement
-    sur CE `user_id`, puis contexte de l'appelant restauré immédiatement. Le résultat sert
-    UNIQUEMENT à décider (jamais renvoyé au client) — aucune fuite inter-tenant."""
-    await set_platform_wide_context(db)
-    result = await db.execute(
-        select(Role.code, UserRole.organization_id, UserRole.school_id)
-        .join(Role, Role.id == UserRole.role_id)
-        .where(UserRole.user_id == user_id)
-    )
-    rows = [_Footprint(code, org_id, school_id) for code, org_id, school_id in result.all()]
-    await apply_tenant_context(db, current_user_id)
-    return rows
 
 
 async def _actor_manage_scope(db: AsyncSession, actor_id: uuid.UUID) -> _ManageScope:
@@ -104,7 +90,7 @@ async def _actor_manage_scope(db: AsyncSession, actor_id: uuid.UUID) -> _ManageS
     return _ManageScope(is_global, frozenset(organization_ids), frozenset(school_ids))
 
 
-def _scope_covers(scope: _ManageScope, footprint: list[_Footprint]) -> bool:
+def _scope_covers(scope: _ManageScope, footprint: list[AccountRoleAssignment]) -> bool:
     """Règle d'autorité : l'acteur couvre-t-il l'INTÉGRALITÉ des rôles du compte cible ?
 
     - rôle global de la cible : couvert seulement par un acteur global ;
@@ -125,28 +111,44 @@ def _scope_covers(scope: _ManageScope, footprint: list[_Footprint]) -> bool:
     return True
 
 
-def _check_attach_eligibility(user: User, footprint: list[_Footprint], school: School, role_code: str) -> bool:
-    """P0-1 — politique de réutilisation de PR #20 appliquée à POST /users : un compte EXISTANT
-    n'est rattaché à une école que s'il est actif, n'est ni compte plateforme ni partenaire, et
-    détient DÉJÀ un rôle dans la MÊME organisation. Pour SCHOOL_ADMIN, il doit en plus déjà être
-    SCHOOL_ADMIN ou DIRECTOR dans cette organisation (même règle que
-    platform/service.py::resolve_or_create_school_admin). Refus => 409 générique.
+def _check_attach_eligibility(
+    user: User,
+    footprint: list[AccountRoleAssignment],
+    school: School,
+    role_code: str,
+) -> bool:
+    """P0-1 — politique d'attachement d'un compte existant à une école.
 
-    Retourne True quand le compte est déjà SCHOOL_ADMIN org-wide de l'organisation et que le rôle
-    demandé est SCHOOL_ADMIN : ce rôle couvre déjà l'école, aucun rôle scopé n'est ajouté (même
-    décision que PR #20)."""
+    Les règles générales d'appartenance restent dans le workflow users.
+    La règle de réutilisation SCHOOL_ADMIN est centralisée dans
+    rbac/account_resolver.py.
+    """
     refused = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ATTACH_REFUSED_DETAIL)
+
     if not user.is_active or user.is_platform_admin:
         raise refused
+
     if any(entry.role_code in NON_SCHOOL_ROLE_CODES for entry in footprint):
         raise refused
+
     in_org = [entry for entry in footprint if entry.organization_id == school.organization_id]
     if not in_org:
         raise refused
+
     if role_code == "SCHOOL_ADMIN":
-        if not any(entry.role_code in REUSABLE_ADMIN_ROLE_CODES for entry in in_org):
+        if not is_reusable_school_admin(
+            user_is_active=user.is_active,
+            user_is_platform_admin=user.is_platform_admin,
+            footprint=footprint,
+            organization_id=school.organization_id,
+        ):
             raise refused
-        return any(entry.role_code == "SCHOOL_ADMIN" and entry.school_id is None for entry in in_org)
+
+        return has_organization_wide_school_admin(
+            footprint=footprint,
+            organization_id=school.organization_id,
+        )
+
     return False
 
 
@@ -167,7 +169,8 @@ async def create_or_attach_user(
     if role is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role code")
 
-    existing_result = await db.execute(select(User).where(User.email == payload.email.lower()))
+    normalized_email = normalize_email(str(payload.email))
+    existing_result = await db.execute(select(User).where(User.email == normalized_email))
     user = existing_result.scalar_one_or_none()
     already_covered = False
     if user is not None:
@@ -175,7 +178,7 @@ async def create_or_attach_user(
         # rattaché que s'il appartient DÉJÀ à cette organisation (jamais un compte d'une autre
         # organisation, jamais un compte plateforme/partenaire, jamais un compte inactif) : sinon un
         # admin pouvait rattacher l'admin d'une autre organisation puis le désactiver globalement.
-        footprint = await _account_footprint(db, user.id, current_user_id)
+        footprint = await load_account_footprint(db, user.id, current_user_id)
         already_covered = _check_attach_eligibility(user, footprint, school, payload.role_code)
     dev_reset_token: str | None = None
     # Sprint 1.7 — préparé ici, envoyé APRÈS le commit final de cette fonction (voir plus bas) :
@@ -197,7 +200,7 @@ async def create_or_attach_user(
         if user is None:
             user = User(
                 id=uuid.uuid4(),
-                email=payload.email.lower(),
+                email=normalized_email,
                 full_name=payload.full_name,
                 phone=payload.phone,
                 hashed_password=hash_password(generate_opaque_token()),
@@ -315,7 +318,7 @@ async def update_user_in_school(
     # l'acteur doit couvrir l'INTÉGRALITÉ des rôles du compte cible (toutes écoles et
     # organisations), sinon refus générique 409. Empêche un admin d'une seule école (ou d'une autre
     # organisation) de désactiver/rétrograder un admin org-wide ou un compte multi-tenant.
-    footprint = await _account_footprint(db, target_user_id, current_user_id)
+    footprint = await load_account_footprint(db, target_user_id, current_user_id)
     if not _scope_covers(await _actor_manage_scope(db, current_user_id), footprint):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=MODIFY_REFUSED_DETAIL)
 

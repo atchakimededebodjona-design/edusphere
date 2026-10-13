@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,14 @@ from app.modules.platform.schemas import (
     PlatformSchoolInput,
     SchoolAdminInput,
 )
-from app.modules.rbac.models import NON_SCHOOL_ROLE_CODES, REUSABLE_ADMIN_ROLE_CODES, Role, UserRole
+from app.modules.rbac.account_resolver import (
+    has_organization_wide_school_admin,
+    is_reusable_school_admin,
+    load_account_footprint,
+    lock_account_email,
+    normalize_email,
+)
+from app.modules.rbac.models import Role, UserRole
 from app.modules.schools.models import School
 from app.modules.students.models import Student
 from app.modules.users.models import User
@@ -197,8 +204,8 @@ async def resolve_or_create_school_admin(
     - Tout autre compte existant (autre organisation, inactif, rôle non éligible, compte plateforme
       ou partenaire) : 409 avec EXACTEMENT le même message générique qu'avant la PR #20 — aucun
       motif distinguable de l'extérieur, aucune école ni rôle créés (rollback de l'appelant)."""
-    email = str(admin_input.email).strip().lower()
-    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"school-admin-email:{email}"})
+    email = normalize_email(str(admin_input.email))
+    email = await lock_account_email(db, email)
 
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is None:
@@ -236,23 +243,28 @@ async def resolve_or_create_school_admin(
         return SchoolAdminResolution(user=user, reused=False, access=ADMIN_ACCESS_NEW_ACCOUNT)
 
     refused = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflict_detail)
-    if not user.is_active or user.is_platform_admin:
-        raise refused
-    rows = (
-        await db.execute(
-            select(UserRole, Role.code).join(Role, Role.id == UserRole.role_id).where(UserRole.user_id == user.id)
-        )
-    ).all()
-    if any(code in NON_SCHOOL_ROLE_CODES for _, code in rows):
-        raise refused
-    in_org = [(ur, code) for ur, code in rows if ur.organization_id == organization.id]
-    if not any(code in REUSABLE_ADMIN_ROLE_CODES for _, code in in_org):
+    footprint = await load_account_footprint(db, user.id)
+
+    if not is_reusable_school_admin(
+        user_is_active=user.is_active,
+        user_is_platform_admin=user.is_platform_admin,
+        footprint=footprint,
+        organization_id=organization.id,
+    ):
         raise refused
 
-    if any(code == "SCHOOL_ADMIN" and ur.school_id is None for ur, code in in_org):
+    if has_organization_wide_school_admin(
+        footprint=footprint,
+        organization_id=organization.id,
+    ):
         return SchoolAdminResolution(user=user, reused=True, access=ADMIN_ACCESS_ORGANIZATION_WIDE)
 
-    already = any(code == "SCHOOL_ADMIN" and ur.school_id == school.id for ur, code in in_org)
+    already = any(
+        entry.role_code == "SCHOOL_ADMIN"
+        and entry.organization_id == organization.id
+        and entry.school_id == school.id
+        for entry in footprint
+    )
     if not already:
         db.add(
             UserRole(
