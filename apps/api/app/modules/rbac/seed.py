@@ -227,3 +227,34 @@ PR17_PARTNER_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "SUPER_ADMIN": list(PR17_PARTNER_PERMISSIONS.keys()),
     "PARTNER_ADMIN": list(PR17_PARTNER_PERMISSIONS.keys()),
 }
+
+# --- Caisse scolaire, lot 1 (migration 0025) ---------------------------------------------------
+# Dicts DÉDIÉS (jamais `ROLE_NAMES` ni `PHASE19_PERMISSIONS`, importés tels quels par les migrations
+# 0002/0009 : les modifier changerait rétroactivement ces migrations sur toute base neuve). Seule la
+# migration 0025 les lit.
+#
+# CAISSIER : rôle scolaire scopé à une école, représentant l'administration pour l'encaissement.
+# Il consulte la situation financière, enregistre un paiement et consulte paiements/reçus — jamais
+# fees.manage (catégories, barèmes, montant dû), jamais payments.cancel, jamais audit.read.
+# Encaissement en ESPÈCES uniquement, imposé côté backend (fees/router.py::create_payment).
+CASHIER_ROLE_NAMES: dict[str, str] = {
+    "CAISSIER": "Caissier",
+}
+
+# `payments.cancel` sépare l'annulation de l'enregistrement (`payments.manage` ne couvre plus que
+# l'enregistrement). Conservée par les rôles financiers/superviseurs qui annulaient déjà.
+CASHIER_PERMISSIONS: dict[str, str] = {
+    "payments.cancel": "Annuler un paiement",
+}
+
+CASHIER_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "CAISSIER": ["fees.read", "payments.read", "payments.manage"],
+    "SUPER_ADMIN": ["payments.cancel"],
+    "SCHOOL_ADMIN": ["payments.cancel"],
+    "DIRECTOR": ["payments.cancel"],
+    "ACCOUNTANT": ["payments.cancel"],
+}
+
+# Nouvelle description de `payments.manage` (appliquée par 0025, ancienne restaurée au downgrade).
+PAYMENTS_MANAGE_DESCRIPTION = "Enregistrer des paiements"
+PAYMENTS_MANAGE_PREVIOUS_DESCRIPTION = "Enregistrer et annuler des paiements"

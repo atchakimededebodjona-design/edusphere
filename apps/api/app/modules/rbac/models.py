@@ -36,6 +36,10 @@ ALL_ROLE_CODES = [
     "SCHOOL_ADMIN",
     "DIRECTOR",
     "ACCOUNTANT",
+    # Caisse scolaire (migration 0025) — rôle SCOLAIRE ordinaire, scopé à une école : volontairement
+    # absent de PLATFORM_ROLE_CODES / NON_SCHOOL_ROLE_CODES / ISOLATED_GLOBAL_ROLE_CODES /
+    # REUSABLE_ADMIN_ROLE_CODES. Encaissement en espèces uniquement (contrôle backend, fees/router.py).
+    "CAISSIER",
     "TEACHER",
     "STAFF",
     "PARENT",
