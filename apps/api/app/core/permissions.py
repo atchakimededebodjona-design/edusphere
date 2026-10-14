@@ -4,7 +4,7 @@ from typing import Annotated
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import and_, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.log_context import user_id_var
@@ -75,21 +75,61 @@ async def get_scoped_permission_codes(
     (la policy générique `{table}_tenant_isolation` est basée sur l'organisation, pas l'école) —
     ce contrôle applicatif est donc la seule ligne de défense réelle ici.
     """
-    conditions = [and_(UserRole.organization_id.is_(None), UserRole.school_id.is_(None))]
-    if organization_id is not None:
-        conditions.append(and_(UserRole.organization_id == organization_id, UserRole.school_id.is_(None)))
-    if school_id is not None:
-        conditions.append(UserRole.school_id == school_id)
-
     stmt = (
         select(Permission.code)
         .join(RolePermission, RolePermission.permission_id == Permission.id)
         .join(Role, Role.id == RolePermission.role_id)
         .join(UserRole, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user.id, or_(*conditions))
+        .where(UserRole.user_id == user.id, or_(*_scope_conditions(organization_id, school_id)))
     )
     result = await db.execute(stmt)
     return {row[0] for row in result.all()}
+
+
+def _scope_conditions(organization_id: uuid.UUID | None, school_id: uuid.UUID | None) -> list[ColumnElement[bool]]:
+    """Règle de portée UNIQUE des attributions de rôle (voir `get_scoped_permission_codes`) :
+    rôle global plateforme (organisation ET école NULL) ; rôle org-wide de `organization_id`
+    (`school_id IS NULL` uniquement) ; rôle scopé exactement à `school_id`. Partagée par
+    `get_scoped_permission_codes` et `get_scoped_role_codes` pour qu'elles ne divergent jamais."""
+    conditions: list[ColumnElement[bool]] = [and_(UserRole.organization_id.is_(None), UserRole.school_id.is_(None))]
+    if organization_id is not None:
+        conditions.append(and_(UserRole.organization_id == organization_id, UserRole.school_id.is_(None)))
+    if school_id is not None:
+        conditions.append(UserRole.school_id == school_id)
+    return conditions
+
+
+async def get_scoped_role_codes(
+    db: AsyncSession,
+    user: User,
+    organization_id: uuid.UUID | None = None,
+    school_id: uuid.UUID | None = None,
+) -> set[str]:
+    """Codes des rôles effectifs de `user` pour la portée demandée — EXACTEMENT la même règle de
+    portée que `get_scoped_permission_codes` (global, org-wide, école précise). Caisse scolaire :
+    sert à imposer une règle propre à un rôle (ex. CAISSIER = espèces uniquement) dans l'école
+    concernée, jamais déduite d'un champ libre ou d'un nom."""
+    stmt = (
+        select(Role.code)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user.id, or_(*_scope_conditions(organization_id, school_id)))
+    )
+    result = await db.execute(stmt)
+    return {row[0] for row in result.all()}
+
+
+async def roles_grant_permission(db: AsyncSession, role_codes: set[str], permission_code: str) -> bool:
+    """True si au moins un des rôles `role_codes` détient `permission_code` dans le catalogue RBAC."""
+    if not role_codes:
+        return False
+    result = await db.execute(
+        select(func.count())
+        .select_from(RolePermission)
+        .join(Role, Role.id == RolePermission.role_id)
+        .join(Permission, Permission.id == RolePermission.permission_id)
+        .where(Role.code.in_(sorted(role_codes)), Permission.code == permission_code)
+    )
+    return int(result.scalar_one()) > 0
 
 
 async def get_all_permission_codes(db: AsyncSession, user: User) -> set[str]:

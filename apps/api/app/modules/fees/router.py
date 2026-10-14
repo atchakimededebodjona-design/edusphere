@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import CurrentUser, DbSession, ensure_permission
+from app.core.permissions import CurrentUser, DbSession, ensure_permission, get_scoped_role_codes, roles_grant_permission
 from app.core.rate_limit import ensure_payments_not_rate_limited, register_payments_attempt
 from app.core.storage import storage
 from app.modules.academics.models import AcademicYear, EducationLevel, SchoolClass
@@ -29,6 +29,7 @@ from app.modules.fees.schemas import (
 )
 from app.modules.schools.models import School
 from app.modules.students.models import Student
+from app.modules.users.models import User
 
 router = APIRouter()
 
@@ -250,6 +251,28 @@ async def update_student_fee(student_fee_id: uuid.UUID, payload: StudentFeeUpdat
 
 
 # --- Paiements -------------------------------------------------------------------
+CASHIER_ROLE_CODE = "CAISSIER"
+CASHIER_ALLOWED_METHODS = {"CASH"}
+
+
+async def _ensure_cashier_cash_only(db: AsyncSession, user: User, student: Student, method: str) -> None:
+    """Caisse scolaire, lot 1 — un CAISSIER n'encaisse QUE des espèces, imposé côté backend.
+
+    Rôles effectifs résolus pour l'ÉCOLE de l'élève (`get_scoped_role_codes`, même règle de portée
+    que les permissions — jamais déduits d'un champ libre). La restriction s'applique quand le droit
+    d'enregistrer provient UNIQUEMENT du rôle CAISSIER dans cette portée : un compte qui détient
+    aussi, dans cette même école, un autre rôle ayant `payments.manage` (ex. ACCOUNTANT) conserve
+    les droits de cet autre rôle. Les méthodes existantes restent valides pour les autres rôles."""
+    if method in CASHIER_ALLOWED_METHODS:
+        return
+    role_codes = await get_scoped_role_codes(db, user, organization_id=student.organization_id, school_id=student.school_id)
+    if CASHIER_ROLE_CODE not in role_codes:
+        return
+    if await roles_grant_permission(db, role_codes - {CASHIER_ROLE_CODE}, "payments.manage"):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cashiers can only record cash payments")
+
+
 @router.post("/payments", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
 async def create_payment(payload: PaymentCreate, db: DbSession, current_user: CurrentUser) -> Payment:
     await ensure_payments_not_rate_limited(current_user.id)
@@ -257,6 +280,7 @@ async def create_payment(payload: PaymentCreate, db: DbSession, current_user: Cu
     await ensure_permission(
         db, current_user, "payments.manage", organization_id=student.organization_id, school_id=student.school_id
     )
+    await _ensure_cashier_cash_only(db, current_user, student, payload.method)
     await register_payments_attempt(current_user.id)
     payment, notifications = await service.record_payment(db, student, payload, current_user.id)
     if notifications:
@@ -268,8 +292,10 @@ async def create_payment(payload: PaymentCreate, db: DbSession, current_user: Cu
 async def cancel_payment(payment_id: uuid.UUID, payload: PaymentCancelRequest, db: DbSession, current_user: CurrentUser) -> Payment:
     await ensure_payments_not_rate_limited(current_user.id)
     payment = await _get_payment_or_404(db, payment_id)
+    # Caisse scolaire — l'annulation est une permission distincte de l'enregistrement : le CAISSIER
+    # enregistre (payments.manage) mais n'annule jamais (payments.cancel, rôles superviseurs/financiers).
     await ensure_permission(
-        db, current_user, "payments.manage", organization_id=payment.organization_id, school_id=payment.school_id
+        db, current_user, "payments.cancel", organization_id=payment.organization_id, school_id=payment.school_id
     )
     await register_payments_attempt(current_user.id)
     return await service.cancel_payment(db, payment, current_user.id, payload.reason)
