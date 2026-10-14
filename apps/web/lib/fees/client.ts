@@ -102,6 +102,38 @@ export type PaymentCreate = {
 
 export type FeesSummary = { total_due: string; total_paid: string; balance: string; overdue_count: number };
 
+// --- Caisse scolaire, lot 2 — endpoints dédiés au poste de caisse (api: modules/cashier) -----------
+// Projection minimale d'un élève (le CAISSIER n'a pas `students.read`, voir cashier/router.py).
+export type CashierStudent = {
+  id: string;
+  matricule: string;
+  first_name: string;
+  last_name: string;
+  current_class_name: string | null;
+};
+
+export type CashierPayment = {
+  id: string;
+  student_id: string;
+  student_matricule: string;
+  student_first_name: string;
+  student_last_name: string;
+  amount: string;
+  method: PaymentMethod;
+  paid_at: string;
+  status: PaymentStatus;
+  receipt_number: string;
+  created_at: string;
+};
+
+// Journal de caisse d'une journée : uniquement les encaissements de l'utilisateur connecté.
+export type CashierDay = {
+  day: string;
+  currency: string;
+  total_completed: string;
+  payments: CashierPayment[];
+};
+
 // --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) ---------------------
 // Sprint 1.6 — "EMAIL_SENT" scindé en 3 (attempted/transport accepted/transport failed) : un
 // transport SMTP accepté n'est jamais une preuve de remise réelle, jamais affiché comme "envoyé"
@@ -214,6 +246,17 @@ export const payments = {
     const response = await apiFetch(`/api/v1/payments/${id}/receipt.pdf`);
     const blob = await response.blob();
     return URL.createObjectURL(blob);
+  },
+};
+
+export const cashier = {
+  searchStudents: (schoolId: string, search: string, limit = 20) => {
+    const params = new URLSearchParams({ school_id: schoolId, search, limit: String(limit) });
+    return getJson<CashierStudent[]>(`/api/v1/cashier/students/search?${params.toString()}`);
+  },
+  myDay: (schoolId: string, day: string) => {
+    const params = new URLSearchParams({ school_id: schoolId, day });
+    return getJson<CashierDay>(`/api/v1/cashier/payments?${params.toString()}`);
   },
 };
 
