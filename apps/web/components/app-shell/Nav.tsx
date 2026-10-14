@@ -24,6 +24,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/report-cards", label: "Bulletins", permission: "report_cards.read" },
   { href: "/fees", label: "Frais scolaires", permission: "fees.read" },
   { href: "/fees/overdue", label: "Frais en retard", permission: "fees.read" },
+  // Caisse scolaire, lot 2 — poste d'encaissement (navigation seulement : l'API reste l'autorité).
+  { href: "/cashier", label: "Caisse", permission: "payments.manage" },
   { href: "/payments", label: "Paiements", permission: "payments.read" },
   { href: "/notifications", label: "Notifications" },
   { href: "/announcements", label: "Annonces", permission: "announcements.manage" },
@@ -76,8 +78,8 @@ export function Nav() {
   const showTeacherLink = !isPlatformAdmin(user) && hasTeacherRole(user, roles);
 
   return (
-    <nav className="flex w-56 flex-col gap-1 border-r border-slate-200 bg-white p-4">
-      <div className="mb-4 flex justify-center">
+    <nav className="flex w-full gap-1 overflow-x-auto border-b border-slate-200 bg-white p-2 md:w-56 md:flex-col md:overflow-x-visible md:border-b-0 md:border-r md:p-4">
+      <div className="mb-4 hidden justify-center md:flex">
         <BrandSymbol className="h-10 w-10" />
       </div>
       {items.map((item) => {
@@ -88,7 +90,7 @@ export function Nav() {
           <Link
             key={item.href}
             href={item.href}
-            className={`rounded px-3 py-2 text-sm font-medium ${
+            className={`shrink-0 whitespace-nowrap rounded px-3 py-2 text-sm font-medium md:whitespace-normal ${
               active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
             }`}
           >
@@ -99,7 +101,7 @@ export function Nav() {
       {showTeacherLink && (
         <Link
           href="/teacher"
-          className={`rounded px-3 py-2 text-sm font-medium ${
+          className={`shrink-0 whitespace-nowrap rounded px-3 py-2 text-sm font-medium md:whitespace-normal ${
             pathname === "/teacher" || pathname.startsWith("/teacher/")
               ? "bg-slate-900 text-white"
               : "text-slate-700 hover:bg-slate-100"
