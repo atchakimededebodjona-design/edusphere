@@ -255,22 +255,16 @@ CASHIER_ROLE_CODE = "CAISSIER"
 CASHIER_ALLOWED_METHODS = {"CASH"}
 
 
-async def _ensure_cashier_cash_only(db: AsyncSession, user: User, student: Student, method: str) -> None:
-    """Caisse scolaire, lot 1 — un CAISSIER n'encaisse QUE des espèces, imposé côté backend.
-
-    Rôles effectifs résolus pour l'ÉCOLE de l'élève (`get_scoped_role_codes`, même règle de portée
-    que les permissions — jamais déduits d'un champ libre). La restriction s'applique quand le droit
-    d'enregistrer provient UNIQUEMENT du rôle CAISSIER dans cette portée : un compte qui détient
-    aussi, dans cette même école, un autre rôle ayant `payments.manage` (ex. ACCOUNTANT) conserve
-    les droits de cet autre rôle. Les méthodes existantes restent valides pour les autres rôles."""
-    if method in CASHIER_ALLOWED_METHODS:
-        return
+async def _records_only_as_cashier(db: AsyncSession, user: User, student: Student) -> bool:
+    """True si, dans l'ÉCOLE de l'élève, le droit d'enregistrer de `user` provient UNIQUEMENT du rôle
+    CAISSIER (lot 1). Rôles effectifs résolus par `get_scoped_role_codes` (même règle de portée que
+    les permissions — jamais déduits d'un champ libre) : un compte qui détient aussi, dans cette
+    même école, un autre rôle ayant `payments.manage` (ex. ACCOUNTANT) conserve les droits de cet
+    autre rôle."""
     role_codes = await get_scoped_role_codes(db, user, organization_id=student.organization_id, school_id=student.school_id)
     if CASHIER_ROLE_CODE not in role_codes:
-        return
-    if await roles_grant_permission(db, role_codes - {CASHIER_ROLE_CODE}, "payments.manage"):
-        return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cashiers can only record cash payments")
+        return False
+    return not await roles_grant_permission(db, role_codes - {CASHIER_ROLE_CODE}, "payments.manage")
 
 
 @router.post("/payments", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
@@ -280,9 +274,16 @@ async def create_payment(payload: PaymentCreate, db: DbSession, current_user: Cu
     await ensure_permission(
         db, current_user, "payments.manage", organization_id=student.organization_id, school_id=student.school_id
     )
-    await _ensure_cashier_cash_only(db, current_user, student, payload.method)
+    cashier_only = await _records_only_as_cashier(db, current_user, student)
+    # Lot 1 — un CAISSIER n'encaisse QUE des espèces, imposé côté backend.
+    if cashier_only and payload.method not in CASHIER_ALLOWED_METHODS:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cashiers can only record cash payments")
     await register_payments_attempt(current_user.id)
-    payment, notifications = await service.record_payment(db, student, payload, current_user.id)
+    # Lot 3 — un CAISSIER n'encaisse des espèces que dans SA session de caisse OPEN (vérifiée et
+    # verrouillée dans la transaction du paiement, voir service.record_payment).
+    payment, notifications = await service.record_payment(
+        db, student, payload, current_user.id, require_cash_session=cashier_only
+    )
     if notifications:
         await service.send_payment_notifications(notifications)
     return payment

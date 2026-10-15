@@ -592,7 +592,8 @@ async def test_tenant_isolation_across_organizations(client: AsyncClient) -> Non
     )
     assert cross_org_attempt.status_code == 404
 
-    logs_a = await _audit_logs(client, ctx_a["admin_headers"], ctx_a["school"]["id"])
+    # Lot 3 — chaque paiement trace aussi `payment.recorded` : on isole ici l'annulation.
+    logs_a = await _audit_logs(client, ctx_a["admin_headers"], ctx_a["school"]["id"], action="payment.cancelled")
     assert logs_a["total"] == 1
     assert logs_a["items"][0]["entity_id"] == payment_a["id"]
 
@@ -609,7 +610,7 @@ async def test_school_level_isolation_via_platform_account(client: AsyncClient) 
     platform_admin = await create_platform_admin(client, "auditplatform")
     platform_headers = {"Authorization": f"Bearer {platform_admin['tokens']['access_token']}"}
 
-    logs_school_a = await _audit_logs(client, platform_headers, ctx_a["school"]["id"])
+    logs_school_a = await _audit_logs(client, platform_headers, ctx_a["school"]["id"], action="payment.cancelled")
     assert logs_school_a["total"] == 1
     logs_school_b = await _audit_logs(client, platform_headers, ctx_b["school"]["id"])
     assert logs_school_b["total"] == 0
@@ -715,7 +716,7 @@ async def test_filters_by_action_and_entity_type(client: AsyncClient) -> None:
     by_actor = await _audit_logs(
         client, ctx["admin_headers"], ctx["school"]["id"], actor_user_id=ctx["admin_user_id"]
     )
-    assert by_actor["total"] == 2
+    assert by_actor["total"] == 3  # payment.recorded (lot 3) + payment.cancelled + user.status_changed
 
     far_past = await _audit_logs(client, ctx["admin_headers"], ctx["school"]["id"], date_to="2020-01-01")
     assert far_past["total"] == 0

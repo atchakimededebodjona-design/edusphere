@@ -26,6 +26,9 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/fees/overdue", label: "Frais en retard", permission: "fees.read" },
   // Caisse scolaire, lot 2 — poste d'encaissement (navigation seulement : l'API reste l'autorité).
   { href: "/cashier", label: "Caisse", permission: "payments.manage" },
+  // Caisse scolaire, lot 3 — session de caisse (ouverture, comptage, clôture) et supervision.
+  { href: "/cashier/cash-register", label: "Ma caisse", permission: "cash.register.manage" },
+  { href: "/cashier/supervision", label: "Supervision caisse", permission: "cash.register.review" },
   { href: "/payments", label: "Paiements", permission: "payments.read" },
   { href: "/notifications", label: "Notifications" },
   { href: "/announcements", label: "Annonces", permission: "announcements.manage" },
@@ -84,8 +87,11 @@ export function Nav() {
       </div>
       {items.map((item) => {
         // `/partner` est aussi le préfixe de ses sous-pages : correspondance exacte pour cet accueil.
-        const active =
-          pathname === item.href || (item.href !== "/partner" && pathname.startsWith(`${item.href}/`));
+        // Lot 3 — un seul lien actif : le plus spécifique (ex. /cashier/supervision n'active plus
+        // aussi "Caisse").
+        const matches = (href: string) =>
+          pathname === href || (href !== "/partner" && pathname.startsWith(`${href}/`));
+        const active = matches(item.href) && !items.some((other) => other.href.length > item.href.length && matches(other.href));
         return (
           <Link
             key={item.href}
