@@ -15,6 +15,7 @@ from app.core.storage import storage
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.modules.academics.models import SchoolClass
 from app.modules.audit import service as audit_service
+from app.modules.cash import service as cash_service
 from app.modules.notifications import service as notifications_service
 from app.modules.fees.models import (
     REMINDER_STAGES,
@@ -190,7 +191,12 @@ async def _refresh_student_fee_status(db: AsyncSession, student_fee: StudentFee)
 
 
 async def record_payment(
-    db: AsyncSession, student: Student, payload: PaymentCreate, recorded_by: uuid.UUID
+    db: AsyncSession,
+    student: Student,
+    payload: PaymentCreate,
+    recorded_by: uuid.UUID,
+    *,
+    require_cash_session: bool = False,
 ) -> tuple[Payment, list[tuple[str, str, str, str | None, str | None, uuid.UUID | None]]]:
     """Enregistre un paiement manuel et ses allocations, dans une seule transaction verrouillée.
 
@@ -201,6 +207,11 @@ async def record_payment(
     id pour éviter tout deadlock entre deux paiements multi-frais concurrents) avant de lire le
     montant déjà alloué — deux administrateurs enregistrant un paiement sur la même obligation au
     même instant sont ainsi sérialisés par Postgres, jamais une simple lecture non protégée.
+
+    Caisse scolaire, lot 3 — un paiement CASH est rattaché à la session de caisse OPEN de son
+    enregistreur dans cette école (verrouillée FOR SHARE jusqu'au commit : une clôture concurrente
+    attend, voir cash/service.py). `require_cash_session` (CAISSIER) : sans session OPEN, refus 409.
+    Les autres rôles sans session ouverte enregistrent comme avant (aucun rattachement).
     """
     existing = await db.execute(
         select(Payment).where(Payment.school_id == student.school_id, Payment.idempotency_key == payload.idempotency_key)
@@ -208,6 +219,14 @@ async def record_payment(
     existing_payment = existing.scalar_one_or_none()
     if existing_payment is not None:
         return existing_payment, []
+
+    cash_session = None
+    if payload.method == "CASH":
+        cash_session = await cash_service.lock_open_session_for_payment(db, student.school_id, recorded_by)
+    if require_cash_session and cash_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="An open cash session is required to record cash payments"
+        )
 
     allocation_total = sum((a.amount for a in payload.allocations), start=Decimal("0"))
     if allocation_total != payload.amount:
@@ -266,6 +285,7 @@ async def record_payment(
         recorded_by=recorded_by,
         status="COMPLETED",
         receipt_number=f"RCPT-{payment_id.hex[:10].upper()}",
+        cash_session_id=cash_session.id if cash_session is not None else None,
     )
     db.add(payment)
 
@@ -325,6 +345,25 @@ async def record_payment(
     payment.pdf_path = pdf_path
     await db.flush()
 
+    # Lot 3 — trace du paiement dans la MÊME transaction (jamais pour un rejeu idempotent, qui
+    # retourne plus haut) ; avant les notifications, qui élargissent le contexte tenant.
+    await audit_service.record_audit_event(
+        db,
+        school_id=payment.school_id,
+        organization_id=payment.organization_id,
+        actor_user_id=recorded_by,
+        action=audit_service.ACTION_PAYMENT_RECORDED,
+        entity_type=audit_service.ENTITY_PAYMENT,
+        entity_id=payment.id,
+        summary=f"Paiement {payment.receipt_number} ({payment.amount} {school.currency}, {payment.method}) enregistré",
+        metadata={
+            "student_id": str(payment.student_id),
+            "amount": str(payment.amount),
+            "method": payment.method,
+            "cash_session_id": str(payment.cash_session_id) if payment.cash_session_id else None,
+        },
+    )
+
     # Lecture des destinataires AVANT le commit — le contexte RLS (SET LOCAL) est lié à la
     # transaction courante, comme documenté dans report_cards/service.py.
     notifications = await _prepare_payment_notifications(db, student, payment)
@@ -341,11 +380,30 @@ async def record_payment(
 async def cancel_payment(db: AsyncSession, payment: Payment, cancelled_by: uuid.UUID, reason: str) -> Payment:
     """Annule un paiement `COMPLETED` — ne le modifie ni ne le supprime jamais physiquement
     (intégrité de l'historique financier, voir PHASE_19_DISCOVERY.md §18). Une correction réelle
-    passe par un nouveau paiement, jamais par une réécriture de celui-ci."""
-    locked = await db.execute(select(Payment).where(Payment.id == payment.id).with_for_update())
+    passe par un nouveau paiement, jamais par une réécriture de celui-ci.
+
+    Caisse scolaire, lot 3 — un paiement rattaché à une session de caisse CLÔTURÉE n'est plus
+    annulable (409) : le comptage et l'écart validés à la clôture doivent rester vrais. Sans session
+    ou session OPEN : comportement inchangé. Concurrence : la session est relue sous verrou FOR SHARE
+    (cash/service.py::lock_session_for_payment_cancellation) APRÈS le verrou du paiement, et ce
+    verrou est tenu jusqu'au commit — une clôture concurrente (FOR UPDATE) attend la fin de cette
+    annulation, ou bien l'annulation voit la session déjà CLOSED. Jamais une annulation validée
+    pendant la bascule vers CLOSED."""
+    # populate_existing : le paiement a déjà été chargé par le routeur (contrôle d'accès) ; sans
+    # cela, la carte d'identité renverrait l'état d'AVANT le verrou.
+    locked = await db.execute(
+        select(Payment).where(Payment.id == payment.id).with_for_update().execution_options(populate_existing=True)
+    )
     payment = locked.scalar_one()
     if payment.status != "COMPLETED":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only a completed payment can be cancelled")
+    if payment.cash_session_id is not None:
+        cash_session = await cash_service.lock_session_for_payment_cancellation(db, payment.cash_session_id)
+        if cash_session.status != "OPEN":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A payment belonging to a closed cash session cannot be cancelled",
+            )
 
     payment.status = "CANCELLED"
     payment.cancelled_at = datetime.now(timezone.utc)

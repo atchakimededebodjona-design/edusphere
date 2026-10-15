@@ -11,6 +11,7 @@ import pytest
 from httpx import AsyncClient
 
 from tests.conftest import add_school_to_organization
+from tests.test_cash_register import open_cash_session
 from tests.test_fees import _create_user_with_role, _full_fee_setup, _payment_payload
 
 SEARCH_KEYS = {"id", "matricule", "first_name", "last_name", "current_class_name"}
@@ -19,6 +20,8 @@ SEARCH_KEYS = {"id", "matricule", "first_name", "last_name", "current_class_name
 async def _env(client: AsyncClient, prefix: str) -> dict:
     ctx = await _full_fee_setup(client, prefix)
     ctx["cashier"] = await _create_user_with_role(client, ctx["admin_headers"], ctx["school"]["id"], "CAISSIER", f"{prefix}.cashier")
+    # Lot 3 — un CAISSIER n'encaisse des espèces que dans sa session de caisse OPEN.
+    await open_cash_session(client, ctx["cashier"]["headers"], ctx["school"]["id"])
     return ctx
 
 

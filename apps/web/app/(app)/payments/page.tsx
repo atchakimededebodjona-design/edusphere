@@ -1,18 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
+import { cancelPaymentErrorMessage } from "@/lib/fees/cancelErrors";
 import { feesSummary, payments as paymentsClient, type FeesSummary, type Payment, type PaymentStatus } from "@/lib/fees/client";
 
 export default function PaymentsPage() {
   const { currentSchoolId, permissions } = useAuth();
-  const canManage = permissions.includes("payments.manage");
+  // Même permission que celle exigée par POST /payments/{id}/cancel (lot 1 : `payments.cancel`,
+  // distincte de `payments.manage` qui ne couvre que l'enregistrement). Affichage seulement : l'API
+  // reste l'autorité.
+  const canCancel = permissions.includes("payments.cancel");
   const [items, setItems] = useState<Payment[] | null>(null);
   const [summary, setSummary] = useState<FeesSummary | null>(null);
   const [statusFilter, setStatusFilter] = useState<PaymentStatus | "">("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Annulation : un seul envoi par paiement à la fois (double clic, clics concurrents), bouton
+  // désactivé pendant la requête, erreur affichée sans jamais présenter l'annulation comme faite.
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<{ receipt: string; message: string } | null>(null);
+  const cancelInFlight = useRef<Set<string>>(new Set());
 
   async function reload(schoolId: string) {
     setLoadError(null);
@@ -38,12 +47,27 @@ export default function PaymentsPage() {
     window.open(url, "_blank");
   }
 
-  async function handleCancel(paymentId: string) {
-    if (!currentSchoolId) return;
-    const reason = window.prompt("Motif de l'annulation ?");
-    if (!reason) return;
-    await paymentsClient.cancel(paymentId, reason);
-    await reload(currentSchoolId);
+  async function handleCancel(payment: Payment) {
+    if (!currentSchoolId || cancelInFlight.current.has(payment.id)) return;
+    cancelInFlight.current.add(payment.id);
+    try {
+      const reason = window.prompt("Motif de l'annulation ?");
+      if (!reason) return;
+      setCancelError(null);
+      setCancellingId(payment.id);
+      try {
+        await paymentsClient.cancel(payment.id, reason);
+      } catch (err) {
+        // Refus (409 session clôturée, 403...) ou réseau : rien n'est rechargé ni modifié localement,
+        // le paiement reste affiché tel quel (le backend n'a rien changé).
+        setCancelError({ receipt: payment.receipt_number, message: cancelPaymentErrorMessage(err) });
+        return;
+      }
+      await reload(currentSchoolId); // succès : comportement existant (liste et totaux relus)
+    } finally {
+      cancelInFlight.current.delete(payment.id);
+      setCancellingId((current) => (current === payment.id ? null : current));
+    }
   }
 
   if (loadError) {
@@ -57,6 +81,25 @@ export default function PaymentsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-slate-900">Paiements</h1>
+
+      {cancelError && (
+        <div
+          role="alert"
+          data-testid="payment-cancel-error"
+          className="flex flex-wrap items-center justify-between gap-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+        >
+          <span>
+            Reçu {cancelError.receipt} — {cancelError.message}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCancelError(null)}
+            className="shrink-0 rounded border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
+          >
+            Fermer
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-6 rounded border border-slate-200 bg-slate-50 p-4 text-sm">
         <div>
@@ -115,9 +158,15 @@ export default function PaymentsPage() {
                     <button type="button" onClick={() => void handleDownload(p.id)} className="text-xs text-slate-700 underline">
                       Reçu
                     </button>
-                    {canManage && p.status === "COMPLETED" && (
-                      <button type="button" onClick={() => void handleCancel(p.id)} className="text-xs text-red-700 underline">
-                        Annuler
+                    {canCancel && p.status === "COMPLETED" && (
+                      <button
+                        type="button"
+                        onClick={() => void handleCancel(p)}
+                        disabled={cancellingId === p.id}
+                        aria-busy={cancellingId === p.id}
+                        className="text-xs text-red-700 underline disabled:cursor-wait disabled:opacity-50"
+                      >
+                        {cancellingId === p.id ? "Annulation..." : "Annuler"}
                       </button>
                     )}
                   </div>

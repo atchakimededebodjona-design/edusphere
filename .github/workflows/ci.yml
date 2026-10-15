@@ -28,8 +28,16 @@ jobs:
       - name: Type-check
         run: pnpm --filter @edulinkage/web type-check
 
+      - name: Config tests (NEXT_PUBLIC_API_URL)
+        run: pnpm --filter @edulinkage/web test:config
+
+      # Build de CONTRÔLE, jamais publié : pas d'API publique en CI. `next build` refuse désormais
+      # une URL d'API absente/locale (risque H1, apps/web/config/apiUrl.js) ; ce drapeau explicite
+      # marque ce build comme non déployable. Le Dockerfile ne le transmet jamais.
       - name: Build
         run: pnpm --filter @edulinkage/web build
+        env:
+          EDULINKAGE_NON_DEPLOYABLE_BUILD: "1"
 
   mobile:
     name: mobile (lint, type-check)
