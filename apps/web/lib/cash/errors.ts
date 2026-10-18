@@ -11,6 +11,10 @@ const KNOWN: [string, string][] = [
   ["A variance reason and note are required", "Un motif et une note sont obligatoires en cas d'écart."],
   ["Outgoing movement exceeds the cash available", "La sortie dépasse les espèces disponibles en caisse."],
   ["An open cash session is required", "Ouvrez votre caisse avant d'encaisser des espèces."],
+  [
+    "Idempotency key already used for a different cash movement",
+    "Cette opération a déjà été envoyée avec d'autres données : vérifiez la liste des mouvements avant de recommencer.",
+  ],
   ["Unknown denomination", "Coupure inconnue."],
   ["Duplicate denomination", "Une coupure est saisie deux fois."],
 ];

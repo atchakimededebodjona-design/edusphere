@@ -98,6 +98,22 @@ laissé tel quel.
 
 ## HTTPS / Transport Security (Phase 20)
 
+> **Mise à jour 2026-10-18 (PR #27, vérification en lecture seule)** — le constat « HTTP
+> uniquement » ci-dessous est **dépassé pour la production publique** :
+> - `https://api.edulinkage.com/api/v1/health` répond `200 {"status":"ok"}` derrière
+>   `nginx/1.28.3 (Ubuntu)`, certificat TLS valide (vérification de la chaîne réussie),
+>   `Strict-Transport-Security: max-age=31536000; includeSubDomains` ;
+> - `http://api.edulinkage.com` redirige en `301` vers `https://` ;
+> - le frontend `https://edulinkage.com` envoie `connect-src 'self' https://api.edulinkage.com`
+>   (CSP) : il a été construit avec une URL d'API HTTPS.
+>
+> Non vérifié : la configuration du serveur lui-même (aucun accès), et tout autre environnement
+> (pilote, préproduction). `next build` refuse déjà une URL absente, mal formée ou locale
+> (`apps/web/config/apiUrl.js`) ; une URL **`http://` distante reste acceptée avec un
+> avertissement** : risque d'exposer en clair les jetons d'accès et les données (élèves,
+> paiements) si un build pointe par erreur vers une API non chiffrée. Recommandation : rendre
+> `http://` bloquant une fois l'inventaire des environnements confirmé (tous en HTTPS).
+
 **État réel : HTTP uniquement, HTTPS non testé, aucun environnement de déploiement réel
 disponible pour le faire.** Ce document ne déclare PAS "HTTPS production GO" — ce serait une
 affirmation non vérifiable sans domaine/certificat/hébergeur réels (voir règle du projet : ne

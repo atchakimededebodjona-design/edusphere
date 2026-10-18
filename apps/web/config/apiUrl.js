@@ -65,9 +65,16 @@ function validateProductionApiUrl(raw) {
   }
   const warnings = [];
   if (parsed.protocol === "http:") {
-    // Non bloquant : docs/deployment/PRODUCTION_CONFIGURATION.md documente un HTTPS de production
-    // pas encore en place ; bloquer http casserait un déploiement aujourd'hui légitime.
-    warnings.push("NEXT_PUBLIC_API_URL utilise http:// (non chiffré) : prévoir https:// dès que le HTTPS de production existe.");
+    // Non bloquant (décision documentée, à réévaluer) : la production publique vérifiée le
+    // 2026-10-18 utilise https://api.edulinkage.com (TLS valide, HSTS, http -> 301 https), mais
+    // aucun inventaire des autres environnements (pilote, préproduction) n'existe dans ce dépôt ;
+    // bloquer http pourrait casser l'un d'eux. Risque réel d'une API en http : jetons d'accès et
+    // données d'élèves/paiements en clair sur le réseau — voir
+    // docs/deployment/PRODUCTION_CONFIGURATION.md, section HTTPS.
+    warnings.push(
+      "NEXT_PUBLIC_API_URL utilise http:// (non chiffré) : jetons et données transitent en clair. " +
+        "Utiliser https:// (la production publique est en HTTPS).",
+    );
   }
   return { ok: true, url: value, warnings };
 }

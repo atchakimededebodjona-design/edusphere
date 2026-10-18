@@ -350,6 +350,121 @@ async def test_movement_validation_and_idempotency(client: AsyncClient) -> None:
     assert forced.status_code == 201 and forced.json()["direction"] == "OUT"
 
 
+# === Idempotence des mouvements (même clé : même opération => même mouvement ; sinon 409) ==========
+IDEM_CONFLICT = "Idempotency key already used for a different cash movement"
+
+
+async def _movement_rows(session_id: str) -> list[tuple]:
+    async with AsyncSessionLocal() as db:
+        await set_platform_wide_context(db)
+        rows = await db.execute(
+            text(
+                "SELECT id, type, direction, amount, reason, reference, idempotency_key, created_at "
+                "FROM cash_movements WHERE cash_session_id = :s ORDER BY created_at"
+            ),
+            {"s": uuid.UUID(session_id)},
+        )
+        return [tuple(r) for r in rows.all()]
+
+
+async def test_movement_identical_replay_returns_same_row_with_normalisation(client: AsyncClient) -> None:
+    ctx = await _cashier_ctx(client, "cashidemok", opening="5000")
+    sid, headers = ctx["session"]["id"], ctx["headers"]
+    key = _key()
+    first = await _movement(client, sid, headers, type="CASH_OUT", amount="700", reason="Achat craie", reference="BON-1", idempotency_key=key)
+    assert first.status_code == 201
+    # Même opération, écrite différemment : montant 700.00, espaces autour du motif/de la référence,
+    # direction envoyée contraire mais ignorée (CASH_OUT impose OUT).
+    for variant in (
+        {"amount": "700.00", "reason": "  Achat craie ", "reference": " BON-1 "},
+        {"amount": "700", "reason": "Achat craie", "reference": "BON-1", "direction": "IN"},
+        {"amount": "700", "reason": "Achat craie", "reference": "BON-1"},
+    ):
+        again = await _movement(client, sid, headers, type="CASH_OUT", idempotency_key=key, **variant)
+        assert again.status_code == 201, (variant, again.text)
+        assert again.json()["id"] == first.json()["id"]
+    rows = await _movement_rows(sid)
+    assert len(rows) == 1 and D(rows[0][3]) == 700 and rows[0][2] == "OUT"
+    assert (await _audit_actions(ctx["school"]["id"])).count("cash.movement.created") == 1
+    assert D((await _detail(client, sid, headers))["totals"]["expected_amount"]) == 4300
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ({"type": "CASH_IN", "amount": "500"}, {"type": "CASH_IN", "amount": "501"}),  # montant
+        ({"type": "CASH_IN", "amount": "500"}, {"type": "CASH_OUT", "amount": "500"}),  # type (et direction)
+        ({"type": "OTHER", "direction": "IN", "amount": "500"}, {"type": "OTHER", "direction": "OUT", "amount": "500"}),  # direction
+        ({"type": "CASH_IN", "amount": "500", "reference": "A"}, {"type": "CASH_IN", "amount": "500", "reference": "B"}),  # référence
+        ({"type": "CASH_IN", "amount": "500"}, {"type": "CASH_IN", "amount": "500", "reference": "A"}),  # référence ajoutée
+        ({"type": "CASH_IN", "amount": "500", "reason": "Monnaie"}, {"type": "CASH_IN", "amount": "500", "reason": "Autre"}),  # motif
+    ],
+    ids=["amount", "type", "direction", "reference", "reference-added", "reason"],
+)
+async def test_movement_key_reuse_with_different_data_is_409_and_never_mutates(
+    client: AsyncClient, first: dict, second: dict
+) -> None:
+    ctx = await _cashier_ctx(client, "cashidemko", opening="5000")
+    sid, headers = ctx["session"]["id"], ctx["headers"]
+    key = _key()
+    created = await _movement(client, sid, headers, idempotency_key=key, **first)
+    assert created.status_code == 201
+    before = await _movement_rows(sid)
+    expected_before = (await _detail(client, sid, headers))["totals"]["expected_amount"]
+
+    conflict = await _movement(client, sid, headers, idempotency_key=key, **second)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == IDEM_CONFLICT
+    assert await _movement_rows(sid) == before  # ligne existante intacte, aucune nouvelle ligne
+    assert (await _detail(client, sid, headers))["totals"]["expected_amount"] == expected_before
+    assert (await _audit_actions(ctx["school"]["id"])).count("cash.movement.created") == 1
+    # La répétition identique reste acceptée après un conflit.
+    replay = await _movement(client, sid, headers, idempotency_key=key, **first)
+    assert replay.status_code == 201 and replay.json()["id"] == created.json()["id"]
+
+
+async def test_movement_key_replay_after_close_and_scope_per_session(client: AsyncClient) -> None:
+    ctx = await _cashier_ctx(client, "cashidemclose", opening="1000")
+    sid, headers = ctx["session"]["id"], ctx["headers"]
+    key = _key()
+    created = (await _movement(client, sid, headers, type="CASH_IN", amount="200", idempotency_key=key)).json()
+    detail = await _detail(client, sid, headers)
+    count = (await _count(client, sid, headers, [("1000", 1), ("200", 1)])).json()
+    assert (await _close(client, sid, headers, count["id"], detail["totals"]["expected_amount"])).status_code == 200
+    # Session close : rejeu identique => même mouvement ; données différentes => 409 (jamais créé).
+    replay = await _movement(client, sid, headers, type="CASH_IN", amount="200", idempotency_key=key)
+    assert replay.status_code == 201 and replay.json()["id"] == created["id"]
+    assert (await _movement(client, sid, headers, type="CASH_IN", amount="999", idempotency_key=key)).status_code == 409
+    assert len(await _movement_rows(sid)) == 1
+    # Portée = (session, clé), comme la contrainte uq_cash_movement_idempotency : la même clé dans
+    # une AUTRE session est une autre opération.
+    new_sid = (await open_cash_session(client, headers, ctx["school"]["id"], "0"))["session"]["id"]
+    other = await _movement(client, new_sid, headers, type="CASH_IN", amount="999", idempotency_key=key)
+    assert other.status_code == 201 and other.json()["id"] != created["id"]
+    assert len(await _movement_rows(new_sid)) == 1 and len(await _movement_rows(sid)) == 1
+
+
+async def test_movement_concurrent_same_key(client: AsyncClient) -> None:
+    ctx = await _cashier_ctx(client, "cashidemrace", opening="5000")
+    sid, headers = ctx["session"]["id"], ctx["headers"]
+    # Mêmes données en parallèle : un seul mouvement, même identifiant pour toutes les réponses.
+    key = _key()
+    same = await asyncio.gather(
+        *(_movement(client, sid, headers, type="CASH_IN", amount="300", idempotency_key=key) for _ in range(4))
+    )
+    assert [r.status_code for r in same] == [201] * 4
+    assert len({r.json()["id"] for r in same}) == 1
+    # Données différentes en parallèle avec une même clé : exactement un succès, le reste en 409.
+    key2 = _key()
+    mixed = await asyncio.gather(
+        *(_movement(client, sid, headers, type="CASH_IN", amount=str(100 + i), idempotency_key=key2) for i in range(3))
+    )
+    assert sorted(r.status_code for r in mixed) == [201, 409, 409]
+    rows = await _movement_rows(sid)
+    assert len(rows) == 2 and sorted(r[6] for r in rows) == sorted([key, key2])
+    assert (await _audit_actions(ctx["school"]["id"])).count("cash.movement.created") == 2
+
+
 # === Comptage ===================================================================================================
 async def test_count_is_computed_server_side_and_validated(client: AsyncClient) -> None:
     ctx = await _cashier_ctx(client, "cashcount", opening="0")

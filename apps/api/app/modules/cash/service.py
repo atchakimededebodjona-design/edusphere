@@ -369,10 +369,33 @@ async def open_session(db: AsyncSession, school: School, user_id: uuid.UUID, ope
     return session
 
 
+def _same_movement(
+    existing: CashMovement, type_: str, direction: str, amount: Decimal, reason: str, reference: str | None
+) -> bool:
+    """Données métier comparées pour une réutilisation de clé : type, direction EFFECTIVE (celle
+    imposée par le type, pas celle envoyée), montant (valeur décimale : 700 == 700.00), motif et
+    référence normalisés (espaces retirés, vide => absente) — exactement ce qui est enregistré."""
+    return (
+        existing.type == type_
+        and existing.direction == direction
+        and Decimal(existing.amount) == Decimal(amount)
+        and existing.reason == reason
+        and existing.reference == reference
+    )
+
+
 async def add_movement(
     db: AsyncSession, school: School, session_id: uuid.UUID, user_id: uuid.UUID, payload: CashMovementCreate
 ) -> CashMovement:
     session = await lock_session(db, session_id)
+    direction = CASH_MOVEMENT_FIXED_DIRECTIONS.get(payload.type) or payload.direction
+    assert direction is not None  # garanti par CashMovementCreate (OTHER exige une direction)
+    reason = payload.reason.strip()
+    reference = (payload.reference or "").strip() or None
+
+    # Idempotence — portée identique à la contrainte `uq_cash_movement_idempotency`
+    # (cash_session_id, idempotency_key). La session est verrouillée FOR UPDATE ci-dessus : deux
+    # envois concurrents de la même clé sont sérialisés, le second voit toujours le premier.
     existing = (
         await db.execute(
             select(CashMovement).where(
@@ -381,11 +404,17 @@ async def add_movement(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        return existing  # même opération renvoyée (double clic / retry) : jamais un doublon
+        # Même clé + mêmes données métier => même opération (double clic / retry) : on renvoie le
+        # mouvement existant, jamais modifié. Même clé + données différentes => conflit explicite
+        # (jamais un succès silencieux qui masquerait une saisie différente).
+        if _same_movement(existing, payload.type, direction, payload.amount, reason, reference):
+            return existing
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used for a different cash movement",
+        )
     _ensure_open(session)
 
-    direction = CASH_MOVEMENT_FIXED_DIRECTIONS.get(payload.type) or payload.direction
-    assert direction is not None  # garanti par CashMovementCreate (OTHER exige une direction)
     if direction == "OUT":
         available = (await session_totals(db, session)).expected_amount
         if payload.amount > available:
@@ -402,8 +431,8 @@ async def add_movement(
         type=payload.type,
         direction=direction,
         amount=payload.amount,
-        reason=payload.reason.strip(),
-        reference=(payload.reference or "").strip() or None,
+        reason=reason,
+        reference=reference,
         idempotency_key=payload.idempotency_key,
         created_by=user_id,
     )
