@@ -27,6 +27,7 @@ from app.modules.rbac.models import (
     UserRole,
 )
 from tests.conftest import add_school_to_organization, assign_role
+from tests.test_cash_register import open_cash_session
 from tests.test_fees import _create_user_with_role, _full_fee_setup, _payment_payload
 
 FORBIDDEN_CASH_ONLY = "Cashiers can only record cash payments"
@@ -35,6 +36,8 @@ FORBIDDEN_CASH_ONLY = "Cashiers can only record cash payments"
 async def _cashier_env(client: AsyncClient, prefix: str) -> dict:
     ctx = await _full_fee_setup(client, prefix)
     ctx["cashier"] = await _create_user_with_role(client, ctx["admin_headers"], ctx["school"]["id"], "CAISSIER", f"{prefix}.cashier")
+    # Lot 3 — un CAISSIER n'encaisse des espèces que dans sa session de caisse OPEN.
+    await open_cash_session(client, ctx["cashier"]["headers"], ctx["school"]["id"])
     return ctx
 
 
@@ -83,7 +86,8 @@ async def test_a_cashier_role_and_permissions_exist_after_migration() -> None:
                 await db.execute(text("SELECT code, description FROM permissions WHERE code IN ('payments.manage', 'payments.cancel')"))
             ).all()
         )
-    assert perms == {"fees.read", "payments.read", "payments.manage"}
+    # Lot 3 (0026) ajoute le domaine caisse ; jamais fees.manage, payments.cancel ni audit.read.
+    assert perms == {"fees.read", "payments.read", "payments.manage", "cash.register.read", "cash.register.manage"}
     assert cancel_holders == {"SUPER_ADMIN", "SCHOOL_ADMIN", "DIRECTOR", "ACCOUNTANT"}
     assert descriptions == {"payments.manage": "Enregistrer des paiements", "payments.cancel": "Annuler un paiement"}
 

@@ -30,6 +30,7 @@ function paymentErrorMessage(err: unknown): string {
   if (detail.includes("exceeds the remaining balance")) {
     return "Un montant affecté dépasse le solde restant (la situation a peut-être changé). Rechargez l'élève.";
   }
+  if (detail.includes("An open cash session is required")) return "Aucune caisse ouverte : ouvrez votre caisse avant d'encaisser des espèces.";
   if (err.status === 403) return "Vous n'êtes pas autorisé à enregistrer ce paiement.";
   if (err.status === 429) return "Trop de tentatives d'encaissement. Patientez une minute puis réessayez.";
   return `L'encaissement a échoué : ${detail}`;

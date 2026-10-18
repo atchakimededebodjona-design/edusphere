@@ -44,10 +44,12 @@ export function formatMoney(cents: number, currency: string): string {
   return `${sign}${units}${decimals}${label ? ` ${label}` : ""}`;
 }
 
-/** Montant API ("150000.00") -> affichage ; tel quel si illisible. */
+/** Montant API ("150000.00", ou négatif "-1000.00" pour un écart de caisse) -> affichage ; tel
+ * quel si illisible. */
 export function formatApiAmount(amount: string, currency: string): string {
-  const cents = toCents(amount);
-  return cents === null ? amount : formatMoney(cents, currency);
+  const negative = amount.trim().startsWith("-");
+  const cents = toCents(negative ? amount.trim().slice(1) : amount);
+  return cents === null ? amount : formatMoney(negative ? -cents : cents, currency);
 }
 
 export type AllocatableFee = { id: string; balanceCents: number; dueDate: string | null; createdAt: string };

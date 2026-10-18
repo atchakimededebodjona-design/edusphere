@@ -21,7 +21,7 @@ explicite et vérifiable, pas pour construire une nouvelle configuration.
 | `EMAIL_PROVIDER` | `local` | Tant que la valeur reste `local`, **aucun email n'est envoyé à une vraie adresse** — voir section dédiée ci-dessous. C'est la découverte centrale de la Phase 14 Discovery. |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Doit inclure le(s) domaine(s) réel(s) du frontend déployé, sinon le navigateur des utilisateurs bloque les appels API. |
 | `PUBLIC_BASE_URL` / `PUBLIC_WEB_BASE_URL` | `http://localhost:8000` / `http://localhost:3000` | Utilisées pour construire les liens de vérification QR des bulletins et les liens dans les emails — doivent pointer vers les domaines réellement accessibles par les parents/écoles. |
-| `NEXT_PUBLIC_API_URL` / `EXPO_PUBLIC_API_URL` | `http://localhost:8000` | Le web et le mobile ne pourront pas joindre l'API depuis un appareil réel si ces valeurs restent `localhost`. |
+| `NEXT_PUBLIC_API_URL` / `EXPO_PUBLIC_API_URL` | `http://localhost:8000` | Le web et le mobile ne pourront pas joindre l'API depuis un appareil réel si ces valeurs restent `localhost`.  **Web : `next build` échoue désormais** si `NEXT_PUBLIC_API_URL` est absente, vide, mal formée ou locale (`localhost`, `127.x`, `::1`, `0.0.0.0`) — voir `apps/web/config/apiUrl.js`. Builds non déployables (CI, e2e local) uniquement : `EDULINKAGE_NON_DEPLOYABLE_BUILD=1`. |
 
 ## Email — Local vs Production (Phase 9 + Phase 14)
 
@@ -97,6 +97,22 @@ concret de "ne pas inventer un seuil arbitraire", ici corrigé par une preuve r�
 laissé tel quel.
 
 ## HTTPS / Transport Security (Phase 20)
+
+> **Mise à jour 2026-10-18 (PR #27, vérification en lecture seule)** — le constat « HTTP
+> uniquement » ci-dessous est **dépassé pour la production publique** :
+> - `https://api.edulinkage.com/api/v1/health` répond `200 {"status":"ok"}` derrière
+>   `nginx/1.28.3 (Ubuntu)`, certificat TLS valide (vérification de la chaîne réussie),
+>   `Strict-Transport-Security: max-age=31536000; includeSubDomains` ;
+> - `http://api.edulinkage.com` redirige en `301` vers `https://` ;
+> - le frontend `https://edulinkage.com` envoie `connect-src 'self' https://api.edulinkage.com`
+>   (CSP) : il a été construit avec une URL d'API HTTPS.
+>
+> Non vérifié : la configuration du serveur lui-même (aucun accès), et tout autre environnement
+> (pilote, préproduction). `next build` refuse déjà une URL absente, mal formée ou locale
+> (`apps/web/config/apiUrl.js`) ; une URL **`http://` distante reste acceptée avec un
+> avertissement** : risque d'exposer en clair les jetons d'accès et les données (élèves,
+> paiements) si un build pointe par erreur vers une API non chiffrée. Recommandation : rendre
+> `http://` bloquant une fois l'inventaire des environnements confirmé (tous en HTTPS).
 
 **État réel : HTTP uniquement, HTTPS non testé, aucun environnement de déploiement réel
 disponible pour le faire.** Ce document ne déclare PAS "HTTPS production GO" — ce serait une

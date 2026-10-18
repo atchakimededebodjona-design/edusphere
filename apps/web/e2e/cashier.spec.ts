@@ -1,12 +1,10 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { createUser, setupDesk, type Desk } from "./helpers/cashDesk";
 import {
-  API_BASE_URL,
   TENANT_PASSWORD,
   clearResetPasswordRateLimit,
   createOrganizationViaPlatform,
   loginInBrowser,
-  unique,
-  type TenantAdmin,
 } from "./helpers/tenants";
 
 // Caisse scolaire, lot 2 — poste d'encaissement /cashier. Même convention que le reste de la suite
@@ -18,101 +16,7 @@ test.beforeEach(() => {
   clearResetPasswordRateLimit();
 });
 
-type Desk = { tenant: TenantAdmin; studentLastName: string; studentFirstName: string; matricule: string; cashierEmail: string };
-
-async function api(request: APIRequestContext, token: string, method: "GET" | "POST", path: string, data?: unknown) {
-  const response = await request.fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${token}` },
-    data,
-  });
-  expect(response.ok(), `${method} ${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
-  return response.json();
-}
-
-async function createUser(request: APIRequestContext, tenant: TenantAdmin, roleCode: string, fullName: string): Promise<string> {
-  const email = `${unique(roleCode.toLowerCase()).toLowerCase()}@wizard-e2e.example`;
-  const created = await api(request, tenant.orgAdminToken, "POST", "/api/v1/users", {
-    email,
-    full_name: fullName,
-    school_id: tenant.schoolId,
-    role_code: roleCode,
-  });
-  const reset = await request.post(`${API_BASE_URL}/api/v1/auth/reset-password`, {
-    data: { token: created.dev_reset_token, new_password: TENANT_PASSWORD },
-  });
-  expect(reset.status()).toBe(204);
-  return email;
-}
-
-/** Élève avec deux frais — Scolarité 150 000 (échéance proche, 50 000 déjà payés) et Cantine 30 000
- * (échéance plus lointaine, 10 000 déjà payés) : total restant 120 000 FCFA, comme l'exemple métier. */
-async function setupDesk(request: APIRequestContext, prefix: string): Promise<Desk> {
-  const tenant = await createOrganizationViaPlatform(request, prefix);
-  const token = tenant.orgAdminToken;
-  const schoolId = tenant.schoolId;
-  const year = await api(request, token, "POST", "/api/v1/academic-years", {
-    school_id: schoolId,
-    name: `${prefix}-2026`,
-    start_date: "2026-09-01",
-    end_date: "2027-06-30",
-  });
-  const level = await api(request, token, "POST", "/api/v1/education-levels", { school_id: schoolId, name: "CM1" });
-  const schoolClass = await api(request, token, "POST", "/api/v1/classes", {
-    academic_year_id: year.id,
-    education_level_id: level.id,
-    name: "CM1 A",
-  });
-  const matricule = unique("CAISSE").toUpperCase();
-  const studentLastName = `Mensah${unique("").slice(-5)}`;
-  const studentFirstName = "Ama";
-  const student = await api(request, token, "POST", "/api/v1/students", {
-    school_id: schoolId,
-    matricule,
-    first_name: studentFirstName,
-    last_name: studentLastName,
-    date_of_birth: "2015-01-01",
-    sex: "F",
-  });
-  await api(request, token, "POST", `/api/v1/students/${student.id}/enrollments`, {
-    class_id: schoolClass.id,
-    enrollment_date: "2026-09-01",
-  });
-
-  const feeIds: Record<string, string> = {};
-  for (const [name, amount, dueDate] of [
-    ["Scolarité", "150000", "2026-10-15"],
-    ["Cantine", "30000", "2026-12-15"],
-  ] as const) {
-    const category = await api(request, token, "POST", "/api/v1/fee-categories", { school_id: schoolId, name });
-    const schedule = await api(request, token, "POST", "/api/v1/fee-schedules", {
-      school_id: schoolId,
-      fee_category_id: category.id,
-      academic_year_id: year.id,
-      name,
-      amount,
-      scope_type: "SCHOOL",
-      due_date: dueDate,
-    });
-    await api(request, token, "POST", `/api/v1/fee-schedules/${schedule.id}/generate`);
-  }
-  const summary = await api(request, token, "GET", `/api/v1/students/${student.id}/financial-summary`);
-  for (const fee of summary.fees) feeIds[fee.fee_schedule_name] = fee.id;
-  await api(request, token, "POST", "/api/v1/payments", {
-    student_id: student.id,
-    amount: "60000",
-    method: "CASH",
-    paid_at: "2026-10-01",
-    idempotency_key: unique("seedpay"),
-    allocations: [
-      { student_fee_id: feeIds["Scolarité"], amount: "50000" },
-      { student_fee_id: feeIds["Cantine"], amount: "10000" },
-    ],
-  });
-
-  const cashierEmail = await createUser(request, tenant, "CAISSIER", "Kodjo Caissier");
-  return { tenant, studentLastName, studentFirstName, matricule, cashierEmail };
-}
+// Mise en place (élève, frais, caissier, caisse ouverte) : ./helpers/cashDesk.ts (partagée avec le lot 3).
 
 async function openDeskAndSelectStudent(page: Page, desk: Desk, term: string) {
   await page.goto("/cashier");
@@ -131,9 +35,9 @@ test("caissier : recherche, situation, répartition, confirmation, reçu et hist
 
   // Navigation : Caisse ET Paiements visibles pour le CAISSIER.
   const nav = page.getByRole("navigation");
-  await expect(nav.getByRole("link", { name: "Caisse" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Caisse", exact: true })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Paiements" })).toBeVisible();
-  await nav.getByRole("link", { name: "Caisse" }).click();
+  await nav.getByRole("link", { name: "Caisse", exact: true }).click();
   await expect(page).toHaveURL("/cashier");
   await expect(page.getByText("Aucun encaissement enregistré aujourd'hui.")).toBeVisible();
 
@@ -307,7 +211,7 @@ test("sans payments.manage : pas de lien Caisse et page réservée", async ({ pa
   const tenant = await createOrganizationViaPlatform(page.context().request, "cashstaff");
   const staffEmail = await createUser(page.context().request, tenant, "STAFF", "Agent Staff");
   await loginInBrowser(page, staffEmail, TENANT_PASSWORD);
-  await expect(page.getByRole("navigation").getByRole("link", { name: "Caisse" })).toHaveCount(0);
+  await expect(page.getByRole("navigation").getByRole("link", { name: "Caisse", exact: true })).toHaveCount(0);
   await page.goto("/cashier");
   await expect(page.getByText("Cet espace est réservé aux comptes autorisés à enregistrer des paiements.")).toBeVisible();
   await expect(page.getByLabel("Rechercher un élève par nom, prénom ou matricule")).toHaveCount(0);
@@ -322,7 +226,7 @@ test("administrateur d'école : lien Caisse visible, Paiements conservé", async
   const tenant = await createOrganizationViaPlatform(page.context().request, "cashadmin");
   await loginInBrowser(page, tenant.orgAdminEmail, tenant.password);
   const nav = page.getByRole("navigation");
-  await expect(nav.getByRole("link", { name: "Caisse" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Caisse", exact: true })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Paiements" })).toBeVisible();
 });
 
