@@ -258,3 +258,25 @@ CASHIER_ROLE_PERMISSIONS: dict[str, list[str]] = {
 # Nouvelle description de `payments.manage` (appliquée par 0025, ancienne restaurée au downgrade).
 PAYMENTS_MANAGE_DESCRIPTION = "Enregistrer des paiements"
 PAYMENTS_MANAGE_PREVIOUS_DESCRIPTION = "Enregistrer et annuler des paiements"
+
+# --- Caisse scolaire, lot 3 (migration 0026) ---------------------------------------------------
+# Domaine RBAC dédié aux sessions de caisse (ouverture, mouvements, comptage, clôture, supervision),
+# distinct de `payments.manage` (qui reste la frontière d'ENREGISTREMENT d'un paiement). Dicts
+# dédiés, seule la migration 0026 les lit. Aucune permission existante n'est retirée.
+CASH_REGISTER_PERMISSIONS: dict[str, str] = {
+    "cash.register.read": "Consulter sa caisse (session, encaissements, mouvements, comptages)",
+    "cash.register.manage": "Ouvrir, alimenter, compter et clôturer une caisse",
+    "cash.register.review": "Superviser les caisses de l'école et consulter les rapports de caisse",
+}
+
+_CASH_REGISTER_ALL = list(CASH_REGISTER_PERMISSIONS.keys())
+
+CASH_REGISTER_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "CAISSIER": ["cash.register.read", "cash.register.manage"],
+    "ACCOUNTANT": _CASH_REGISTER_ALL,
+    "DIRECTOR": _CASH_REGISTER_ALL,
+    "SCHOOL_ADMIN": _CASH_REGISTER_ALL,
+    # Convention du catalogue : le compte plateforme cumule toutes les permissions (voir PHASE19,
+    # AUDIT, PR17) — sans école courante, il n'atteint de toute façon aucune caisse via l'UI.
+    "SUPER_ADMIN": _CASH_REGISTER_ALL,
+}

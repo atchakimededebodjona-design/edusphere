@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
 from app.modules.academics.models import AcademicYear, SchoolClass
+from app.modules.cash.service import school_today
 from app.modules.cashier.schemas import CashierDayOut, CashierPaymentOut, CashierStudentOut
 from app.modules.fees.models import Payment
 from app.modules.schools.models import School
@@ -130,7 +131,8 @@ async def list_my_cashier_payments(
     `GET /payments` (inchangé), réservée aux mêmes détenteurs de `payments.read`."""
     school = await _get_school_or_404(db, school_id)
     await ensure_permission(db, current_user, "payments.read", organization_id=school.organization_id, school_id=school.id)
-    target_day = day or date.today()
+    # Lot 3 — journée métier dans le fuseau de l'école, jamais celui du serveur.
+    target_day = day or school_today(school)
 
     result = await db.execute(
         select(Payment, Student.matricule, Student.first_name, Student.last_name)

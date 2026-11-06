@@ -19,6 +19,13 @@ const ACTION_LABELS: Record<string, string> = {
   "report_card.published": "Bulletin publié",
   "students.bulk_promoted": "Promotion en masse",
   "students.bulk_assigned": "Affectation en masse",
+  // Caisse scolaire, lot 3 (audit/service.py::ACTION_*)
+  "payment.recorded": "Paiement enregistré",
+  "cash.session.opened": "Caisse ouverte",
+  "cash.movement.created": "Mouvement de caisse",
+  "cash.count.created": "Comptage de caisse",
+  "cash.session.closed": "Caisse clôturée",
+  "cash.variance.justified": "Écart de caisse justifié",
 };
 
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -28,6 +35,9 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   ReportCard: "Bulletin",
   StudentPromotion: "Promotion",
   StudentAssignment: "Affectation",
+  CashSession: "Session de caisse",
+  CashMovement: "Mouvement de caisse",
+  CashCount: "Comptage de caisse",
 };
 
 function formatDateTime(iso: string): string {

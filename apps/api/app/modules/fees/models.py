@@ -197,6 +197,13 @@ class Payment(Base):
     cancellation_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     receipt_number: Mapped[str] = mapped_column(String(32), nullable=False)
     pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Caisse scolaire, lot 3 (migration 0026) — session de caisse OPEN de l'enregistreur au moment
+    # d'un paiement CASH (voir cash/service.py::lock_open_session_for_payment). Nullable : les
+    # paiements historiques et les paiements non CASH n'en ont jamais. Fixé à la création, jamais
+    # rattaché après coup (aucune route ne le modifie).
+    cash_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("cash_sessions.id", ondelete="RESTRICT"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

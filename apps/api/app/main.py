@@ -19,6 +19,7 @@ from app.modules.academics.router import router as academics_router
 from app.modules.attendance.router import router as attendance_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
+from app.modules.cash.router import router as cash_router
 from app.modules.cashier.router import router as cashier_router
 from app.modules.fees.router import router as fees_router
 from app.modules.grades.router import router as grades_router
@@ -153,6 +154,7 @@ app.include_router(users_router, prefix=f"{settings.api_v1_prefix}/users", tags=
 app.include_router(attendance_router, prefix=settings.api_v1_prefix, tags=["attendance"])
 app.include_router(fees_router, prefix=settings.api_v1_prefix, tags=["fees"])
 app.include_router(cashier_router, prefix=settings.api_v1_prefix, tags=["cashier"])
+app.include_router(cash_router, prefix=settings.api_v1_prefix, tags=["cash"])
 app.include_router(notifications_router, prefix=settings.api_v1_prefix, tags=["notifications"])
 app.include_router(parent_router, prefix=settings.api_v1_prefix, tags=["parent"])
 app.include_router(platform_router, prefix=settings.api_v1_prefix, tags=["platform"])

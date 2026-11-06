@@ -19,6 +19,13 @@ ACTION_USER_STATUS_CHANGED = "user.status_changed"
 ACTION_REPORT_CARD_PUBLISHED = "report_card.published"
 ACTION_STUDENTS_BULK_PROMOTED = "students.bulk_promoted"
 ACTION_STUDENTS_BULK_ASSIGNED = "students.bulk_assigned"
+# Caisse scolaire, lot 3 — paiements et sessions de caisse (fees/service.py, cash/service.py).
+ACTION_PAYMENT_RECORDED = "payment.recorded"
+ACTION_CASH_SESSION_OPENED = "cash.session.opened"
+ACTION_CASH_MOVEMENT_CREATED = "cash.movement.created"
+ACTION_CASH_COUNT_CREATED = "cash.count.created"
+ACTION_CASH_SESSION_CLOSED = "cash.session.closed"
+ACTION_CASH_VARIANCE_JUSTIFIED = "cash.variance.justified"
 
 ENTITY_PAYMENT = "Payment"
 ENTITY_STUDENT_FEE = "StudentFee"
@@ -26,6 +33,9 @@ ENTITY_USER = "User"
 ENTITY_REPORT_CARD = "ReportCard"
 ENTITY_STUDENT_PROMOTION = "StudentPromotion"
 ENTITY_STUDENT_ASSIGNMENT = "StudentAssignment"
+ENTITY_CASH_SESSION = "CashSession"
+ENTITY_CASH_MOVEMENT = "CashMovement"
+ENTITY_CASH_COUNT = "CashCount"
 
 
 async def record_audit_event(

@@ -39,8 +39,11 @@ convenance — voir les rapports de phase cités pour la preuve exacte de chaque
 - [ ] Rate limiting — **PASS partiel** : login et mot de passe oublié testés réellement
       (Phases 7.2, 10.1). `register`/`refresh`/`verify-by-code` **NOT VERIFIED** — jamais
       protégés, gap MEDIUM connu depuis la Phase 13, jamais traité.
-- [ ] HTTPS — **NOT VERIFIED** — aucun reverse proxy/terminaison TLS configuré
-      (`infrastructure/nginx/` ne contient qu'un placeholder Phase 0), confirmé absent.
+- [ ] HTTPS — **PARTIEL** — le domaine public de production est servi en HTTPS derrière nginx
+      (TLS valide, HSTS, `http://` → `301` vers `https://`), vérifié de l'extérieur le 2026-10-18
+      (PR #27). Configuration du serveur **non inspectée** (hors dépôt : `infrastructure/nginx/`
+      reste un placeholder Phase 0) ; environnements pilote/préproduction **non inventoriés**.
+      Détail : `docs/deployment/PRODUCTION_CONFIGURATION.md`, section HTTPS.
 - [x] Logs — **PASS** (logging minimal réel, aucun secret trouvé dans les logs — Phase 16)
 
 ## EMAIL

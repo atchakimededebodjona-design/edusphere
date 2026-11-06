@@ -21,7 +21,7 @@ explicite et vérifiable, pas pour construire une nouvelle configuration.
 | `EMAIL_PROVIDER` | `local` | Tant que la valeur reste `local`, **aucun email n'est envoyé à une vraie adresse** — voir section dédiée ci-dessous. C'est la découverte centrale de la Phase 14 Discovery. |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Doit inclure le(s) domaine(s) réel(s) du frontend déployé, sinon le navigateur des utilisateurs bloque les appels API. |
 | `PUBLIC_BASE_URL` / `PUBLIC_WEB_BASE_URL` | `http://localhost:8000` / `http://localhost:3000` | Utilisées pour construire les liens de vérification QR des bulletins et les liens dans les emails — doivent pointer vers les domaines réellement accessibles par les parents/écoles. |
-| `NEXT_PUBLIC_API_URL` / `EXPO_PUBLIC_API_URL` | `http://localhost:8000` | Le web et le mobile ne pourront pas joindre l'API depuis un appareil réel si ces valeurs restent `localhost`. |
+| `NEXT_PUBLIC_API_URL` / `EXPO_PUBLIC_API_URL` | `http://localhost:8000` | Le web et le mobile ne pourront pas joindre l'API depuis un appareil réel si ces valeurs restent `localhost`.  **Web : `next build` échoue désormais** si `NEXT_PUBLIC_API_URL` est absente, vide, mal formée ou locale (`localhost`, `127.x`, `::1`, `0.0.0.0`) — voir `apps/web/config/apiUrl.js`. Builds non déployables (CI, e2e local) uniquement : `EDULINKAGE_NON_DEPLOYABLE_BUILD=1`. |
 
 ## Email — Local vs Production (Phase 9 + Phase 14)
 
@@ -98,10 +98,36 @@ laissé tel quel.
 
 ## HTTPS / Transport Security (Phase 20)
 
-**État réel : HTTP uniquement, HTTPS non testé, aucun environnement de déploiement réel
-disponible pour le faire.** Ce document ne déclare PAS "HTTPS production GO" — ce serait une
-affirmation non vérifiable sans domaine/certificat/hébergeur réels (voir règle du projet : ne
-jamais fabriquer un faux environnement de production pour "prouver" une configuration).
+**État actuel — vérifié en lecture seule le 2026-10-18 (PR #27), depuis l'extérieur uniquement.**
+
+Ce qui a été **vérifié** (requêtes publiques `GET`/`HEAD`, sans authentification, sans aucun
+accès au serveur) sur le **domaine public de production** :
+- `https://api.edulinkage.com/api/v1/health` répond `200 {"status":"ok"}` derrière
+  `nginx/1.28.3 (Ubuntu)`, avec un certificat TLS valide (vérification de la chaîne réussie) et
+  l'en-tête `Strict-Transport-Security: max-age=31536000; includeSubDomains` ;
+- `http://api.edulinkage.com` redirige en `301` vers `https://` ;
+- le frontend `https://edulinkage.com` répond en HTTPS (même serveur nginx, même en-tête HSTS)
+  et envoie `Content-Security-Policy-Report-Only` avec `connect-src 'self'
+  https://api.edulinkage.com` : il a été construit avec une URL d'API HTTPS.
+
+Ce qui **n'a PAS été vérifié** :
+- la configuration interne du serveur (vhosts nginx, renouvellement des certificats, protocoles et
+  suites TLS, pare-feu) : aucun accès au serveur, rien n'a été inspecté ;
+- tout autre environnement (pilote, préproduction) : aucun inventaire n'existe à ce jour, leur
+  état HTTPS est **inconnu**. Ce constat ne signifie donc PAS que tous les environnements sont
+  sécurisés.
+
+Validation des builds web (`apps/web/config/apiUrl.js`) : `next build` refuse une
+`NEXT_PUBLIC_API_URL` absente, vide, mal formée ou locale. Une URL **`http://` distante reste
+acceptée avec un avertissement** : risque d'exposer en clair les jetons d'accès et les données
+(élèves, paiements) si un build pointe par erreur vers une API non chiffrée. Cette tolérance devra
+être **réévaluée après l'inventaire des environnements** (la rendre bloquante dès que tous sont
+confirmés en HTTPS).
+
+> Historique : jusqu'à la Phase 20, ce document indiquait « HTTP uniquement, HTTPS non testé »,
+> faute de tout environnement de déploiement réel. Ce n'est plus l'état du domaine public de
+> production (voir ci-dessus) ; le détail de la Phase 20 reste dans
+> `docs/phases/PHASE_20_IMPLEMENTATION.md`.
 
 Ce qui est **déjà prêt** côté application (vérifié par lecture du code, pas supposé) :
 - Aucun cookie n'est utilisé nulle part (web : `localStorage`, voir `apps/web/lib/auth/session.ts` ;
@@ -114,28 +140,34 @@ Ce qui est **déjà prêt** côté application (vérifié par lecture du code, p
   `allow_credentials=True` combiné à des origines explicites reste valide même après HTTPS ;
   seule la VALEUR de la variable doit changer pour un domaine réel en `https://`.
 
-Ce qui **reste un prérequis de déploiement, non vérifié dans cet environnement** :
-- Un reverse proxy terminant réellement le TLS (nginx/Caddy/Traefik — `infrastructure/nginx/`
-  ne contient toujours qu'un placeholder Phase 0, volontairement non remplacé par une fausse
-  configuration ici).
-- Un nom de domaine et un certificat réels (Let's Encrypt ou équivalent) — aucun des deux
-  n'existe pour ce projet à ce jour.
-- La redirection HTTP→HTTPS et l'en-tête `Strict-Transport-Security` (HSTS) — à poser sur ce
-  reverse proxy le jour où il existe réellement, jamais dans l'application elle-même (c'est le
-  proxy, pas l'API, qui sait si la connexion entrante est réellement chiffrée). Configuration
-  nginx recommandée pour ce jour-là (documentée ici, non déployée) :
+Ce que le **dépôt** ne contient toujours pas, et qui reste donc **non audité** :
+- La configuration du reverse proxy de production : un nginx termine bien le TLS sur le domaine
+  public (observé le 2026-10-18), mais sa configuration vit sur le serveur, hors de ce dépôt
+  (`infrastructure/nginx/` ne contient toujours qu'un placeholder Phase 0, volontairement non
+  remplacé par une configuration reconstituée) — elle n'a pas été inspectée.
+- Le nom de domaine et le certificat existent pour le domaine public (`edulinkage.com`,
+  `api.edulinkage.com`, certificat valide le 2026-10-18) ; leur gestion (renouvellement,
+  émetteur, expiration surveillée) n'a pas été vérifiée.
+- La redirection HTTP→HTTPS et l'en-tête `Strict-Transport-Security` (HSTS) sont **observés** sur
+  le domaine public ; ils doivent rester posés sur le reverse proxy, jamais dans l'application
+  elle-même (c'est le proxy, pas l'API, qui sait si la connexion entrante est réellement
+  chiffrée). Configuration nginx de référence (documentée ici, cohérente avec les en-têtes
+  observés ; la configuration réelle du serveur n'a pas été lue) :
   ```
   add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
   return 301 https://$host$request_uri;  # sur le vhost HTTP
   ```
-- Une `Content-Security-Policy` pour `apps/web` (Next.js) — délibérément non ajoutée cette phase :
-  une CSP mal calibrée peut casser silencieusement l'hydratation Next.js, et aucun environnement
-  de build/hébergement réel n'est disponible ici pour la valider avant de l'imposer.
+- Une `Content-Security-Policy` **bloquante** pour `apps/web` (Next.js) — non activée : depuis la
+  Phase 26.2, `apps/web/next.config.js` n'envoie qu'une CSP en mode `Report-Only` (observée sur
+  `https://edulinkage.com` le 2026-10-18) ; une CSP bloquante mal calibrée peut casser
+  silencieusement l'hydratation Next.js.
 
 **Conclusion honnête** : la préparation technique (pas de cookies à sécuriser, URLs déjà
-paramétrables, CORS déjà explicite) est validée. Le HTTPS de production lui-même reste **NON
-VÉRIFIÉ** et ne doit jamais être présenté autrement tant qu'un domaine/certificat/reverse proxy
-réels n'existent pas.
+paramétrables, CORS déjà explicite) est validée, et le **domaine public de production** est
+servi en HTTPS (TLS valide, HSTS, redirection `301`) d'après la vérification externe du
+2026-10-18. Restent **NON VÉRIFIÉS** : la configuration interne du serveur et l'état HTTPS des
+autres environnements (pilote, préproduction, non inventoriés) — ne jamais présenter ce constat
+comme un audit complet de la sécurité de transport.
 
 ## Security headers (Phase 20)
 
@@ -274,17 +306,20 @@ une case sur la base d'une intention ou d'une documentation seule.
       (Phases 22 et 23, voir section "Validation automatique de la configuration" ci-dessus)
 - [ ] Aucun secret dans Git — non applicable tant qu'aucun dépôt Git n'existe (voir Git/CI
       ci-dessous) ; à revérifier explicitement au moment de l'initialisation du dépôt
-- [ ] HTTPS / reverse proxy prévu — **non traité par ce projet à ce stade** (aucune configuration
-      nginx/Caddy/Traefik n'existe, `infrastructure/nginx/` ne contient qu'un placeholder Phase 0).
-      Voir section "HTTPS / Transport Security (Phase 20)" ci-dessus pour ce qui est déjà prêt
-      côté application vs ce qui reste un prérequis de déploiement.
-- [ ] Domaine configuré — dépend de l'hébergeur retenu, non figé
+- [ ] HTTPS / reverse proxy — **PARTIEL** : domaine public de production servi en HTTPS derrière
+      nginx (TLS valide, redirection `301`), vérifié de l'extérieur le 2026-10-18 ; configuration
+      du serveur **non inspectée** (hors dépôt, `infrastructure/nginx/` reste un placeholder
+      Phase 0) ; pilote/préproduction **non inventoriés**. Voir section "HTTPS / Transport
+      Security (Phase 20)" ci-dessus.
+- [ ] Domaine configuré — **PARTIEL** : `edulinkage.com` / `api.edulinkage.com` résolvent et
+      répondent (vérifié le 2026-10-18) ; gestion DNS/certificats non vérifiée
 - [x] Rate limiting register/refresh/verify-by-code — **PASS**, réellement testé (Phase 20, voir
       section dédiée ci-dessus et `PHASE_20_IMPLEMENTATION.md`)
 - [x] Security headers de base (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
       `Permissions-Policy`) — **PASS**, réellement testés (Phase 20)
-- [ ] HSTS / Content-Security-Policy — **NON APPLICABLE tant que HTTPS réel n'existe pas** (voir
-      section HTTPS ci-dessus)
+- [ ] HSTS / Content-Security-Policy — **PARTIEL** : HSTS observé sur le domaine public
+      (`max-age=31536000; includeSubDomains`, 2026-10-18) ; CSP web en `Report-Only` seulement,
+      pas encore bloquante (voir section HTTPS ci-dessus)
 - [x] RLS sur `organizations` — **PASS**, gap fermé et testé réellement (Phase 20, migration 0010)
 - [x] Traçabilité des ajustements manuels de frais (`StudentFee.updated_by` + note obligatoire) —
       **PASS**, testé réellement (Phase 20)

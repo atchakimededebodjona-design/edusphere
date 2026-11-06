@@ -1,6 +1,11 @@
 import { clearStoredTokens, getStoredTokens, setStoredTokens } from "@/lib/auth/session";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Risque H1 — en production, la valeur vient TOUJOURS de next.config.js (validée strictement au
+// `next build`, voir config/apiUrl.js). Le repli local n'existe qu'en développement : NODE_ENV est
+// remplacé à la compilation, la branche est donc supprimée du bundle de production (aucune URL
+// locale ne peut y être réintroduite par ce fichier).
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
 
 export class ApiError extends Error {
   constructor(

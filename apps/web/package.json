@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
+    "test:config": "node --test config/apiUrl.test.js",
     "test:e2e": "playwright test"
   },
   "dependencies": {

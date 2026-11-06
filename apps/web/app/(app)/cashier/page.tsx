@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { CashierDayHistory } from "@/components/cashier/CashierDayHistory";
 import { CashierStudentSearch } from "@/components/cashier/CashierStudentSearch";
@@ -8,6 +9,7 @@ import { openReceipt } from "@/components/cashier/receipt";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
+import { cashRegister } from "@/lib/cash/client";
 import { formatApiAmount, localIsoDate } from "@/lib/fees/allocation";
 import {
   cashier,
@@ -59,6 +61,18 @@ export default function CashierPage() {
   useEffect(() => {
     if (canCollect && currentSchoolId) void loadDay(currentSchoolId);
   }, [canCollect, currentSchoolId, loadDay]);
+
+  // Lot 3 — état de la caisse (session) de l'utilisateur : un CAISSIER n'encaisse des espèces que
+  // dans sa caisse OUVERTE (imposé par l'API ; ce bandeau ne fait que l'annoncer).
+  const canSeeRegister = permissions.includes("cash.register.read");
+  const [registerOpen, setRegisterOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!canSeeRegister || !currentSchoolId) return;
+    cashRegister
+      .current(currentSchoolId)
+      .then((ctx) => setRegisterOpen(ctx.current !== null))
+      .catch(() => setRegisterOpen(null));
+  }, [canSeeRegister, currentSchoolId]);
 
   // Changement d'école : on repart d'un poste vierge (aucun élève d'une autre école conservé).
   useEffect(() => {
@@ -124,6 +138,17 @@ export default function CashierPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-slate-900">Caisse scolaire</h1>
+      {registerOpen === false && (
+        <p
+          data-testid="cash-register-closed-banner"
+          className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <span>Aucune caisse ouverte : ouvrez votre caisse avant d&apos;encaisser des espèces.</span>
+          <Link href="/cashier/cash-register" className="rounded bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white">
+            Ouvrir ma caisse
+          </Link>
+        </p>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-4">
