@@ -6,3 +6,6 @@ __pycache__
 .ruff_cache
 storage
 .env
+# Fichiers d'environnement locaux (ex. .env.test) : jamais dans un contexte de build.
+**/.env.*
+!**/.env.example

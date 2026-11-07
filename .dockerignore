@@ -14,3 +14,9 @@ __pycache__
 **/.expo
 *.log
 .env
+# Fichiers d'environnement locaux (ex. apps/api/.env.test) : jamais dans un contexte de build.
+**/.env.*
+!**/.env.example
+# Sauvegardes locales (dumps PostgreSQL et archives du stockage — données réelles) : jamais dans un
+# contexte de build. Le dossier est alimenté par les scripts de sauvegarde sur l'hôte, jamais par un build.
+backups

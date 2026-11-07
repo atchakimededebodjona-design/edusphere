@@ -1,0 +1,104 @@
+# Environnement de tests ISOLÉ EduLinkage (Phase 2) — projet Compose distinct du projet de dev
+# « edusphere ». Toujours invoquer avec :
+#   docker compose -f docker-compose.test.yml -p edusphere-test --env-file apps/api/.env.test <cmd>
+#
+# - Aucune section `networks:` : réseau implicite edusphere-test_default, jamais partagé avec
+#   edusphere_default.
+# - Aucun `env_file:` : rien n'est lu depuis le .env de développement.
+# - Ne jamais utiliser `down -v`, `--remove-orphans` ni `prune` : la suppression du volume de test
+#   est une procédure manuelle, après confirmation explicite.
+# - Le mot de passe administrateur PostgreSQL n'est jamais une variable de configuration : fichier
+#   secret HORS du dépôt, monté uniquement dans db-test (POSTGRES_PASSWORD_FILE) et migrator-test.
+#   Il n'est jamais transmis à api-test.
+name: edusphere-test
+
+services:
+  db-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: edusphere_test_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_admin_password
+      POSTGRES_DB: edusphere_test
+      EDUSPHERE_TEST_CLEANER_PASSWORD: "${EDUSPHERE_TEST_CLEANER_PASSWORD:?à définir dans apps/api/.env.test}"
+    secrets:
+      - pg_admin_password
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - edusphere_test_db_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/test/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1 : faux tant que dure l'initialisation (serveur temporaire limité au socket).
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U edusphere_test_admin -d edusphere_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis-test:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Exécution des tests (mode « docker » du garde-fou) — AUCUN secret administrateur.
+  api-test:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.test
+    image: edusphere-api-test:local
+    command: ["sleep", "infinity"]
+    working_dir: /app
+    environment:
+      EDUSPHERE_TEST_MODE: docker
+      # Identique à APP_DATABASE_URL (rôle applicatif) : aucun identifiant administrateur ici.
+      DATABASE_URL: "postgresql+asyncpg://edusphere_app:${EDUSPHERE_TEST_APP_PASSWORD:?à définir dans apps/api/.env.test}@db-test:5432/edusphere_test"
+      APP_DATABASE_URL: "postgresql+asyncpg://edusphere_app:${EDUSPHERE_TEST_APP_PASSWORD:?à définir dans apps/api/.env.test}@db-test:5432/edusphere_test"
+      TEST_CLEANUP_DATABASE_URL: "postgresql+asyncpg://edusphere_test_cleaner:${EDUSPHERE_TEST_CLEANER_PASSWORD:?à définir dans apps/api/.env.test}@db-test:5432/edusphere_test"
+      REDIS_URL: "redis://redis-test:6379/0"
+      PYTEST_ADDOPTS: "-p no:cacheprovider"
+      # Bytecode dans le conteneur uniquement : les __pycache__ de l'hôte (compilés sous Windows,
+      # co_filename Windows) visibles via le montage ne doivent jamais être relus ici.
+      PYTHONPYCACHEPREFIX: /tmp/pycache
+    volumes:
+      - ./apps/api:/app:ro
+    tmpfs:
+      - /app/storage
+    depends_on:
+      db-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
+  # Opérations d'administration uniquement (migrate, grant-cleanup) — jamais démarré par `up`,
+  # lancé ponctuellement par `run --rm`. Pytest y est refusé par le garde-fou.
+  migrator-test:
+    image: edusphere-api-test:local
+    profiles: ["admin"]
+    command: ["python", "-m", "edusphere_test_guard"]
+    working_dir: /app
+    environment:
+      EDUSPHERE_TEST_MODE: migrator
+      APP_DB_PASSWORD: "${EDUSPHERE_TEST_APP_PASSWORD:?à définir dans apps/api/.env.test}"
+      APP_DATABASE_URL: "postgresql+asyncpg://edusphere_app:${EDUSPHERE_TEST_APP_PASSWORD:?à définir dans apps/api/.env.test}@db-test:5432/edusphere_test"
+    secrets:
+      - pg_admin_password
+    volumes:
+      - ./apps/api:/app:ro
+    tmpfs:
+      - /app/storage
+    depends_on:
+      db-test:
+        condition: service_healthy
+
+secrets:
+  pg_admin_password:
+    file: "${EDUSPHERE_TEST_ADMIN_SECRET_FILE:?chemin hors dépôt à définir dans apps/api/.env.test}"
+
+volumes:
+  edusphere_test_db_data:
+    name: edusphere_test_db_data

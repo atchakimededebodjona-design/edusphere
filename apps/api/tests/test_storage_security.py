@@ -12,6 +12,7 @@ Deux niveaux, volontairement séparés :
    affectée par ce correctif.
 """
 
+import os
 from datetime import date
 from pathlib import Path
 
@@ -83,16 +84,25 @@ def test_local_storage_provider_rejects_any_path_resolving_outside_base(tmp_path
         provider._resolve(malicious_path)
 
 
-def test_local_storage_provider_windows_style_path_stays_contained_on_this_platform(tmp_path: Path) -> None:
-    """Ce backend s'exécute sur Linux (conteneur `api`, voir Dockerfile) : `\\` n'est pas un
-    séparateur de chemin pour `pathlib.PosixPath`, et une chaîne du type "..\\..\\Windows\\..." n'y
-    est pas reconnue comme un chemin absolu. Ce test vérifie honnêtement ce qui est réellement
-    garanti DANS CET ENVIRONNEMENT — le confinement reste respecté, la chaîne devenant un nom de
-    fichier littéral inoffensif — sans prétendre avoir validé quoi que ce soit sous un véritable
-    interpréteur Windows, qui n'existe pas ici (règle de vérité, Phase 13)."""
+def test_local_storage_provider_backslash_path_never_escapes_storage_root(tmp_path: Path) -> None:
+    """La même chaîne n'a pas la même sémantique selon la plateforme, et le test affirme ce qui est
+    réellement garanti sur CHACUNE, sans affaiblir `_resolve` :
+
+    - POSIX (conteneur `api`, Linux) : `\\` n'est pas un séparateur pour `pathlib.PosixPath` ; la
+      chaîne devient un nom de fichier littéral inoffensif, résolu À L'INTÉRIEUR de la racine.
+    - Windows (`pathlib.WindowsPath`, exécution locale des tests) : `\\` est un séparateur et `..`
+      remonte réellement l'arborescence ; la cible sort de la racine, donc `_resolve` DOIT lever
+      `StoragePathError`.
+
+    Dans les deux cas, aucun chemin résolu ne sort de la racine de stockage."""
     provider = LocalStorageProvider(str(tmp_path))
-    resolved = provider._resolve("students/abc-id/" + "..\\..\\..\\Windows\\System32\\config")
-    assert resolved.is_relative_to(tmp_path.resolve())
+    hostile = "students/abc-id/" + "..\\..\\..\\Windows\\System32\\config"
+    if os.name == "nt":
+        with pytest.raises(StoragePathError):
+            provider._resolve(hostile)
+    else:
+        resolved = provider._resolve(hostile)
+        assert resolved.is_relative_to(tmp_path.resolve())
 
 
 async def test_local_storage_provider_legitimate_upload_download_roundtrip_still_works(tmp_path: Path) -> None:
