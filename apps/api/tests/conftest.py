@@ -1,27 +1,10 @@
-import asyncio
 import uuid
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.db.session import AsyncSessionLocal
 from app.main import app
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Boucle d'événements unique pour toute la session de tests.
-
-    Le moteur SQLAlchemy async (app/db/session.py) est un singleton créé à l'import, avec son
-    propre pool de connexions asyncpg. Avec la boucle d'événements par défaut de pytest-asyncio
-    (recréée à chaque test), les connexions du pool restent liées à une boucle fermée entre deux
-    tests, ce qui plante sur Windows (asyncio.ProactorEventLoop). Une boucle de portée session
-    évite ce problème.
-    """
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 async def _clear_shared_ip_rate_limits() -> None:

@@ -5,7 +5,9 @@ Aucune base, aucun Redis, aucun import de `app.*` : exécutables sans conftest
 Docker de test existe. Les mots de passe ci-dessous sont fictifs.
 """
 
+import asyncio
 import builtins
+import gc
 import io
 import os
 import pathlib
@@ -312,10 +314,15 @@ def test_guard_owned_settings_accept_identical_values(tmp_path: pathlib.Path) ->
 
 
 def test_isolation_root_outside_protected_tree() -> None:
-    root = guard.make_isolation_root("local")
+    # Mode RÉEL de l'exécution, jamais « local » forcé : dans le conteneur, REPO_ROOT vaut « / »
+    # (API_DIR = /app) et contiendrait tout répertoire temporaire ; seul /app y est protégé.
+    mode = guard.resolve_mode()
+    expected = {"local": guard.REPO_ROOT, "docker": pathlib.Path("/app")}[mode]
+    assert guard.protected_root(mode) == expected
+    root = guard.make_isolation_root(mode)
     try:
         assert root.is_dir()
-        assert not guard._is_within(root, guard.REPO_ROOT)
+        assert not guard._is_within(root, expected)
     finally:
         root.rmdir()
 
@@ -482,3 +489,239 @@ def test_pytest_honours_an_exitstatus_set_in_sessionfinish(pytester: pytest.Pyte
     pytester.makepyfile("def test_ok():\n    assert True\n")
     result = pytester.runpytest_subprocess("-p", "no:cacheprovider")
     assert result.ret == pytest.ExitCode.TESTS_FAILED
+
+
+# --- Phase 3.3-C5 : règlement des tâches asyncio (boucles PRIVÉES, aucune base, aucun Redis) ----
+
+_FAST = {"grace": 0.05, "cancel_wait": 0.5, "second_cancel_wait": 0.5}
+
+
+@pytest.fixture
+def private_loop():
+    """Boucle privée, jamais installée comme boucle courante : la boucle de session n'est pas
+    touchée. Chaque test doit terminer TOUTES ses tâches (vérifié avant fermeture)."""
+    loop = asyncio.new_event_loop()
+    try:
+        yield loop
+        assert not asyncio.all_tasks(loop), "tâche encore active à la fin du test"
+    finally:
+        loop.close()
+
+
+def _start(loop: asyncio.AbstractEventLoop) -> None:
+    loop.run_until_complete(asyncio.sleep(0))  # un tour : les tâches créées démarrent
+
+
+def test_task_guard_mode_defaults_to_observe_and_refuses_unknown_values() -> None:
+    assert guard.task_guard_mode({}) == "observe"
+    assert guard.task_guard_mode({guard.TASK_GUARD_ENV: " Enforce "}) == "enforce"
+    _refused(guard.task_guard_mode, {guard.TASK_GUARD_ENV: "strict"})
+
+
+def test_settle_task_finishing_naturally_during_grace(private_loop) -> None:
+    async def quick() -> int:
+        await asyncio.sleep(0)
+        return 42
+
+    task = private_loop.create_task(quick(), name="rapide")
+    settlement = guard.settle_tasks(private_loop, {task}, **{**_FAST, "grace": 2.0})
+    (outcome,) = settlement.outcomes
+    assert (outcome.status, outcome.cancel_requests) == ("terminée", 0)
+    assert task.result() == 42
+    assert settlement.blocked == []
+
+
+def test_settle_cancels_orphan_which_receives_cancelled_error(private_loop) -> None:
+    received: list[tuple] = []
+
+    async def orphan() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError as exc:
+            received.append(exc.args)
+            raise
+
+    task = private_loop.create_task(orphan(), name="orpheline")
+    _start(private_loop)
+    settlement = guard.settle_tasks(
+        private_loop, {task}, cancel_message="edusphere : essai", **_FAST
+    )
+    (outcome,) = settlement.outcomes
+    assert task.done() and task.cancelled()
+    assert (outcome.status, outcome.cancel_requests) == ("annulée", 1)
+    assert received == [("edusphere : essai",)]
+    assert settlement.blocked == []
+
+
+def test_settle_second_cancellation_ends_task_ignoring_the_first(private_loop) -> None:
+    ignored: list[bool] = []
+
+    async def stubborn_once() -> None:
+        event = asyncio.Event()
+        try:
+            await event.wait()
+        except asyncio.CancelledError:
+            ignored.append(True)  # première annulation ignorée
+        await event.wait()  # interrompue par la seconde annulation
+
+    task = private_loop.create_task(stubborn_once(), name="tenace")
+    settlement = guard.settle_tasks(private_loop, {task}, **_FAST)
+    (outcome,) = settlement.outcomes
+    assert ignored == [True]
+    assert task.cancelled()
+    assert (outcome.status, outcome.cancel_requests) == ("annulée à la seconde annulation", 2)
+    assert settlement.blocked == []
+
+
+def test_settle_reports_task_ignoring_every_cancellation_as_blocked(private_loop) -> None:
+    ignored: list[bool] = []
+    release: list[bool] = []
+
+    async def stubborn_forever() -> str:
+        while not release:
+            try:
+                await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                ignored.append(True)
+        return "libérée"
+
+    task = private_loop.create_task(stubborn_forever(), name="bloquante")
+    settlement = guard.settle_tasks(private_loop, {task}, **_FAST)
+    (outcome,) = settlement.outcomes
+    # cancel() n'est pas une preuve de terminaison : la tâche est toujours active.
+    assert not task.done()
+    assert settlement.blocked == [outcome]
+    assert (outcome.status, outcome.cancel_requests) == ("bloquée", 2)
+    assert task.cancelling() == 2 and len(ignored) == 2
+    # Fin contrôlée du scénario (propre au test) : libération puis attente effective.
+    release.append(True)
+    private_loop.run_until_complete(asyncio.wait({task}, timeout=2))
+    assert task.result() == "libérée"
+
+
+def test_settle_also_settles_task_created_during_the_wait(private_loop) -> None:
+    children: list[asyncio.Task] = []
+
+    async def child() -> None:
+        await asyncio.Event().wait()
+
+    async def parent() -> None:
+        children.append(asyncio.get_running_loop().create_task(child(), name="enfant"))
+        await asyncio.Event().wait()
+
+    task = private_loop.create_task(parent(), name="parent")
+    settlement = guard.settle_tasks(private_loop, {task}, **_FAST)
+    assert settlement.rounds == 2
+    assert {o.name: o.status for o in settlement.outcomes} == {
+        "enfant": "annulée",
+        "parent": "annulée",
+    }
+    assert children[0].cancelled() and task.cancelled()
+    assert settlement.blocked == []
+
+
+def test_settle_retrieves_exception_of_finished_task(private_loop) -> None:
+    contexts: list[dict] = []
+    private_loop.set_exception_handler(lambda loop, context: contexts.append(context))
+
+    async def failing() -> None:
+        await asyncio.sleep(0)
+        raise ValueError("échec volontaire")
+
+    task = private_loop.create_task(failing(), name="en-erreur")
+    settlement = guard.settle_tasks(private_loop, {task}, **{**_FAST, "grace": 2.0})
+    (outcome,) = settlement.outcomes
+    assert outcome.status == "terminée avec exception"
+    assert outcome.detail == "ValueError: échec volontaire"
+    assert outcome.cancel_requests == 0
+    del task, outcome, settlement
+    gc.collect()
+    assert contexts == []  # aucun « Task exception was never retrieved »
+
+
+def test_settle_never_touches_tasks_outside_the_target_set(private_loop) -> None:
+    witness_release = asyncio.Event()
+
+    async def witness() -> str:
+        await witness_release.wait()
+        return "intacte"
+
+    async def orphan() -> None:
+        await asyncio.Event().wait()
+
+    witness_task = private_loop.create_task(witness(), name="témoin")
+    orphan_task = private_loop.create_task(orphan(), name="orpheline")
+    _start(private_loop)
+    settlement = guard.settle_tasks(private_loop, {orphan_task}, known={witness_task}, **_FAST)
+    assert [o.name for o in settlement.outcomes] == ["orpheline"]
+    assert orphan_task.cancelled()
+    assert not witness_task.done() and witness_task.cancelling() == 0
+    witness_release.set()
+    private_loop.run_until_complete(asyncio.wait({witness_task}, timeout=2))
+    assert witness_task.result() == "intacte"
+
+
+def test_settle_refuses_closed_loop() -> None:
+    loop = asyncio.new_event_loop()
+    loop.close()
+    assert "fermée" in _refused(guard.settle_tasks, loop, set())
+
+
+def test_settle_refuses_running_loop(private_loop) -> None:
+    async def inside() -> str:
+        return _refused(guard.settle_tasks, private_loop, set())
+
+    assert "en cours" in private_loop.run_until_complete(inside())
+
+
+def test_settle_refuses_task_of_another_loop(private_loop) -> None:
+    other = asyncio.new_event_loop()
+    try:
+        foreign = other.create_task(asyncio.sleep(0), name="autre-boucle")
+        assert "hors de la boucle" in _refused(guard.settle_tasks, private_loop, {foreign})
+        assert foreign.cancelling() == 0
+        other.run_until_complete(foreign)
+    finally:
+        other.close()
+
+
+_INTERNAL_SOURCE = (
+    "class Connection:\n"
+    "    async def _cancel(self, release):\n"
+    "        await release.wait()\n"
+    "        return 'envoyée'\n"
+)
+
+
+def _connection_class_from(filename: pathlib.Path) -> type:
+    namespace: dict = {}
+    exec(compile(_INTERNAL_SOURCE, str(filename), "exec"), namespace)
+    return namespace["Connection"]
+
+
+def test_homonym_outside_expected_package_is_not_legitimate(
+    private_loop, tmp_path: pathlib.Path
+) -> None:
+    connection = _connection_class_from(tmp_path / "autre" / "connection.py")()
+    task = private_loop.create_task(connection._cancel(asyncio.Event()), name="homonyme")
+    assert guard.task_coroutine_origin(task)[0] == "Connection._cancel"
+    assert not guard.is_legitimate_internal_task(task)  # le nom seul ne suffit pas
+    settlement = guard.settle_tasks(private_loop, {task}, **_FAST)
+    assert task.cancelled() and settlement.outcomes[0].status == "annulée"
+
+
+def test_legitimate_internal_task_is_never_cancelled_and_blocked_if_still_active(
+    private_loop, tmp_path: pathlib.Path
+) -> None:
+    connection = _connection_class_from(tmp_path / "asyncpg" / "connection.py")()
+    release = asyncio.Event()
+    task = private_loop.create_task(connection._cancel(release), name="interne")
+    assert guard.is_legitimate_internal_task(task)
+    settlement = guard.settle_tasks(private_loop, {task}, **_FAST)
+    (outcome,) = settlement.outcomes
+    assert outcome.legitimate and outcome.cancel_requests == 0 and task.cancelling() == 0
+    assert outcome.status == "interne bloquée" and settlement.blocked == [outcome]
+    assert settlement.residual == []
+    release.set()
+    private_loop.run_until_complete(asyncio.wait({task}, timeout=2))
+    assert task.result() == "envoyée"

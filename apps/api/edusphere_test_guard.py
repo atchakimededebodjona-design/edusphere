@@ -936,6 +936,163 @@ def remove_own_isolation_root(state: GuardState) -> None:
     shutil.rmtree(state.root, ignore_errors=True)
 
 
+# --- Règlement des tâches asyncio orphelines (Phase 3.3-C5) --------------------------------------
+# Fonctions PURES (aucun import de app.*, aucune connexion) : testables sur des boucles privées.
+# Appelées depuis une fixture SYNCHRONE, boucle de session à l'arrêt : le règlement fait tourner la
+# boucle uniquement par run_until_complete(asyncio.wait(...)), qui n'annule jamais rien ; seules les
+# tâches de l'ensemble CIBLE (et celles qui apparaissent pendant le règlement) sont annulées.
+
+TASK_GUARD_ENV = "EDUSPHERE_TASK_GUARD"
+TASK_GUARD_MODES = ("observe", "enforce")
+TASK_GRACE_SECONDS = 2.0
+TASK_CANCEL_WAIT_SECONDS = 5.0
+TASK_SECOND_CANCEL_WAIT_SECONDS = 2.0
+TASK_SETTLE_MAX_ROUNDS = 3
+# Tâches internes légitimes : (nom qualifié de la coroutine, paquet qui doit contenir son code).
+# Jamais annulées ; une tâche interne encore active après les délais est une anomalie (bloquée).
+LEGITIMATE_INTERNAL_COROUTINES = frozenset({("Connection._cancel", "asyncpg")})
+
+
+def task_guard_mode(environ: Mapping[str, str] | None = None) -> str:
+    environ = os.environ if environ is None else environ
+    mode = environ.get(TASK_GUARD_ENV, "observe").strip().lower()
+    if mode not in TASK_GUARD_MODES:
+        raise _refuse(f"{TASK_GUARD_ENV} : valeur « {mode} » inconnue (observe ou enforce)")
+    return mode
+
+
+def task_coroutine_origin(task: asyncio.Task) -> tuple[str, str]:
+    """(nom qualifié, fichier source) de la coroutine de la tâche — métadonnées seulement."""
+    coro = task.get_coro()
+    code = getattr(coro, "cr_code", None) or getattr(coro, "gi_code", None)
+    return getattr(coro, "__qualname__", type(coro).__name__), code.co_filename if code else ""
+
+
+def is_legitimate_internal_task(task: asyncio.Task) -> bool:
+    """Nom ET provenance : une coroutine homonyme définie hors du paquet attendu n'est pas légitime."""
+    qualname, filename = task_coroutine_origin(task)
+    parts = Path(filename).parts if filename else ()
+    return any(
+        qualname == name and package in parts for name, package in LEGITIMATE_INTERNAL_COROUTINES
+    )
+
+
+@dataclass
+class TaskOutcome:
+    task: asyncio.Task
+    name: str
+    coroutine: str
+    legitimate: bool
+    status: str = "non réglée"
+    detail: str = ""
+    cancel_requests: int = 0
+
+
+@dataclass
+class TaskSettlement:
+    outcomes: list[TaskOutcome]
+    rounds: int
+
+    @property
+    def blocked(self) -> list[TaskOutcome]:
+        """Tâches toujours actives : seule preuve retenue, task.done() — jamais l'appel cancel()."""
+        return [outcome for outcome in self.outcomes if not outcome.task.done()]
+
+    @property
+    def residual(self) -> list[TaskOutcome]:
+        return [outcome for outcome in self.outcomes if not outcome.legitimate]
+
+
+def _require_idle_loop(loop: asyncio.AbstractEventLoop) -> None:
+    if loop.is_closed():
+        raise _refuse("règlement des tâches : boucle fermée")
+    if loop.is_running():
+        raise _refuse("règlement des tâches : boucle en cours d'exécution")
+
+
+def _wait_tasks(loop: asyncio.AbstractEventLoop, tasks: set[asyncio.Task], timeout: float) -> None:
+    pending = {task for task in tasks if not task.done()}
+    if pending:
+        _require_idle_loop(loop)
+        loop.run_until_complete(asyncio.wait(pending, timeout=timeout))
+
+
+def _finalize_outcome(outcome: TaskOutcome) -> None:
+    task = outcome.task
+    if not task.done():
+        outcome.status = "interne bloquée" if outcome.legitimate else "bloquée"
+        outcome.detail = f"{outcome.cancel_requests} annulation(s) demandée(s), toujours active"
+    elif task.cancelled():
+        outcome.status = {0: "annulée hors règlement", 1: "annulée"}.get(
+            outcome.cancel_requests, "annulée à la seconde annulation"
+        )
+    else:
+        exc = task.exception()  # marque l'exception comme récupérée (aucun « never retrieved »)
+        if exc is not None:
+            outcome.status = "terminée avec exception"
+            outcome.detail = f"{type(exc).__name__}: {exc}"
+        elif outcome.cancel_requests:
+            outcome.status = "terminée malgré l'annulation (CancelledError interceptée)"
+        else:
+            outcome.status = "terminée"
+
+
+def settle_tasks(
+    loop: asyncio.AbstractEventLoop,
+    targets: Iterable[asyncio.Task],
+    known: Iterable[asyncio.Task] = (),
+    *,
+    grace: float = TASK_GRACE_SECONDS,
+    cancel_wait: float = TASK_CANCEL_WAIT_SECONDS,
+    second_cancel_wait: float = TASK_SECOND_CANCEL_WAIT_SECONDS,
+    max_rounds: int = TASK_SETTLE_MAX_ROUNDS,
+    cancel_message: str = "edusphere : tâche orpheline",
+) -> TaskSettlement:
+    """Règle les tâches CIBLES de `loop` : délai de grâce, annulation, attente effective, seconde
+    annulation, puis tours supplémentaires pour les tâches apparues pendant l'attente (hors `known`).
+    Les tâches de `known` ne sont jamais annulées ; aucune autre boucle n'est touchée."""
+    _require_idle_loop(loop)
+    pending = set(targets)
+    current = asyncio.current_task(loop)
+    for task in pending:
+        if not isinstance(task, asyncio.Task) or task.get_loop() is not loop:
+            raise _refuse("règlement des tâches : tâche cible hors de la boucle indiquée")
+        if task is current:
+            raise _refuse("règlement des tâches : la tâche courante ne peut pas être une cible")
+    known_tasks = set(known)
+    outcomes: dict[asyncio.Task, TaskOutcome] = {}
+    rounds = 0
+    while pending and rounds < max_rounds:
+        rounds += 1
+        for task in pending:
+            qualname, _filename = task_coroutine_origin(task)
+            outcomes[task] = TaskOutcome(
+                task, task.get_name(), qualname, is_legitimate_internal_task(task)
+            )
+        _wait_tasks(loop, pending, grace)
+        first = {task for task in pending if not task.done() and not outcomes[task].legitimate}
+        for task in first:
+            task.cancel(cancel_message)
+            outcomes[task].cancel_requests += 1
+        _wait_tasks(loop, first, cancel_wait)
+        second = {task for task in first if not task.done()}
+        for task in second:
+            task.cancel(f"{cancel_message} (seconde annulation)")
+            outcomes[task].cancel_requests += 1
+        _wait_tasks(loop, second, second_cancel_wait)
+        pending = {
+            task
+            for task in asyncio.all_tasks(loop)
+            if task is not current and task not in known_tasks and task not in outcomes
+        }
+    for task in pending:  # apparues après le dernier tour autorisé : jamais réglées → bloquées
+        qualname, _filename = task_coroutine_origin(task)
+        outcomes[task] = TaskOutcome(task, task.get_name(), qualname, is_legitimate_internal_task(task))
+    for outcome in outcomes.values():
+        _finalize_outcome(outcome)
+    return TaskSettlement(sorted(outcomes.values(), key=lambda o: o.name), rounds)
+
+
 # --- Commandes d'administration (migrator-test uniquement) ---------------------------------------
 
 

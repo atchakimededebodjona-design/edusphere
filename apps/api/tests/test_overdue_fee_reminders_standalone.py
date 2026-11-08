@@ -33,11 +33,18 @@ from tests.test_overdue_fee_reminders import PAST_DUE_DATE, _create_student_fee,
 from tests.test_overdue_fee_reminders_email import _create_guardian_with_email
 
 API_ROOT = Path(__file__).resolve().parent.parent
-EMAILS_DIR = API_ROOT / "emails"
+
+
+def _emails_dir() -> Path:
+    """Répertoire RÉELLEMENT configuré pour LocalEmailProvider : le garde-fou de tests
+    (edusphere_test_guard.compute_safety_settings) fixe EMAIL_LOCAL_PATH dans le répertoire
+    temporaire de session, et le sous-processus en hérite via env=os.environ.copy()."""
+    return Path(os.environ["EMAIL_LOCAL_PATH"])
 
 
 def _existing_email_files() -> set[Path]:
-    return set(EMAILS_DIR.glob("*.txt")) if EMAILS_DIR.exists() else set()
+    emails_dir = _emails_dir()
+    return set(emails_dir.glob("*.txt")) if emails_dir.exists() else set()
 
 
 async def test_standalone_job_process_creates_notification_without_crashing(client: AsyncClient) -> None:
@@ -62,8 +69,9 @@ async def test_standalone_job_process_creates_notification_without_crashing(clie
     items = await _list_fee_overdue_notifications(client, parent["headers"])
     assert len(items) == 1
 
-    # EMAIL_PROVIDER=local dans cet environnement (voir .env) — le sous-processus écrit réellement
-    # un fichier sous EMAILS_DIR, non monkeypatché (impossible dans un process séparé) : on ne
-    # compare donc qu'un avant/après pour tolérer d'éventuels fichiers déjà présents.
+    # EMAIL_PROVIDER=local (imposé par le garde-fou) — le sous-processus écrit réellement un fichier
+    # sous EMAIL_LOCAL_PATH, non monkeypatché (impossible dans un process séparé) : on ne compare
+    # donc qu'un avant/après pour tolérer d'éventuels fichiers déjà présents (répertoire partagé
+    # par toute la session).
     new_files = _existing_email_files() - emails_before
     assert any(guardian["email"] in f.read_text(encoding="utf-8") for f in new_files)

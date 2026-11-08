@@ -23,7 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.2.2",
-    "pytest-asyncio==0.23.7",
+    "pytest-asyncio==0.26.0",
     "httpx==0.27.0",
     "ruff==0.5.1",
     "mypy==1.10.1",
@@ -39,6 +39,11 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Une seule boucle pour toute la session (tests ET fixtures async) : le moteur SQLAlchemy
+# (app/db/session.py) et le client Redis (app/core/rate_limit.py) sont des singletons dont les
+# connexions restent liées à la boucle qui les a ouvertes.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 
 [build-system]
 requires = ["setuptools>=68.0"]
