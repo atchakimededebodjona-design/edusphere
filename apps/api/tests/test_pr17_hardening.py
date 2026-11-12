@@ -72,6 +72,8 @@ SCHOOL_DOMAIN_ROUTE_PREFIXES = (
     "/api/v1/fees",
     "/api/v1/announcements",
     "/api/v1/audit-logs",
+    # Phase 29, lot A — abonnement de l'école : jamais accessible à PLATFORM_OWNER/PARTNER_ADMIN.
+    "/api/v1/school-subscription",
 )
 # Portails auto-scopés (lecture de SES propres données) : un 200 vide y est légitime, mais aucune
 # donnée de l'école ne doit jamais y apparaître.
@@ -686,8 +688,37 @@ async def test_promotion_job_cli_defaults_to_dry_run(client: AsyncClient) -> Non
     assert await _run(unique_email("hdpromotecli-missing"), apply=True) == 1
 
 
-# === PR #18 hors périmètre : aucun moteur de commission =========================================
-async def test_no_commission_engine_tables_or_routes_exist() -> None:
+# === Commissions hors périmètre ; abonnements limités au lot A de la Phase 29 =====================
+# Remplace `test_no_commission_engine_tables_or_routes_exist` (PR #17), qui interdisait aussi toute
+# table/route « subscription ». La Phase 29 (abonnements des écoles, lot A) en introduit
+# volontairement : ce test vérifie désormais qu'il s'agit EXACTEMENT de celles prévues par le
+# cadrage, et garde inchangée l'interdiction de tout moteur de commission/versement/grand livre
+# (chantier séparé, décision du 2026-11-12).
+EXPECTED_SUBSCRIPTION_TABLES = {
+    "subscription_price_grids",
+    "subscription_price_lines",
+    "subscription_invoice_number_counters",
+    "subscription_invoices",
+    "subscription_payments",
+    "school_subscription_periods",
+}
+EXPECTED_SUBSCRIPTION_ROUTES = {
+    "/api/v1/school-subscription",
+    "/api/v1/school-subscription/invoices",
+    "/api/v1/school-subscription/invoices/{invoice_id}",
+    "/api/v1/platform/subscription-grids",
+    "/api/v1/platform/subscription-grids/{grid_id}",
+    "/api/v1/platform/subscription-grids/{grid_id}/activate",
+    "/api/v1/platform/subscriptions",
+    "/api/v1/platform/subscription-invoices",
+    "/api/v1/platform/subscription-invoices/{invoice_id}",
+    "/api/v1/platform/subscription-invoices/{invoice_id}/quote",
+    "/api/v1/platform/subscription-invoices/{invoice_id}/cancel",
+    "/api/v1/platform/subscription-invoices/{invoice_id}/manual-payments",
+}
+
+
+async def test_no_commission_engine_and_only_expected_subscription_objects_exist() -> None:
     async with AsyncSessionLocal() as db:
         tables = {
             row[0]
@@ -712,8 +743,8 @@ async def test_no_commission_engine_tables_or_routes_exist() -> None:
                 )
             ).all()
         }
-    assert tables == set()
+    assert tables == EXPECTED_SUBSCRIPTION_TABLES
     assert columns == {("partner_school_enrollments", "commission_eligible")}
     paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
-    assert not any(word in path for path in paths for word in ("commission", "subscription", "payout", "ledger"))
-
+    assert not any(word in path for path in paths for word in ("commission", "payout", "ledger"))
+    assert {path for path in paths if "subscription" in path} == EXPECTED_SUBSCRIPTION_ROUTES

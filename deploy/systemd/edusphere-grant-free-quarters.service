@@ -1,0 +1,27 @@
+# EduLinkage — Phase 29, lot A : attribution du trimestre gratuit des écoles.
+#
+# Fichier PRÉPARÉ dans ce dépôt, PAS installé automatiquement — voir
+# docs/phases/PHASE_29_LOT_A_IMPLEMENTATION.md pour la procédure d'installation manuelle sur
+# l'hôte de production. Même convention que edusphere-overdue-reminders.service : la commande est
+# exécutée DANS le conteneur `api` déjà configuré (aucun secret ici).
+#
+# Sans SUBSCRIPTION_LAUNCH_DATE dans l'environnement du conteneur `api`, le job ne fait rien
+# (code de sortie 0). Idempotent : jamais un second trimestre gratuit pour une même école.
+
+[Unit]
+Description=EduLinkage - attribution du trimestre gratuit des écoles (Phase 29, lot A)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Même utilisateur système que edusphere-overdue-reminders.service — jamais root.
+User=edusphere
+Group=edusphere
+# Répertoire contenant docker-compose.yml en production — à adapter à l'hôte réel.
+WorkingDirectory=/opt/edusphere
+ExecStart=/usr/bin/docker compose exec -T api python -m app.jobs.grant_free_quarters
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

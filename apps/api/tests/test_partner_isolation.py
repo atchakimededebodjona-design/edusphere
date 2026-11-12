@@ -13,7 +13,7 @@ from app.core.permissions import get_all_permission_codes, get_scoped_permission
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.db.session import AsyncSessionLocal
 from app.modules.rbac.models import Role, UserRole
-from app.modules.rbac.seed import PR17_PARTNER_PERMISSIONS, PR17_PLATFORM_PERMISSIONS
+from app.modules.rbac.seed import PR17_PARTNER_PERMISSIONS, PR17_PLATFORM_PERMISSIONS, SUBSCRIPTION_PLATFORM_PERMISSIONS
 from app.modules.users.models import User
 from tests.conftest import assign_role, register_school, unique_email
 from tests.pr17_helpers import (
@@ -353,6 +353,11 @@ async def test_school_admin_sees_own_enrollment_row_only(client: AsyncClient) ->
         await db.rollback()
 
 
+# Phase 29, lot A : PLATFORM_OWNER reçoit aussi `platform.subscriptions.manage` (toujours un code
+# `platform.*`, jamais du domaine scolaire — vérifié ci-dessous).
+PLATFORM_OWNER_PERMISSIONS = set(PR17_PLATFORM_PERMISSIONS) | set(SUBSCRIPTION_PLATFORM_PERMISSIONS)
+
+
 # === C.6 — permissions strictement disjointes ==============================================================
 async def _permission_sets(user_id: str, organization_id: str, school_id: str) -> tuple[set[str], set[str]]:
     async with AsyncSessionLocal() as db:
@@ -382,8 +387,8 @@ async def test_platform_owner_permissions_are_exclusively_platform_codes(client:
     owner = await create_platform_owner(client, "c6owner")
     school = await register_school(client, "c6ownerschool")
     all_codes, scoped = await _permission_sets(owner["user_id"], school["organization"]["id"], school["school"]["id"])
-    assert all_codes == set(PR17_PLATFORM_PERMISSIONS)
-    assert scoped == set(PR17_PLATFORM_PERMISSIONS)
+    assert all_codes == PLATFORM_OWNER_PERMISSIONS
+    assert scoped == PLATFORM_OWNER_PERMISSIONS
     assert all(code.startswith("platform.") for code in all_codes)
     assert not any(code.startswith(SCHOOL_DOMAIN_PREFIXES) for code in all_codes)
     assert not any(code.startswith("partner.") for code in all_codes)
@@ -404,7 +409,7 @@ async def test_rbac_catalog_grants_new_roles_nothing_else() -> None:
     by_role: dict[str, set[str]] = {}
     for role_code, perm_code in rows:
         by_role.setdefault(role_code, set()).add(perm_code)
-    assert by_role == {"PLATFORM_OWNER": set(PR17_PLATFORM_PERMISSIONS), "PARTNER_ADMIN": set(PR17_PARTNER_PERMISSIONS)}
+    assert by_role == {"PLATFORM_OWNER": PLATFORM_OWNER_PERMISSIONS, "PARTNER_ADMIN": set(PR17_PARTNER_PERMISSIONS)}
 
 
 async def test_school_roles_never_receive_platform_or_partner_codes() -> None:
