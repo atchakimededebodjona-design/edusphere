@@ -44,8 +44,13 @@ def _has_free_trial():
 
 async def grant_free_quarters(db: AsyncSession, launch_date: date | None, now: datetime | None = None) -> GrantResult:
     """Attribue le trimestre gratuit à toute école qui ne l'a pas encore. Ne fait rien sans date
-    de lancement. Une seule transaction : succès complet, ou rien (même contrat que le job des
-    rappels de frais)."""
+    de lancement.
+
+    Une transaction PAR ÉCOLE (attribution + entrée d'audit ensemble) : le verrou consultatif de
+    chaque école est relâché aussitôt, au lieu de s'accumuler jusqu'à la fin d'une transaction
+    unique (avec des milliers d'écoles, la table des verrous de PostgreSQL pourrait saturer). Un
+    échec en cours de route laisse les attributions déjà faites, qui restent valides : la commande
+    est idempotente et la relance termine le travail."""
     if launch_date is None:
         return GrantResult(granted=0, schools_considered=0)
     now = now or utc_now()
@@ -55,27 +60,33 @@ async def grant_free_quarters(db: AsyncSession, launch_date: date | None, now: d
     schools = list(
         (await db.execute(select(School).where(~_has_free_trial()).order_by(School.created_at, School.id))).scalars()
     )
+    # Valeurs simples extraites AVANT la boucle : un rollback expire les objets ORM, et relire un
+    # attribut expiré en mode asynchrone échoue.
+    targets = [(school.id, school.organization_id, business_date(school, school.created_at)) for school in schools]
 
     granted = 0
-    for school in schools:
-        await lock_school_subscription(db, school.id)
+    for school_id, organization_id, created_on in targets:
+        # Contexte platform-wide ré-appliqué à chaque transaction (set_config local à la transaction).
+        await set_platform_wide_context(db)
+        await lock_school_subscription(db, school_id)
         # Nouveau contrôle SOUS VERROU : une exécution concurrente a pu l'attribuer entre-temps.
         already = (
             await db.execute(
                 select(SchoolSubscriptionPeriod.id).where(
-                    SchoolSubscriptionPeriod.school_id == school.id,
+                    SchoolSubscriptionPeriod.school_id == school_id,
                     SchoolSubscriptionPeriod.kind == pricing.PERIOD_KIND_FREE_TRIAL,
                 )
             )
         ).first()
         if already is not None:
+            await db.rollback()  # relâche le verrou de l'école
             continue
-        periods = await school_periods(db, school.id)
-        start = pricing.free_quarter_start(launch_date, business_date(school, school.created_at), spans(periods))
+        periods = await school_periods(db, school_id)
+        start = pricing.free_quarter_start(launch_date, created_on, spans(periods))
         period = SchoolSubscriptionPeriod(
             id=uuid.uuid4(),
-            school_id=school.id,
-            organization_id=school.organization_id,
+            school_id=school_id,
+            organization_id=organization_id,
             kind=pricing.PERIOD_KIND_FREE_TRIAL,
             invoice_id=None,
             starts_on=start,
@@ -85,8 +96,8 @@ async def grant_free_quarters(db: AsyncSession, launch_date: date | None, now: d
         await db.flush()
         await audit_service.record_audit_event(
             db,
-            school_id=school.id,
-            organization_id=school.organization_id,
+            school_id=school_id,
+            organization_id=organization_id,
             actor_user_id=None,
             action=audit_service.ACTION_SUBSCRIPTION_FREE_QUARTER_GRANTED,
             entity_type=audit_service.ENTITY_SUBSCRIPTION_PERIOD,
@@ -98,6 +109,7 @@ async def grant_free_quarters(db: AsyncSession, launch_date: date | None, now: d
                 "launch_date": launch_date.isoformat(),
             },
         )
+        await db.commit()
         granted += 1
 
     await db.commit()

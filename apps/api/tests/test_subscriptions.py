@@ -509,9 +509,17 @@ async def test_platform_lists_school_states_and_invoices(client: AsyncClient) ->
     data = await _school(client, "subplat")
     invoice = (await _issue(client, data)).json()
 
-    states = await client.get(f"{API}/platform/subscriptions?page_size=100", headers=owner["headers"])
-    assert states.status_code == 200
-    row = next(item for item in states.json()["items"] if item["school_id"] == data["school"]["id"])
+    # Parcours de TOUTES les pages : sans vidage de la base entre les tests (CI), l'école peut se
+    # trouver au-delà de la première page (tri par nom).
+    row = None
+    page = 1
+    while row is None:
+        states = await client.get(f"{API}/platform/subscriptions?page={page}&page_size=100", headers=owner["headers"])
+        assert states.status_code == 200
+        body = states.json()
+        row = next((item for item in body["items"] if item["school_id"] == data["school"]["id"]), None)
+        assert row is not None or page < body["total_pages"], "école absente de la vue plateforme"
+        page += 1
     assert row["state"] == "NONE" and row["open_invoice_status"] == "ISSUED" and row["has_free_trial"] is False
     filtered = await client.get(f"{API}/platform/subscriptions?state=ACTIVE&page_size=100", headers=owner["headers"])
     assert all(item["state"] == "ACTIVE" for item in filtered.json()["items"])

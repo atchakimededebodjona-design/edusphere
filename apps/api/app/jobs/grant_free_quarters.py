@@ -10,8 +10,9 @@ messages. Idempotent : relancé, il n'attribue jamais un second trimestre gratui
 
 Sans `SUBSCRIPTION_LAUNCH_DATE`, ne fait rien et sort avec le code 0 (réglage pas encore décidé).
 
-Code de sortie : 0 en cas de succès, 1 en cas d'échec (transaction annulée, rien n'est commité
-partiellement) — exploitable par systemd (`OnFailure=`) ou toute supervision externe.
+Code de sortie : 0 en cas de succès, 1 en cas d'échec — exploitable par systemd (`OnFailure=`) ou
+toute supervision externe. Une transaction par école : en cas d'échec, les attributions déjà faites
+restent valides, et la relance (idempotente) termine le travail.
 """
 
 import asyncio
@@ -36,7 +37,7 @@ async def _run() -> int:
             result = await grant_free_quarters(db, settings.subscription_launch_date)
         except Exception:
             await db.rollback()
-            logger.exception("grant_free_quarters: échec du job, transaction annulée.")
+            logger.exception("grant_free_quarters: échec du job ; transaction de l'école en cours annulée.")
             return 1
     logger.info(
         "grant_free_quarters: terminé — %d école(s) sans trimestre gratuit examinée(s), %d trimestre(s) attribué(s).",
