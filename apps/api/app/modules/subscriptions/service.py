@@ -17,6 +17,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import Select, and_, delete, func, or_, select, text
@@ -59,11 +60,13 @@ from app.modules.subscriptions.schemas import (
     ManualPaymentInput,
     OfferOut,
     PaymentOut,
+    PeriodMonths,
     PeriodOut,
     PlatformInvoiceOut,
     PlatformSchoolSubscriptionOut,
     QuoteInput,
     SchoolSubscriptionOut,
+    SubscriptionStateCode,
 )
 from app.modules.users.models import User
 
@@ -270,7 +273,7 @@ async def build_school_subscription(db: AsyncSession, school: School) -> SchoolS
         school_id=school.id,
         school_name=school.name,
         today=today,
-        state=state.state,
+        state=cast(SubscriptionStateCode, state.state),
         current_period=PeriodOut.model_validate(current) if current is not None else None,
         covered_until=state.covered_until,
         next_period_starts_on=state.next_starts_on,
@@ -665,7 +668,7 @@ async def list_school_subscriptions(db: AsyncSession, state_filter: str | None) 
                 school_id=school.id,
                 school_name=school.name,
                 organization_id=school.organization_id,
-                state=state.state,
+                state=cast(SubscriptionStateCode, state.state),
                 current_period_kind=state.current.kind if state.current else None,
                 covered_until=state.covered_until,
                 next_period_starts_on=state.next_starts_on,
@@ -686,7 +689,7 @@ def _grid_out(grid: SubscriptionPriceGrid, lines: list[SubscriptionPriceLine]) -
             continue
         periods.append(
             GridPeriodPrices(
-                period_months=months,
+                period_months=cast(PeriodMonths, months),
                 base_amount=by_tier[0].base_amount,
                 supplement_tier_1=by_tier[1].supplement_amount,
                 supplement_tier_2=by_tier[2].supplement_amount,

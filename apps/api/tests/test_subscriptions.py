@@ -172,7 +172,19 @@ async def test_grid_validation_rejects_incomplete_or_fractional_prices(client: A
 
 
 # --- Émission de facture -----------------------------------------------------------------------
+async def _archive_active_grids() -> None:
+    """Indépendance vis-à-vis de l'ordre d'exécution : sans vidage de la base entre les tests
+    (CI), une grille activée par un test précédent resterait active."""
+    async with AsyncSessionLocal() as db:
+        await set_platform_wide_context(db)
+        await db.execute(
+            text("UPDATE subscription_price_grids SET status = 'ARCHIVED', archived_at = now() WHERE status = 'ACTIVE'")
+        )
+        await db.commit()
+
+
 async def test_invoice_requires_an_active_grid(client: AsyncClient) -> None:
+    await _archive_active_grids()
     data = await _school(client, "subnogrid")
     response = await _issue(client, data)
     assert response.status_code == 409

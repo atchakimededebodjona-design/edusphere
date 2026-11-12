@@ -1,7 +1,7 @@
 # Phase 29 — Lot A : abonnements des écoles, sans paiement en ligne
 
 - **Cadrage** : `docs/phases/PHASE_29_SCHOOL_SUBSCRIPTIONS_DISCOVERY.md` (copie du cadrage validé le 2026-11-12).
-- **Branche** : `feat/school-subscriptions-lot-a`, partie de `main` en `9e6c990`.
+- **Branche** : `feat/school-subscriptions-lot-a`, rebasée sur `origin/main` (`09b7a94`). Le commit local `9e6c990` (garde-fou de l'environnement de tests isolé, non poussé) n'en fait pas partie ; il ne modifie aucun fichier du lot A.
 - **Statut** : code écrit, **suite de tests d'intégration non exécutée** (voir §5).
 
 ## 1. Décisions appliquées
@@ -111,7 +111,11 @@ Le garde-fou de la suite exige la base PostgreSQL de test, et Docker est arrêt�
 - `ruff` et `mypy` : les dépendances Python ne sont pas installées hors Docker.
 - `next lint`, `next build` et les tests de bout en bout Playwright.
 
-### À exécuter dès que l'environnement de test isolé est disponible
+### Exécution prévue dans la CI GitHub
+
+La pull request de cette branche déclenche `ruff check`, `mypy app`, `alembic upgrade head` et `pytest`, avec PostgreSQL 16 et Redis (`.github/workflows/ci.yml`), ainsi que le lint, la vérification de types et le build du web. Sans le garde-fou de `9e6c990`, la base n'est pas vidée entre les tests : `test_invoice_requires_an_active_grid` archive donc lui-même toute grille active avant de s'exécuter.
+
+### À exécuter aussi dans l'environnement de test isolé, une fois `9e6c990` intégré
 1. Appliquer les migrations : `python -m edusphere_test_guard migrate`.
 2. **Redonner les droits de nettoyage** sur les nouvelles tables : `python -m edusphere_test_guard grant-cleanup`. Sinon, le garde-fou refuse la session (privilège `TRUNCATE` manquant).
 3. Lancer `pytest` : suite complète.
