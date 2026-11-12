@@ -2,7 +2,7 @@
 
 - **Cadrage** : `docs/phases/PHASE_29_SCHOOL_SUBSCRIPTIONS_DISCOVERY.md` (copie du cadrage validé le 2026-11-12).
 - **Branche** : `feat/school-subscriptions-lot-a`, rebasée sur `origin/main` (`09b7a94`). Le commit local `9e6c990` (garde-fou de l'environnement de tests isolé, non poussé) n'en fait pas partie ; il ne modifie aucun fichier du lot A.
-- **Statut** : code écrit, **suite de tests d'intégration non exécutée** (voir §5).
+- **Statut** : code écrit ; **CI GitHub verte le 2026-11-12** sur la pull request n° 28 (voir §5).
 
 ## 1. Décisions appliquées
 
@@ -39,7 +39,7 @@ Validées par l'utilisateur le 2026-11-12. Les questions Q1 à Q11 renvoient au 
 - `router.py` : endpoints (§4).
 
 **Autres fichiers**
-- `app/jobs/grant_free_quarters.py` : commande d'attribution du trimestre gratuit (code de sortie 0 ou 1, comme le job des rappels de frais).
+- `app/jobs/grant_free_quarters.py` : commande d'attribution du trimestre gratuit (code de sortie 0 ou 1, comme le job des rappels de frais). Une transaction par école : le verrou de chaque école est relâché aussitôt, et une relance termine le travail en cas d'échec.
 - `alembic/versions/0027_school_subscriptions.py` : migration strictement additive.
 - `app/modules/rbac/seed.py` : dictionnaires dédiés `SUBSCRIPTION_*`.
 - `app/modules/audit/service.py` : 7 nouvelles actions d'audit.
@@ -104,16 +104,21 @@ L'absence de chevauchement entre périodes est garantie par le service, sous le 
 - **Calcul** : les 11 tests de `tests/test_subscriptions_pricing.py` ont été exécutés directement avec Python 3.12, sans pytest ni base de données : tous passent.
 - **Web** : `tsc --noEmit` sur l'ensemble de l'application : 0 erreur.
 
+### CI GitHub (pull request n° 28), 2026-11-12
+
+La CI (`.github/workflows/ci.yml`) exécute `ruff check`, `mypy app`, `alembic upgrade head` et `pytest`, avec PostgreSQL 16 et Redis, ainsi que le lint, la vérification de types et le build du web.
+
+| Commit | api | web | mobile |
+| --- | --- | --- | --- |
+| `dc7ec39` | Échec : 1 test sur 1 048 (`test_platform_lists_school_states_and_invoices`, école cherchée dans la seule première page) ; ruff, mypy et migration 0027 réussis | Succès | Succès |
+| `28ffb5d` | **Succès** (suite complète, dont les 15 tests d'intégration du lot A) | **Succès** | **Succès** |
+
+Dans la CI, la base n'est pas vidée entre les tests (pas de garde-fou `9e6c990`). Deux tests du lot A en tiennent compte : `test_invoice_requires_an_active_grid` archive toute grille active avant de s'exécuter, et le test de la vue plateforme parcourt toutes les pages.
+
 ### Non effectuées
-Le garde-fou de la suite exige la base PostgreSQL de test, et Docker est arrêté.
-- `pytest`, notamment `tests/test_subscriptions.py` (15 tests d'intégration) et les tests existants modifiés (§6).
-- `alembic upgrade` / `downgrade` de la migration 0027.
-- `ruff` et `mypy` : les dépendances Python ne sont pas installées hors Docker.
-- `next lint`, `next build` et les tests de bout en bout Playwright.
-
-### Exécution prévue dans la CI GitHub
-
-La pull request de cette branche déclenche `ruff check`, `mypy app`, `alembic upgrade head` et `pytest`, avec PostgreSQL 16 et Redis (`.github/workflows/ci.yml`), ainsi que le lint, la vérification de types et le build du web. Sans le garde-fou de `9e6c990`, la base n'est pas vidée entre les tests : `test_invoice_requires_an_active_grid` archive donc lui-même toute grille active avant de s'exécuter.
+- `alembic downgrade` de la migration 0027 (la CI ne fait que `upgrade`).
+- Tests de bout en bout Playwright.
+- Exécution dans l'environnement de test isolé (ci-dessous).
 
 ### À exécuter aussi dans l'environnement de test isolé, une fois `9e6c990` intégré
 1. Appliquer les migrations : `python -m edusphere_test_guard migrate`.
