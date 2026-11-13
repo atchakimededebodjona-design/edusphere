@@ -1,8 +1,9 @@
 # Runbook — Mise en production des abonnements (Phase 29, lots A et C) et des migrations 0024 à 0028
 
-> **Statut : préparé le 2026-11-13, NON exécuté en production.** Toutes les étapes de base de
-> données ont été répétées le même jour sur une base PostgreSQL 16.16 jetable (§0.3). Aucune
-> commande de ce document n'a encore été lancée sur le serveur de production.
+> **Statut : exécuté en production le 2026-11-13, de 20:40 à 21:03 UTC.** Coupure d'environ une
+> minute à partir de 21:00 UTC. Version déployée : `3c6796a` ; révision Alembic `0028`. Journal
+> d'exécution, valeurs relevées et écarts rencontrés : §13. Préparé et répété le même jour sur une
+> base PostgreSQL 16.16 jetable (§0.3).
 
 Ce runbook s'appuie sur le runbook du lot 3 de la caisse
 ([`SCHOOL_CASHIER_LOT3_MIGRATION_RUNBOOK.md`](SCHOOL_CASHIER_LOT3_MIGRATION_RUNBOOK.md)) et le
@@ -122,12 +123,17 @@ Depuis la PR #19, `docker-compose.yml`, les Dockerfile et les scripts de sauvega
 inchangés. Seuls des fichiers ont été ajoutés : `deploy/systemd/` et `scripts/release/`.
 
 ```sh
-git fetch origin
+git fetch https://github.com/atchakimededebodjona-design/edusphere.git main:refs/remotes/origin/main
 git log -1 --format='%H %s' origin/main   # le commit dont la CI GitHub est verte
 git merge --ff-only origin/main           # si la branche locale est main ; sinon s'arrêter
 docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -v ON_ERROR_STOP=1 -f -' \
   < scripts/release/phase29-precheck.sql
 ```
+
+Le dépôt est public : on récupère le code par HTTPS. Le remote `origin` du serveur pointe vers
+`git@github.com:…` et `root` n'y a aucune clé autorisée, donc `git fetch origin` échoue avec
+`Permission denied (publickey)` (constaté le 2026-11-13). La commande ci-dessus met à jour
+`origin/main` sans modifier la configuration git du serveur.
 
 Résultat attendu de `phase29-precheck.sql`, qui est en lecture seule :
 1. la révision `REV_PROD` ;
@@ -171,8 +177,8 @@ scripts/storage-backup.sh     # reçus et documents (non modifiés par les migra
 
 ```sh
 DUMP=backups/edulinkage_<horodatage>.dump
-PG_USER=$(docker compose exec -T db printenv POSTGRES_USER)
-PG_DB=$(docker compose exec -T db printenv POSTGRES_DB)
+PG_USER=$(docker compose exec -T db printenv POSTGRES_USER </dev/null)
+PG_DB=$(docker compose exec -T db printenv POSTGRES_DB </dev/null)
 REP_PW=$(openssl rand -hex 16)     # mot de passe jetable, jamais affiché
 docker network create edl-repetition
 docker run -d --name edl-repetition-db --network edl-repetition \
@@ -193,6 +199,12 @@ Attendu :
 - `IDENTIQUE`, ou des écarts seulement sur des lignes que l'activité entre les deux commandes
   explique (`notifications`, `audit_logs`). **Un écart sur `payments` ou `schools` impose de
   recommencer l'étape 5.1.**
+- Un écart sur la **taille** de `payments` (section 4) est normal. Une table restaurée n'a pas
+  d'espace mort, elle est donc plus compacte : le 2026-11-13, 112 kB en production contre 56 kB
+  sur la copie, pour 0 ligne des deux côtés. Seuls les comptages de lignes comptent.
+
+`</dev/null` empêche `docker compose exec` de lire, dans le terminal, les lignes collées qui
+suivent.
 
 Le rôle `edusphere_app` est créé avant la restauration, car le dump contient ses droits.
 
@@ -452,3 +464,29 @@ que le §7 du runbook du lot 3).
   rappels d'abonnement ne visent que SCHOOL_ADMIN et DIRECTOR, qui utilisent le web.
 - Les reçus d'abonnement ne portent pas de mentions légales ni de TVA : la question Q8 du cadrage
   est toujours ouverte.
+
+## 13. Journal d'exécution (2026-11-13)
+
+L'exploitant a exécuté la procédure depuis la console web de l'hébergeur, en `root`, sur le serveur
+`srv1965166` (Ubuntu 26.04.1 LTS). Chaque sortie a été relue avant l'étape suivante.
+
+| Étape | Heure (UTC) | Constat |
+|---|---|---|
+| 1. Inventaire | 20:30 | `COMMIT_PROD` = `7593a5b` (PR #24) ; `REV_PROD` = `0024` ; images `edusphere-api` et `edusphere-web` ; utilisateur et base `edusphere` ; 47 Go libres, 7,7 Go de mémoire, 2 processeurs. Minuteries en place : sauvegarde vers 02:40, rappels de frais à 06:00. |
+| 2. Code et contrôle | 20:38 | `git fetch origin` refusé (pas de clé SSH), donc récupération par HTTPS (§3) ; avance rapide de `7593a5b` à `3c6796a` (CI verte). Contrôle préalable : objets de `0026` à `0028` absents, aucun doublon, 0 paiement. Comptages : 2 organisations, 3 écoles, 8 comptes, 8 attributions de rôle, 15 élèves, 0 notification, 4 entrées d'audit. |
+| 3. Images | 20:40–20:46 | Images de retour arrière : `edusphere-api:avant-phase29` (`bba96e0e11bc`), `edusphere-web:avant-phase29` (`fa46b3f2ee08`). Nouvelles images : `27649fa17932` et `e29274add7ef`. Construction : code 0. |
+| 4. Répétition | 20:47–20:51 | Sauvegardes : `edulinkage_20261113T204703Z.dump` (292 Ko, SHA-256 `7df4349e32b7ae19d8d3e580798b8560490908e03f4b3ecb2e88b455e95335fe`) et `storage_20261113T204705Z.tar.gz` (4,5 Mo, 10 fichiers). Restauration : code 0, copie identique hormis la taille de `payments` (§5.2). Migration : 3,3 s, 20 contrôles OK. 3 trimestres attribués, du 2026-11-13 au 2027-02-12, et 0 rappel. Downgrade vers `0024` : 2,6 s, puis 20 OK après la nouvelle migration. Copie supprimée. |
+| 5. Coupure | 21:00–21:01 | Arrêt de `web` et `api`. Sauvegarde finale `edulinkage_20261113T210018Z.dump` (292 Ko, intégrité vérifiée). `0024` → `0028` : code 0, 20 contrôles OK. Ajout à `.env` de `SUBSCRIPTION_INVOICE_VALIDITY_DAYS=30` et `SUBSCRIPTION_LAUNCH_DATE=2026-11-13`, puis redémarrage. `/health` : ok ; `/ready` : `database`, `redis`, `storage` et `email` à ok. |
+| 6. Tâches | 21:02 | Unités installées. Trimestres : 3 attribués ; rappels : 0. Minuteries actives : trimestres toutes les heures, rappels d'abonnement à 06:30. État : 3 écoles, 3 trimestres, aucune école sans trimestre. |
+| 7. Contrôle externe | 21:02 | Routes de caisse et d'abonnement : `401` au lieu de `404`. Web : `/`, `/login`, `/subscription` et `/cashier` répondent `200`. CSP : `connect-src 'self' https://api.edulinkage.com`. |
+
+Écarts et points restants :
+- **Copie hors du serveur** (critère GO) : elle n'était pas faite au moment de la coupure, et les
+  deux dumps ne se trouvaient alors que sur le serveur. À faire.
+- **Vérifications d'interface** (§8, points 2 à 6) : à faire par l'exploitant avec des comptes
+  réels.
+- `git status` sur le serveur montre `backup-all.sh`, `db-backup.sh` et `storage-backup.sh`
+  modifiés. Seul leur droit d'exécution a changé (mode `100755`), leur contenu est identique.
+  Ces modifications ont été conservées.
+- Ubuntu signale « System restart required » (48 mises à jour en attente) : le redémarrage du
+  serveur est à planifier séparément.
