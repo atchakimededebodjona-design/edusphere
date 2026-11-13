@@ -58,6 +58,8 @@ Le timer `deploy/systemd/edusphere-subscription-reminders.{service,timer}` la la
 
 ## 3. Mise en service (après fusion et validation)
 
+Procédure détaillée : [`docs/deployment/PHASE_29_PRODUCTION_RUNBOOK.md`](../deployment/PHASE_29_PRODUCTION_RUNBOOK.md). En résumé :
+
 1. `alembic upgrade head` (migration 0028).
 2. Installer et activer le timer `edusphere-subscription-reminders.timer`.
 3. Lancement manuel possible : `docker compose exec -T api python -m app.jobs.subscription_reminders`.
