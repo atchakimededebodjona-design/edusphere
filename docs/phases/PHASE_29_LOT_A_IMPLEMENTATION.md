@@ -147,6 +147,10 @@ Dans la CI, la base n'est pas vidée entre les tests (pas de garde-fou `9e6c990`
 
 ## 8. Mise en service (après validation des tests et sur autorisation)
 
+Procédure détaillée, commune aux lots A et C et aux migrations 0024 à 0026 non encore déployées :
+[`docs/deployment/PHASE_29_PRODUCTION_RUNBOOK.md`](../deployment/PHASE_29_PRODUCTION_RUNBOOK.md).
+En résumé :
+
 1. Sauvegarde de la base, puis `alembic upgrade head` (migration 0027).
 2. Fixer `SUBSCRIPTION_LAUNCH_DATE` dans l'environnement du conteneur `api`.
 3. Exécuter une première fois `python -m app.jobs.grant_free_quarters`, puis installer le timer `edusphere-grant-free-quarters.timer`.
