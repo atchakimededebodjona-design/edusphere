@@ -1,0 +1,19 @@
+# Déclenche edusphere-grant-free-quarters.service toutes les heures.
+#
+# Une école nouvellement créée reçoit donc son trimestre gratuit dans l'heure (cadrage Phase 29,
+# §5.4 bis) ; sa date de début reste sa date de création, quel que soit le moment de l'exécution.
+# La requête ne porte que sur les écoles qui n'ont pas encore de trimestre gratuit : coût
+# négligeable une fois les écoles existantes servies.
+#
+# Persistent=true : exécution rattrapée au démarrage si le serveur était éteint.
+
+[Unit]
+Description=Timer horaire - attribution du trimestre gratuit des écoles (Phase 29, lot A)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=edusphere-grant-free-quarters.service
+
+[Install]
+WantedBy=timers.target

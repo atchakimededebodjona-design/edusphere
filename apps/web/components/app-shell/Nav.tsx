@@ -30,6 +30,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/cashier/cash-register", label: "Ma caisse", permission: "cash.register.manage" },
   { href: "/cashier/supervision", label: "Supervision caisse", permission: "cash.register.review" },
   { href: "/payments", label: "Paiements", permission: "payments.read" },
+  // Phase 29, lot A — abonnement EduLinkage de l'école (navigation seulement : l'API reste l'autorité).
+  { href: "/subscription", label: "Abonnement", permission: "subscriptions.read" },
   { href: "/notifications", label: "Notifications" },
   { href: "/announcements", label: "Annonces", permission: "announcements.manage" },
   { href: "/users", label: "Utilisateurs", permission: "users.read" },
@@ -47,6 +49,10 @@ const PLATFORM_NAV_ITEMS: NavItem[] = [
   { href: "/platform/schools", label: "Établissements", permission: "platform.schools.read" },
   { href: "/platform/accounts", label: "Comptes", permission: "platform.accounts.read" },
   { href: "/platform/partners", label: "Partenaires", permission: "platform.partners.read" },
+  // Phase 29, lot A — abonnements des écoles.
+  { href: "/platform/subscriptions", label: "Abonnements", permission: "platform.subscriptions.read" },
+  { href: "/platform/subscription-invoices", label: "Factures d'abonnement", permission: "platform.subscriptions.read" },
+  { href: "/platform/subscription-grids", label: "Grille tarifaire", permission: "platform.subscriptions.read" },
 ];
 
 const PARTNER_NAV_ITEMS: NavItem[] = [

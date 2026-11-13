@@ -280,3 +280,41 @@ CASH_REGISTER_ROLE_PERMISSIONS: dict[str, list[str]] = {
     # AUDIT, PR17) — sans école courante, il n'atteint de toute façon aucune caisse via l'UI.
     "SUPER_ADMIN": _CASH_REGISTER_ALL,
 }
+
+# --- Abonnements des écoles, lot A (migration 0027) --------------------------------------------
+# Dicts DÉDIÉS, lus uniquement par la migration 0027 (même règle que la caisse ci-dessus : jamais
+# `ROLE_NAMES`/`PHASE19_PERMISSIONS`/`PR17_*`, importés tels quels par des migrations antérieures).
+#
+# Domaine ÉCOLE (`subscriptions.*`) : l'école consulte son abonnement ; seul l'administrateur
+# d'école émet une facture et (lot B) paie. Jamais attribué à PLATFORM_OWNER/PARTNER_ADMIN, qui ne
+# détiennent aucune permission du domaine scolaire (voir PR17 ci-dessus).
+SUBSCRIPTION_PERMISSIONS: dict[str, str] = {
+    "subscriptions.read": "Consulter l'abonnement de l'école (état, tarifs, factures)",
+    "subscriptions.pay": "Émettre une facture d'abonnement pour l'école et la payer",
+}
+
+SUBSCRIPTION_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SCHOOL_ADMIN": ["subscriptions.read", "subscriptions.pay"],
+    "DIRECTOR": ["subscriptions.read"],
+    "ACCOUNTANT": ["subscriptions.read"],
+    # Convention du catalogue : le compte plateforme cumule toutes les permissions.
+    "SUPER_ADMIN": ["subscriptions.read", "subscriptions.pay"],
+}
+
+# Domaine PLATEFORME : `platform.subscriptions.read` existe déjà (migration 0023, PR17 ci-dessus,
+# attribuée à SUPER_ADMIN et PLATFORM_OWNER) ; seule sa description change (appliquée par 0027,
+# l'ancienne restaurée au downgrade). Nouvelle permission de gestion : grille, devis, annulation,
+# paiement manuel.
+SUBSCRIPTION_PLATFORM_PERMISSIONS: dict[str, str] = {
+    "platform.subscriptions.manage": "Gérer les abonnements des écoles (grille de prix, devis, annulation, paiement manuel)",
+}
+
+SUBSCRIPTION_PLATFORM_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": list(SUBSCRIPTION_PLATFORM_PERMISSIONS.keys()),
+    "PLATFORM_OWNER": list(SUBSCRIPTION_PLATFORM_PERMISSIONS.keys()),
+}
+
+PLATFORM_SUBSCRIPTIONS_READ_DESCRIPTION = "Consulter les abonnements des écoles (états, factures, grilles de prix)"
+PLATFORM_SUBSCRIPTIONS_READ_PREVIOUS_DESCRIPTION = (
+    "Consulter les abonnements SaaS des organisations (réservé PR #18, aucun endpoint dans cette PR)"
+)

@@ -181,4 +181,6 @@ SCHOOL_DOMAIN_PREFIXES = (
     "roles.",
     "announcements.",
     "audit.",
+    # Phase 29, lot A — abonnement de l'école (domaine scolaire).
+    "subscriptions.",
 )

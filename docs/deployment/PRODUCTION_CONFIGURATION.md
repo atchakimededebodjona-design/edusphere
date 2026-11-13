@@ -59,6 +59,17 @@ de la variable elle-même.
 fonctionnent en l'état pour un premier pilote ; à ajuster seulement si un besoin concret
 apparaît.
 
+## Abonnements des écoles (Phase 29, lot A)
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `SUBSCRIPTION_INVOICE_VALIDITY_DAYS` | `30` | Validité d'une facture d'abonnement émise et non payée (l'effectif y est figé). Au-delà, elle n'est plus payable et l'école en émet une nouvelle. |
+| `SUBSCRIPTION_LAUNCH_DATE` | vide | Date de lancement de la facturation (`AAAA-MM-JJ`), **à fixer par la direction avant la mise en service**. Début du trimestre gratuit des écoles déjà en service ; une école créée après cette date reçoit son trimestre gratuit à partir de sa date de création. Vide : la commande `python -m app.jobs.grant_free_quarters` ne fait rien. Jamais un secret. |
+
+Aucune variable de paiement en ligne dans ce lot : le paiement Mobile Money (PayGate Global) relève
+du lot B, avec son propre coupe-circuit et un jeton marchand qui ne sera jamais versionné. Détail :
+`docs/phases/PHASE_29_LOT_A_IMPLEMENTATION.md`.
+
 ## Variables strictement pour le développement local
 
 `STORAGE_PROVIDER=local`/`STORAGE_LOCAL_PATH`, `EMAIL_PROVIDER=local`/`EMAIL_LOCAL_PATH` — ces

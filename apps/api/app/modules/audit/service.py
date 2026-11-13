@@ -26,6 +26,16 @@ ACTION_CASH_MOVEMENT_CREATED = "cash.movement.created"
 ACTION_CASH_COUNT_CREATED = "cash.count.created"
 ACTION_CASH_SESSION_CLOSED = "cash.session.closed"
 ACTION_CASH_VARIANCE_JUSTIFIED = "cash.variance.justified"
+# Abonnements des écoles, lot A (subscriptions/service.py). Les actions sur la grille de prix ne
+# sont pas journalisées ici (audit_logs exige une école) : voir subscription_price_grids.created_by/
+# activated_by.
+ACTION_SUBSCRIPTION_INVOICE_ISSUED = "subscription_invoice.issued"
+ACTION_SUBSCRIPTION_INVOICE_QUOTE_REQUESTED = "subscription_invoice.quote_requested"
+ACTION_SUBSCRIPTION_INVOICE_QUOTE_SET = "subscription_invoice.quote_set"
+ACTION_SUBSCRIPTION_INVOICE_CANCELLED = "subscription_invoice.cancelled"
+ACTION_SUBSCRIPTION_INVOICE_EXPIRED = "subscription_invoice.expired"
+ACTION_SUBSCRIPTION_PAYMENT_MANUAL_RECORDED = "subscription_payment.manual_recorded"
+ACTION_SUBSCRIPTION_FREE_QUARTER_GRANTED = "subscription_period.free_quarter_granted"
 
 ENTITY_PAYMENT = "Payment"
 ENTITY_STUDENT_FEE = "StudentFee"
@@ -36,6 +46,9 @@ ENTITY_STUDENT_ASSIGNMENT = "StudentAssignment"
 ENTITY_CASH_SESSION = "CashSession"
 ENTITY_CASH_MOVEMENT = "CashMovement"
 ENTITY_CASH_COUNT = "CashCount"
+ENTITY_SUBSCRIPTION_INVOICE = "SubscriptionInvoice"
+ENTITY_SUBSCRIPTION_PAYMENT = "SubscriptionPayment"
+ENTITY_SUBSCRIPTION_PERIOD = "SchoolSubscriptionPeriod"
 
 
 async def record_audit_event(

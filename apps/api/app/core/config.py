@@ -1,5 +1,7 @@
 import logging
+from datetime import date
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -127,6 +129,24 @@ class Settings(BaseSettings):
     # Identifiant d'expéditeur optionnel (beaucoup de fournisseurs SMS en exigent un, ex. un nom
     # court affiché comme expéditeur) — vide par défaut, jamais un secret.
     sms_sender_id: str = ""
+
+    # Abonnements des écoles (Phase 29, lot A).
+    # Validité d'une facture émise et non payée : l'effectif y est figé, une facture ancienne ne
+    # doit donc pas rester payable indéfiniment (cadrage §5.2).
+    subscription_invoice_validity_days: int = 30
+    # Date de lancement de la facturation (AAAA-MM-JJ) : début du trimestre gratuit des écoles déjà
+    # en service (cadrage §5.4 bis). Vide = aucune attribution de trimestre gratuit (la commande
+    # `app.jobs.grant_free_quarters` ne fait alors rien). Réglage de production, jamais un secret.
+    subscription_launch_date: date | None = None
+
+    @field_validator("subscription_launch_date", mode="before")
+    @classmethod
+    def _empty_launch_date_is_none(cls, value: object) -> object:
+        # Une variable d'environnement présente mais vide vaut « non définie », jamais une erreur
+        # de démarrage.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     # URL de base utilisée pour construire les liens de vérification QR des bulletins (Phase 5).
     # Aucun hébergeur n'est encore choisi (règle Phase 0) — reste configurable via env var.
