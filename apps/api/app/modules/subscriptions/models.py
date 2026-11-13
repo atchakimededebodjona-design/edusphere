@@ -381,3 +381,54 @@ class SchoolSubscriptionPeriod(Base):
     starts_on: Mapped[date] = mapped_column(Date, nullable=False)
     ends_on: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+REMINDER_STAGES = ("J30", "J7", "J0", "INVOICE_J3")
+
+
+class SubscriptionReminder(Base):
+    """Phase 29, lot C — idempotence des rappels d'abonnement : une ligne par (cible, palier), créée
+    dans la même transaction que les notifications qu'elle a déclenchées. Cible : la dernière
+    période de la couverture en cours (paliers J30, J7, J0) ou une facture émise non payée (palier
+    INVOICE_J3). Index uniques partiels : jamais deux rappels du même palier pour la même cible,
+    même si la tâche tourne deux fois en même temps."""
+
+    __tablename__ = "subscription_reminders"
+    __table_args__ = (
+        CheckConstraint(f"stage IN ({_sql_in(REMINDER_STAGES)})", name="ck_subscription_reminder_stage"),
+        CheckConstraint("(period_id IS NULL) <> (invoice_id IS NULL)", name="ck_subscription_reminder_one_target"),
+        CheckConstraint("(stage = 'INVOICE_J3') = (invoice_id IS NOT NULL)", name="ck_subscription_reminder_stage_target"),
+        CheckConstraint("recipients_count >= 0", name="ck_subscription_reminder_recipients"),
+        Index(
+            "uq_subscription_reminders_period_stage",
+            "period_id",
+            "stage",
+            unique=True,
+            postgresql_where=text("period_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_subscription_reminders_invoice_stage",
+            "invoice_id",
+            "stage",
+            unique=True,
+            postgresql_where=text("invoice_id IS NOT NULL"),
+        ),
+        Index("ix_subscription_reminders_school_created", "school_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    period_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("school_subscription_periods.id", ondelete="CASCADE"), nullable=True
+    )
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("subscription_invoices.id", ondelete="CASCADE"), nullable=True
+    )
+    stage: Mapped[str] = mapped_column(String(16), nullable=False)
+    recipients_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

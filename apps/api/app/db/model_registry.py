@@ -43,6 +43,7 @@ from app.modules.subscriptions.models import (  # noqa: F401
     SubscriptionPayment,
     SubscriptionPriceGrid,
     SubscriptionPriceLine,
+    SubscriptionReminder,
 )
 from app.modules.students.models import (  # noqa: F401
     Guardian,

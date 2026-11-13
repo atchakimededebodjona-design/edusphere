@@ -701,6 +701,8 @@ EXPECTED_SUBSCRIPTION_TABLES = {
     "subscription_invoices",
     "subscription_payments",
     "school_subscription_periods",
+    # Phase 29, lot C
+    "subscription_reminders",
 }
 EXPECTED_SUBSCRIPTION_ROUTES = {
     "/api/v1/school-subscription",
@@ -715,6 +717,9 @@ EXPECTED_SUBSCRIPTION_ROUTES = {
     "/api/v1/platform/subscription-invoices/{invoice_id}/quote",
     "/api/v1/platform/subscription-invoices/{invoice_id}/cancel",
     "/api/v1/platform/subscription-invoices/{invoice_id}/manual-payments",
+    # Phase 29, lot C
+    "/api/v1/school-subscription/invoices/{invoice_id}/receipt.pdf",
+    "/api/v1/platform/subscription-invoices/{invoice_id}/receipt.pdf",
 }
 
 

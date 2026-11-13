@@ -16,7 +16,7 @@ par la plateforme.
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission, require_permission
 from app.modules.subscriptions import service
@@ -94,6 +94,23 @@ async def create_school_subscription_invoice(
     )
     invoice = await service.create_invoice(db, school, current_user, payload)
     return await service.invoice_out(db, invoice, service.utc_now())
+
+
+def _pdf_response(filename: str, pdf: bytes) -> Response:
+    return Response(
+        content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+# Lot C — reçu PDF d'une facture payée (409 si la facture n'est pas payée).
+@router.get("/school-subscription/invoices/{invoice_id}/receipt.pdf")
+async def download_school_subscription_receipt(invoice_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> Response:
+    invoice = await service.get_invoice_or_404(db, invoice_id)
+    school = await service.get_school_or_404(db, invoice.school_id)
+    await ensure_permission(
+        db, current_user, "subscriptions.read", organization_id=school.organization_id, school_id=school.id
+    )
+    return _pdf_response(*await service.invoice_receipt_pdf(db, invoice))
 
 
 # --- Plateforme : grilles de prix --------------------------------------------------------------
@@ -179,3 +196,9 @@ async def record_subscription_manual_payment(
 ) -> PlatformInvoiceOut:
     invoice = await service.record_manual_payment(db, invoice_id, current_user, payload)
     return await service.platform_invoice_out(db, invoice, service.utc_now())
+
+
+@router.get("/platform/subscription-invoices/{invoice_id}/receipt.pdf")
+async def download_platform_subscription_receipt(invoice_id: uuid.UUID, db: DbSession, _: PlatformReader) -> Response:
+    invoice = await service.get_invoice_or_404(db, invoice_id)
+    return _pdf_response(*await service.invoice_receipt_pdf(db, invoice))

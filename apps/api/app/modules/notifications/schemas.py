@@ -4,7 +4,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NotificationType = Literal["ANNOUNCEMENT", "REPORT_CARD_PUBLISHED", "PAYMENT_RECORDED", "STUDENT_ABSENT", "FEE_OVERDUE"]
+NotificationType = Literal[
+    "ANNOUNCEMENT",
+    "REPORT_CARD_PUBLISHED",
+    "PAYMENT_RECORDED",
+    "STUDENT_ABSENT",
+    "FEE_OVERDUE",
+    "SUBSCRIPTION_RENEWAL_DUE",
+    "SUBSCRIPTION_EXPIRED",
+    "SUBSCRIPTION_INVOICE_DUE",
+]
 
 
 class NotificationOut(BaseModel):

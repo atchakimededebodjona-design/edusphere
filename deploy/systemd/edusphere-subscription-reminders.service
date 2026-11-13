@@ -1,0 +1,22 @@
+# EduLinkage — Phase 29, lot C : expiration des factures d'abonnement et rappels aux écoles.
+#
+# Fichier PRÉPARÉ dans ce dépôt, PAS installé automatiquement — voir
+# docs/phases/PHASE_29_LOT_C_IMPLEMENTATION.md. Même convention que
+# edusphere-overdue-reminders.service : commande exécutée DANS le conteneur `api` déjà configuré.
+# Idempotent : relancé, il ne crée aucun rappel en double.
+
+[Unit]
+Description=EduLinkage - rappels d'abonnement des ecoles (Phase 29, lot C)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=edusphere
+Group=edusphere
+WorkingDirectory=/opt/edusphere
+ExecStart=/usr/bin/docker compose exec -T api python -m app.jobs.subscription_reminders
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

@@ -11,6 +11,9 @@ const TYPE_LABELS: Record<string, string> = {
   PAYMENT_RECORDED: "Paiement",
   STUDENT_ABSENT: "Absence",
   FEE_OVERDUE: "Paiement en retard",
+  SUBSCRIPTION_RENEWAL_DUE: "Abonnement à renouveler",
+  SUBSCRIPTION_EXPIRED: "Abonnement expiré",
+  SUBSCRIPTION_INVOICE_DUE: "Facture d'abonnement à régler",
 };
 
 export default function NotificationsPage() {

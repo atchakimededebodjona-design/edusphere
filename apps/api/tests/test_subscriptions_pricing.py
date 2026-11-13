@@ -126,6 +126,22 @@ def test_free_quarter_start_rules() -> None:
     assert pricing.free_quarter_start(launch, date(2025, 9, 1), [paid]) == date(2027, 3, 1)
 
 
+
+def test_coverage_reminder_stages() -> None:
+    expected = {
+        45: None,
+        31: None,
+        30: pricing.REMINDER_STAGE_J30,
+        8: pricing.REMINDER_STAGE_J30,
+        7: pricing.REMINDER_STAGE_J7,
+        1: pricing.REMINDER_STAGE_J7,
+        0: pricing.REMINDER_STAGE_J0,
+        -7: pricing.REMINDER_STAGE_J0,
+        -8: None,
+    }
+    for days_left, stage in expected.items():
+        assert pricing.coverage_reminder_stage(days_left) == stage, days_left
+
 if __name__ == "__main__":  # vérification locale hors pytest
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:
