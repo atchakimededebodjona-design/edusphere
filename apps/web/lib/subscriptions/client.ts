@@ -136,6 +136,10 @@ async function json<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function blobUrl(response: Response): Promise<string> {
+  return URL.createObjectURL(await response.blob());
+}
+
 function postJson(path: string, body: unknown, method = "POST"): Promise<Response> {
   return apiFetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
@@ -161,6 +165,9 @@ export const schoolSubscription = {
       }),
     ),
   newIdempotencyKey: () => newIdempotencyKey("subinv"),
+  /** Lot C — reçu PDF d'une facture payée (409 sinon), ouvert via une URL de blob locale. */
+  receiptBlobUrl: async (invoiceId: string) =>
+    blobUrl(await apiFetch(`/api/v1/school-subscription/invoices/${encodeURIComponent(invoiceId)}/receipt.pdf`)),
 };
 
 // --- Plateforme ----------------------------------------------------------------------------------
@@ -201,6 +208,8 @@ export const platformSubscriptions = {
       await postJson(`/api/v1/platform/subscription-invoices/${encodeURIComponent(invoiceId)}/manual-payments`, input),
     ),
   newIdempotencyKey: () => newIdempotencyKey("subpay"),
+  receiptBlobUrl: async (invoiceId: string) =>
+    blobUrl(await apiFetch(`/api/v1/platform/subscription-invoices/${encodeURIComponent(invoiceId)}/receipt.pdf`)),
 };
 
 // --- Libellés ------------------------------------------------------------------------------------

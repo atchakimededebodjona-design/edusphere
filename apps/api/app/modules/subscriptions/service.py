@@ -13,10 +13,12 @@ Contexte RLS : `set_config(..., is_local=true)` ne vaut que pour la transaction 
 commit, le contexte de l'utilisateur est ré-appliqué (`_commit`), même motif que cash/service.py.
 """
 
+import asyncio
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from html import escape as html_escape
 from typing import cast
 
 from fastapi import HTTPException, status
@@ -28,6 +30,7 @@ from app.core.tenancy import apply_tenant_context
 from app.modules.audit import service as audit_service
 from app.modules.cash.service import school_today
 from app.modules.platform.service import student_counts_by_school
+from app.modules.report_cards.service import html_to_pdf
 from app.modules.schools.models import School
 from app.modules.students.models import Student
 from app.modules.subscriptions import pricing
@@ -322,7 +325,7 @@ async def create_invoice(db: AsyncSession, school: School, user: User, payload: 
         raise _conflict("Idempotency key already used for a different subscription invoice")
 
     # Expiration paresseuse des factures de CETTE école dont la validité est dépassée (sous verrou).
-    await _expire_stale_invoices_for_school(db, school.id, now)
+    await expire_stale_invoices_for_school(db, school.id, now)
     if await _open_invoice(db, school.id, now) is not None:
         raise _conflict("An open subscription invoice already exists for this school")
 
@@ -385,18 +388,20 @@ async def create_invoice(db: AsyncSession, school: School, user: User, payload: 
     return invoice
 
 
-async def _expire_stale_invoices_for_school(db: AsyncSession, school_id: uuid.UUID, now: datetime) -> None:
-    stale = (
-        await db.execute(
-            select(SubscriptionInvoice)
-            .where(
-                SubscriptionInvoice.school_id == school_id,
-                SubscriptionInvoice.status == INVOICE_STATUS_ISSUED,
-                SubscriptionInvoice.expires_at <= now,
-            )
-            .with_for_update()
+async def expire_stale_invoices_for_school(db: AsyncSession, school_id: uuid.UUID, now: datetime) -> int:
+    """Passe en `EXPIRED` les factures `ISSUED` de cette école dont la validité est dépassée, sous le
+    verrou de l'école déjà pris par l'appelant (émission d'une facture, ou tâche quotidienne du lot C).
+    Renvoie le nombre de factures expirées."""
+    result = await db.execute(
+        select(SubscriptionInvoice)
+        .where(
+            SubscriptionInvoice.school_id == school_id,
+            SubscriptionInvoice.status == INVOICE_STATUS_ISSUED,
+            SubscriptionInvoice.expires_at <= now,
         )
-    ).scalars()
+        .with_for_update()
+    )
+    stale = list(result.scalars())
     for invoice in stale:
         invoice.status = INVOICE_STATUS_EXPIRED
         await audit_service.record_audit_event(
@@ -411,6 +416,7 @@ async def _expire_stale_invoices_for_school(db: AsyncSession, school_id: uuid.UU
             metadata={"number": invoice.number},
         )
     await db.flush()
+    return len(stale)
 
 
 async def list_school_invoices(db: AsyncSession, school_id: uuid.UUID) -> list[SubscriptionInvoice]:
@@ -832,3 +838,57 @@ async def activate_grid(db: AsyncSession, grid_id: uuid.UUID, user: User) -> Gri
     await _commit(db, user.id)
     await db.refresh(grid)
     return _grid_out(grid, lines)
+
+
+# --- Reçu d'abonnement (Phase 29, lot C) ----------------------------------------------------------
+def _receipt_html(school: School, invoice: SubscriptionInvoice, payment: SubscriptionPayment, period: SchoolSubscriptionPeriod) -> str:
+    """Même principe que fees/service.py::_render_receipt_html : gabarit HTML échappé, valeurs
+    internes uniquement. Les mentions légales et la TVA restent à valider (cadrage, question Q8) :
+    ce reçu atteste un paiement, il ne prétend pas être une facture fiscale."""
+    esc = html_escape
+    if invoice.tier is not None:
+        detail = (
+            f"<tr><td>Forfait de base</td><td style='text-align:right'>{invoice.base_amount}</td></tr>"
+            f"<tr><td>Supplément tranche {invoice.tier}</td><td style='text-align:right'>{invoice.supplement_amount}</td></tr>"
+        )
+    else:
+        detail = f"<tr><td>Tarif adapté (devis)</td><td style='text-align:right'>{invoice.total_amount}</td></tr>"
+    return f"""
+    <html>
+      <body style="font-family: Helvetica, Arial, sans-serif; font-size: 11pt;">
+        <h2>EduLinkage — Reçu d'abonnement</h2>
+        <p><strong>Facture n° {esc(invoice.number or '')}</strong></p>
+        <p>École : {esc(school.name)}</p>
+        <p>Durée : {invoice.period_months} mois — période du {period.starts_on.strftime('%d/%m/%Y')} au {period.ends_on.strftime('%d/%m/%Y')}</p>
+        <p>Effectif retenu (élèves actifs à l'émission) : {invoice.student_count}</p>
+        <table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+          <thead><tr><th style="text-align:left">Élément</th><th style="text-align:right">Montant ({SUBSCRIPTION_CURRENCY})</th></tr></thead>
+          <tbody>{detail}</tbody>
+        </table>
+        <p><strong>Total payé : {payment.amount} {SUBSCRIPTION_CURRENCY}</strong></p>
+        <p>Paiement reçu le {payment.confirmed_at.strftime('%d/%m/%Y') if payment.confirmed_at else '—'} — moyen : {esc(payment.method)} — référence : {esc(payment.reference or '—')}</p>
+      </body>
+    </html>
+    """
+
+
+async def invoice_receipt_pdf(db: AsyncSession, invoice: SubscriptionInvoice) -> tuple[str, bytes]:
+    """PDF du reçu d'une facture PAYÉE, généré à la demande (aucun stockage). 409 sinon."""
+    if invoice.status != INVOICE_STATUS_PAID:
+        raise _conflict("Receipt is only available for a paid subscription invoice")
+    payment = (
+        await db.execute(
+            select(SubscriptionPayment).where(
+                SubscriptionPayment.invoice_id == invoice.id, SubscriptionPayment.status == PAYMENT_STATUS_SUCCEEDED
+            )
+        )
+    ).scalar_one_or_none()
+    period = (
+        await db.execute(select(SchoolSubscriptionPeriod).where(SchoolSubscriptionPeriod.invoice_id == invoice.id))
+    ).scalar_one_or_none()
+    school = await get_school_or_404(db, invoice.school_id)
+    if payment is None or period is None:
+        raise _conflict("Paid subscription invoice is missing its payment or period")
+    html = _receipt_html(school, invoice, payment, period)
+    pdf = await asyncio.to_thread(html_to_pdf, html)
+    return f"recu-abonnement-{invoice.number}.pdf", pdf

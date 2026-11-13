@@ -90,6 +90,25 @@ export default function PlatformSubscriptionInvoicesPage() {
         </button>,
       );
     }
+    if (invoice.status === "PAID") {
+      buttons.push(
+        <button
+          key="receipt"
+          type="button"
+          onClick={async () => {
+            setActionError(null);
+            try {
+              window.open(await platformSubscriptions.receiptBlobUrl(invoice.id), "_blank", "noopener");
+            } catch (err) {
+              setActionError(toErrorMessage(err));
+            }
+          }}
+          className="text-sky-700 underline"
+        >
+          Reçu
+        </button>,
+      );
+    }
     if (invoice.status === "ISSUED" || invoice.status === "QUOTE_REQUIRED") {
       buttons.push(
         <button key="cancel" type="button" onClick={() => open({ kind: "cancel", invoice, reason: "" })} className="text-red-700 underline">
@@ -143,6 +162,8 @@ export default function PlatformSubscriptionInvoicesPage() {
           ))}
         </select>
       </label>
+
+      {actionError && !action && <p className="text-sm text-red-700">{actionError}</p>}
 
       {action && (
         <section className="flex flex-col gap-3 rounded border border-slate-300 bg-white p-4 text-sm">

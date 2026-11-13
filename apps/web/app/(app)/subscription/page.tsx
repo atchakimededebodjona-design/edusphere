@@ -73,6 +73,16 @@ export default function SubscriptionPage() {
     }
   }
 
+  // Lot C — reçu PDF d'une facture payée, ouvert dans un nouvel onglet.
+  async function openReceipt(invoiceId: string) {
+    setActionError(null);
+    try {
+      window.open(await schoolSubscription.receiptBlobUrl(invoiceId), "_blank", "noopener");
+    } catch (err) {
+      setActionError(toErrorMessage(err));
+    }
+  }
+
   const sub = data?.subscription;
   const canChoose = Boolean(sub && canPay && !sub.open_invoice && (sub.quote_required || sub.grid_available));
 
@@ -213,6 +223,7 @@ export default function SubscriptionPage() {
 
           <section className="flex flex-col gap-2">
             <h2 className="text-lg font-semibold text-slate-900">Factures</h2>
+            {actionError && !choice && <p className="text-sm text-red-700">{actionError}</p>}
             {data.invoices.length === 0 ? (
               <p className="text-sm text-slate-500">Aucune facture.</p>
             ) : (
@@ -220,7 +231,7 @@ export default function SubscriptionPage() {
                 <table className="min-w-full divide-y divide-slate-200 text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      {["Numéro", "Durée", "Effectif", "Montant", "Statut", "Émise le"].map((h) => (
+                      {["Numéro", "Durée", "Effectif", "Montant", "Statut", "Émise le", "Reçu"].map((h) => (
                         <th key={h} className="px-3 py-2 text-left font-medium text-slate-600">
                           {h}
                         </th>
@@ -238,6 +249,15 @@ export default function SubscriptionPage() {
                         </td>
                         <td className="px-3 py-2">{INVOICE_STATUS_LABELS[invoice.status]}</td>
                         <td className="px-3 py-2">{invoice.issued_at ? formatDateFR(invoice.issued_at) : "—"}</td>
+                        <td className="px-3 py-2">
+                          {invoice.status === "PAID" ? (
+                            <button type="button" onClick={() => openReceipt(invoice.id)} className="text-sky-700 underline">
+                              Télécharger
+                            </button>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

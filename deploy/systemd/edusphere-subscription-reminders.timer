@@ -1,0 +1,16 @@
+# Déclenche edusphere-subscription-reminders.service une fois par jour, à 06:30 (heure du serveur),
+# après les rappels de frais (06:00) : les deux jobs n'ont aucune dépendance entre eux, l'écart
+# évite seulement de les faire tourner en même temps.
+#
+# Persistent=true : exécution rattrapée au démarrage si le serveur était éteint à 06:30.
+
+[Unit]
+Description=Timer quotidien - rappels d'abonnement des ecoles (Phase 29, lot C)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00
+Persistent=true
+Unit=edusphere-subscription-reminders.service
+
+[Install]
+WantedBy=timers.target

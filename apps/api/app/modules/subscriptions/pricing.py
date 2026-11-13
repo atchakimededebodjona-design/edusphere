@@ -166,3 +166,33 @@ def free_quarter_start(launch_date: date, created_on: date, periods: Iterable[Pe
     if ends and max(ends) >= start:
         start = max(ends) + timedelta(days=1)
     return start
+
+
+# --- Rappels (Phase 29, lot C) -------------------------------------------------------------------
+# Paliers de rappel de fin de couverture (cadrage §5.7) : J-30, J-7, puis J0 à l'échéance. Un seul
+# palier — le plus avancé applicable — est envoyé à chaque passage : si la tâche n'a pas tourné
+# pendant plusieurs jours, l'école ne reçoit pas un J-30 périmé juste avant un J-7.
+REMINDER_STAGE_J30 = "J30"
+REMINDER_STAGE_J7 = "J7"
+REMINDER_STAGE_J0 = "J0"
+REMINDER_STAGE_INVOICE_J3 = "INVOICE_J3"
+REMINDER_STAGES: tuple[str, ...] = (REMINDER_STAGE_J30, REMINDER_STAGE_J7, REMINDER_STAGE_J0, REMINDER_STAGE_INVOICE_J3)
+# Au-delà de 7 jours après la fin de couverture, plus aucun rappel « J0 » n'est créé : évite, au
+# premier déploiement, de notifier des échéances anciennes.
+EXPIRED_REMINDER_WINDOW_DAYS = 7
+# Rappel d'une facture émise et non payée, 3 jours avant la fin de sa validité.
+INVOICE_REMINDER_DAYS = 3
+
+
+def coverage_reminder_stage(days_left: int) -> str | None:
+    """Palier de rappel selon le nombre de jours restant avant la fin de couverture (négatif une
+    fois la couverture terminée)."""
+    if days_left < -EXPIRED_REMINDER_WINDOW_DAYS:
+        return None
+    if days_left <= 0:
+        return REMINDER_STAGE_J0
+    if days_left <= 7:
+        return REMINDER_STAGE_J7
+    if days_left <= EXPIRING_SOON_DAYS:
+        return REMINDER_STAGE_J30
+    return None
