@@ -162,6 +162,18 @@ class Settings(BaseSettings):
             return None
         return value
 
+    # Identité de l'entreprise qui encaisse les abonnements, imprimée sur les reçus (2026-11-15).
+    # Réglages de production, jamais des secrets, mais propres à l'exploitant : ils restent dans
+    # l'environnement du serveur, jamais dans le dépôt. Un champ vide n'est pas imprimé.
+    billing_trade_name: str = "EduLinkage"
+    billing_legal_name: str = ""
+    billing_legal_form: str = ""
+    billing_address: str = ""
+    billing_nif: str = ""
+    billing_rccm: str = ""
+    billing_phone: str = ""
+    billing_email: str = ""
+
     # Paiement en ligne des abonnements (Phase 29, lot B) — PayGate Global, méthode DIRECTE
     # (`POST /api/v1/pay`) : la redirection et le « Checkout » de PayGate placent la clé API dans
     # l'URL vue par le navigateur, critère éliminatoire du cadrage (§4.3). Voir
