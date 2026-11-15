@@ -65,6 +65,7 @@ apparaît.
 |---|---|---|
 | `SUBSCRIPTION_INVOICE_VALIDITY_DAYS` | `30` | Validité d'une facture d'abonnement émise et non payée (l'effectif y est figé). Au-delà, elle n'est plus payable et l'école en émet une nouvelle. |
 | `SUBSCRIPTION_LAUNCH_DATE` | vide | Date de lancement de la facturation (`AAAA-MM-JJ`), **à fixer par la direction avant la mise en service**. Début du trimestre gratuit des écoles déjà en service ; une école créée après cette date reçoit son trimestre gratuit à partir de sa date de création. Vide : la commande `python -m app.jobs.grant_free_quarters` ne fait rien. Jamais un secret. |
+| `SUBSCRIPTION_VAT_RATE` | vide | Taux de TVA (%) **figé sur chaque nouvelle facture** d'abonnement : 18, à régler au même moment que l'activation de la grille TTC (mise en service des commissions). Les montants de la grille sont TTC ; le HT s'en déduit au franc près et sert de base à la commission des partenaires. Vide : aucune TVA enregistrée. Voir `docs/phases/PHASE_30_PARTNER_COMMISSIONS.md`. |
 
 ### Paiement Mobile Money des abonnements (Phase 29, lot B — PayGate Global)
 

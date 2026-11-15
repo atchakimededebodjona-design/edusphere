@@ -688,12 +688,13 @@ async def test_promotion_job_cli_defaults_to_dry_run(client: AsyncClient) -> Non
     assert await _run(unique_email("hdpromotecli-missing"), apply=True) == 1
 
 
-# === Commissions hors périmètre ; abonnements limités au lot A de la Phase 29 =====================
-# Remplace `test_no_commission_engine_tables_or_routes_exist` (PR #17), qui interdisait aussi toute
-# table/route « subscription ». La Phase 29 (abonnements des écoles, lot A) en introduit
-# volontairement : ce test vérifie désormais qu'il s'agit EXACTEMENT de celles prévues par le
-# cadrage, et garde inchangée l'interdiction de tout moteur de commission/versement/grand livre
-# (chantier séparé, décision du 2026-11-12).
+# === Objets « subscription » et « commission » : EXACTEMENT ceux prévus ==============================
+# Historique : PR #17 interdisait toute table/route de commission ou d'abonnement ; la Phase 29 a
+# introduit les abonnements (liste exacte ci-dessous) en gardant l'interdiction des commissions
+# (décision du 2026-11-12). Le 2026-11-15, l'utilisateur demande les commissions des partenaires :
+# elles sont désormais autorisées, mais seulement les objets listés ici (table, colonnes, routes).
+# Tout grand livre (« ledger ») et tout « payout » restent interdits dans les noms de tables et de
+# routes : le versement est manuel et tracé sur la commission elle-même.
 EXPECTED_SUBSCRIPTION_TABLES = {
     "subscription_price_grids",
     "subscription_price_lines",
@@ -725,9 +726,23 @@ EXPECTED_SUBSCRIPTION_ROUTES = {
     "/api/v1/school-subscription/invoices/{invoice_id}/payments",
     "/api/v1/school-subscription/payments/{payment_id}",
 }
+EXPECTED_COMMISSION_TABLES = {"partner_commissions"}
+EXPECTED_COMMISSION_COLUMNS = {
+    ("partner_school_enrollments", "commission_eligible"),
+    ("partners", "commission_rate"),
+    ("partners", "commission_rate_updated_at"),
+    ("partners", "commission_rate_updated_by"),
+}
+EXPECTED_COMMISSION_ROUTES = {
+    "/api/v1/platform/partner-commissions",
+    "/api/v1/platform/partner-commissions/mark-paid",
+    "/api/v1/platform/partner-commissions/{commission_id}/cancel",
+    "/api/v1/platform/partners/{partner_id}/commission-rate",
+    "/api/v1/partner/commissions",
+}
 
 
-async def test_no_commission_engine_and_only_expected_subscription_objects_exist() -> None:
+async def test_only_expected_subscription_and_commission_objects_exist() -> None:
     async with AsyncSessionLocal() as db:
         tables = {
             row[0]
@@ -752,8 +767,9 @@ async def test_no_commission_engine_and_only_expected_subscription_objects_exist
                 )
             ).all()
         }
-    assert tables == EXPECTED_SUBSCRIPTION_TABLES
-    assert columns == {("partner_school_enrollments", "commission_eligible")}
+    assert tables == EXPECTED_SUBSCRIPTION_TABLES | EXPECTED_COMMISSION_TABLES
+    assert columns == EXPECTED_COMMISSION_COLUMNS
     paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
-    assert not any(word in path for path in paths for word in ("commission", "payout", "ledger"))
+    assert not any(word in path for path in paths for word in ("payout", "ledger"))
     assert {path for path in paths if "subscription" in path} == EXPECTED_SUBSCRIPTION_ROUTES
+    assert {path for path in paths if "commission" in path} == EXPECTED_COMMISSION_ROUTES

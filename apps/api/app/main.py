@@ -34,6 +34,7 @@ from app.modules.report_cards.router import router as report_cards_router
 from app.modules.schools.router import router as schools_router
 from app.modules.students.router import router as students_router
 from app.modules.subscriptions.router import router as subscriptions_router
+from app.modules.commissions.router import router as commissions_router
 from app.modules.users.router import router as users_router
 
 logger = logging.getLogger(__name__)
@@ -162,3 +163,4 @@ app.include_router(platform_router, prefix=settings.api_v1_prefix, tags=["platfo
 app.include_router(partners_router, prefix=settings.api_v1_prefix, tags=["partners"])
 app.include_router(teacher_router, prefix=settings.api_v1_prefix, tags=["teacher"])
 app.include_router(subscriptions_router, prefix=settings.api_v1_prefix, tags=["subscriptions"])
+app.include_router(commissions_router, prefix=settings.api_v1_prefix, tags=["commissions"])

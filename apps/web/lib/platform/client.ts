@@ -119,6 +119,8 @@ export type PlatformPartner = {
   status: string;
   created_at: string;
   enrollment_count: number;
+  // Commissions (migration 0031) : % du HT des abonnements payés par ses écoles.
+  commission_rate: string;
 };
 
 export type PlatformPartnerCreate = {

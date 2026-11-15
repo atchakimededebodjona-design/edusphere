@@ -1,5 +1,6 @@
 import logging
 from datetime import date
+from decimal import Decimal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -144,6 +145,19 @@ class Settings(BaseSettings):
     def _empty_launch_date_is_none(cls, value: object) -> object:
         # Une variable d'environnement présente mais vide vaut « non définie », jamais une erreur
         # de démarrage.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    # TVA des abonnements (2026-11-15) : taux en %, FIGÉ sur chaque facture à son émission
+    # (`subscription_invoices.vat_rate`). Les montants de la grille sont TTC (ce que l'école paie) ;
+    # le HT s'en déduit (`pricing.amount_excl_vat`), notamment pour la commission des partenaires.
+    # Vide = aucune TVA enregistrée sur les nouvelles factures (comportement antérieur).
+    subscription_vat_rate: Decimal | None = None
+
+    @field_validator("subscription_vat_rate", mode="before")
+    @classmethod
+    def _empty_vat_rate_is_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return None
         return value

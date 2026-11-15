@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
+import { useAuth } from "@/lib/auth/useAuth";
+import { platformCommissions } from "@/lib/commissions/client";
 import { createPlatformPartner, listPlatformPartners, type PlatformPartner } from "@/lib/platform/client";
 import { formatDate, PlatformListPage } from "../PlatformListPage";
 
@@ -78,7 +80,63 @@ function CreatePartnerForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+/** Taux de commission du partenaire (migration 0031) : s'applique aux PROCHAINES commissions ; les
+ * commissions existantes gardent le leur. Modifiable avec `platform.commissions.manage`. */
+function CommissionRateCell({ partner, canManage, onSaved }: { partner: PlatformPartner; canManage: boolean; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(Number(partner.commission_rate)));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const rate = Number(value.replace(",", "."));
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+      setError("Taux entre 0 et 100.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await platformCommissions.setRate(partner.id, String(rate));
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span className="flex items-center gap-2">
+        {Number(partner.commission_rate)} %
+        {canManage && (
+          <button type="button" onClick={() => setEditing(true)} className="text-sky-700 underline">
+            Modifier
+          </button>
+        )}
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" className="w-16 rounded border border-slate-300 px-2 py-1" />
+      %
+      <button type="button" disabled={saving} onClick={save} className="text-emerald-700 underline disabled:opacity-50">
+        Enregistrer
+      </button>
+      <button type="button" onClick={() => setEditing(false)} className="text-slate-600 underline">
+        Annuler
+      </button>
+      {error && <span className="text-xs text-red-700">{error}</span>}
+    </span>
+  );
+}
+
 export default function PlatformPartnersPage() {
+  const { permissions } = useAuth();
+  const canManageCommissions = permissions.includes("platform.commissions.manage");
   const [reloadKey, setReloadKey] = useState(0);
   return (
     <PlatformListPage<PlatformPartner>
@@ -92,6 +150,12 @@ export default function PlatformPartnersPage() {
         { header: "Email", render: (partner) => partner.email ?? "—" },
         { header: "Statut", render: (partner) => (partner.status === "ACTIVE" ? "Actif" : "Suspendu") },
         { header: "Écoles inscrites", render: (partner) => String(partner.enrollment_count) },
+        {
+          header: "Commission",
+          render: (partner) => (
+            <CommissionRateCell partner={partner} canManage={canManageCommissions} onSaved={() => setReloadKey((k) => k + 1)} />
+          ),
+        },
         { header: "Créé le", render: (partner) => formatDate(partner.created_at) },
       ]}
     >
