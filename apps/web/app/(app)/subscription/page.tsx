@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { OnlinePaymentPanel } from "@/components/subscriptions/OnlinePaymentPanel";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { toErrorMessage, useAsyncData } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -31,7 +32,8 @@ type Data = { subscription: SchoolSubscription; invoices: InvoiceSummary[] };
 
 // Phase 29, lot A — abonnement de l'école. Les prix, l'effectif et la tranche viennent TOUJOURS de
 // l'API (calcul serveur) : la page n'envoie que la durée choisie. L'état affiché ne bloque rien
-// (décision « rappels seulement »). Paiement en ligne Mobile Money : lot B (pas encore disponible).
+// (décision « rappels seulement »). Lot B : paiement Mobile Money de la facture émise, proposé si
+// le paiement en ligne est activé côté serveur (sinon : paiement enregistré par EduLinkage).
 export default function SubscriptionPage() {
   const { currentSchoolId, permissions } = useAuth();
   const canPay = permissions.includes("subscriptions.pay");
@@ -39,6 +41,12 @@ export default function SubscriptionPage() {
   const [choice, setChoice] = useState<{ months: PeriodMonths; key: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [paidNotice, setPaidNotice] = useState(false);
+  // Stable : sert de dépendance à la vérification périodique du panneau de paiement.
+  const onPaid = useCallback(() => {
+    setPaidNotice(true);
+    setReloadKey((k) => k + 1);
+  }, []);
 
   const { data, error, isLoading, retry } = useAsyncData<Data>(
     async () => {
@@ -200,6 +208,12 @@ export default function SubscriptionPage() {
             </section>
           )}
 
+          {paidNotice && !sub.open_invoice && (
+            <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+              Paiement confirmé : l&apos;abonnement est à jour et le reçu est disponible ci-dessous.
+            </p>
+          )}
+
           {sub.open_invoice && (
             <section className="flex flex-col gap-2 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">
@@ -214,10 +228,16 @@ export default function SubscriptionPage() {
                   {sub.open_invoice.expires_at ? formatDateFR(sub.open_invoice.expires_at) : "—"}.
                 </p>
               )}
-              <p>
-                Le paiement en ligne par Mobile Money arrive prochainement. En attendant, contactez EduLinkage pour le
-                règlement en indiquant le numéro de facture : le paiement sera enregistré par EduLinkage.
-              </p>
+              {sub.open_invoice.status === "ISSUED" && sub.online_payment_enabled && canPay ? (
+                <OnlinePaymentPanel invoice={sub.open_invoice} maxAmount={sub.online_payment_max_amount} onPaid={onPaid} />
+              ) : sub.open_invoice.status === "ISSUED" && sub.online_payment_enabled ? (
+                <p>Le paiement en ligne est réservé à l&apos;administrateur de l&apos;école.</p>
+              ) : (
+                <p>
+                  Pour régler cette facture, contactez EduLinkage en indiquant son numéro : le paiement sera enregistré par
+                  EduLinkage.
+                </p>
+              )}
             </section>
           )}
 

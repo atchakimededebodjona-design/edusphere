@@ -36,6 +36,12 @@ ACTION_SUBSCRIPTION_INVOICE_CANCELLED = "subscription_invoice.cancelled"
 ACTION_SUBSCRIPTION_INVOICE_EXPIRED = "subscription_invoice.expired"
 ACTION_SUBSCRIPTION_PAYMENT_MANUAL_RECORDED = "subscription_payment.manual_recorded"
 ACTION_SUBSCRIPTION_FREE_QUARTER_GRANTED = "subscription_period.free_quarter_granted"
+# Lot B — paiement Mobile Money PayGate (subscriptions/online_payments.py). Confirmation, échec et
+# anomalie : acteur système (aucun utilisateur), comme l'expiration d'une facture.
+ACTION_SUBSCRIPTION_PAYMENT_ONLINE_INITIATED = "subscription_payment.online_initiated"
+ACTION_SUBSCRIPTION_PAYMENT_CONFIRMED = "subscription_payment.confirmed"
+ACTION_SUBSCRIPTION_PAYMENT_FAILED = "subscription_payment.failed"
+ACTION_SUBSCRIPTION_PAYMENT_ANOMALY = "subscription_payment.anomaly"
 
 ENTITY_PAYMENT = "Payment"
 ENTITY_STUDENT_FEE = "StudentFee"

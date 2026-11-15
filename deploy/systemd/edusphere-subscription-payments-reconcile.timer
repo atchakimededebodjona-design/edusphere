@@ -1,0 +1,18 @@
+# Déclenche edusphere-subscription-payments-reconcile.service toutes les 5 minutes.
+#
+# Une tentative sans confirmation est close localement après PAYGATE_PENDING_TIMEOUT_MINUTES
+# (15 par défaut) : un passage toutes les 5 minutes libère la facture au plus 5 minutes plus tard.
+# Coût négligeable : seules les tentatives en cours sont vérifiées.
+#
+# Persistent=true : exécution rattrapée au démarrage si le serveur était éteint.
+
+[Unit]
+Description=Timer 5 min - rapprochement des paiements Mobile Money des abonnements (Phase 29, lot B)
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+Unit=edusphere-subscription-payments-reconcile.service
+
+[Install]
+WantedBy=timers.target

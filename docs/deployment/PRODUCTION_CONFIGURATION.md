@@ -66,9 +66,20 @@ apparaît.
 | `SUBSCRIPTION_INVOICE_VALIDITY_DAYS` | `30` | Validité d'une facture d'abonnement émise et non payée (l'effectif y est figé). Au-delà, elle n'est plus payable et l'école en émet une nouvelle. |
 | `SUBSCRIPTION_LAUNCH_DATE` | vide | Date de lancement de la facturation (`AAAA-MM-JJ`), **à fixer par la direction avant la mise en service**. Début du trimestre gratuit des écoles déjà en service ; une école créée après cette date reçoit son trimestre gratuit à partir de sa date de création. Vide : la commande `python -m app.jobs.grant_free_quarters` ne fait rien. Jamais un secret. |
 
-Aucune variable de paiement en ligne dans ce lot : le paiement Mobile Money (PayGate Global) relève
-du lot B, avec son propre coupe-circuit et un jeton marchand qui ne sera jamais versionné. Détail :
-`docs/phases/PHASE_29_LOT_A_IMPLEMENTATION.md`.
+### Paiement Mobile Money des abonnements (Phase 29, lot B — PayGate Global)
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `SUBSCRIPTION_ONLINE_PAYMENT_ENABLED` | `false` | Coupe-circuit. `false` : aucun paiement en ligne ne peut être lancé, aucun appel à PayGate, la tâche de rapprochement ne fait rien ; seul le paiement manuel de la plateforme reste possible. |
+| `PAYMENT_ONLINE_PROVIDER` | `fake` | `fake` (développement et tests, aucun appel réseau) ou `paygate`. **En production, le démarrage est refusé si le coupe-circuit est actif avec `fake`.** |
+| `PAYGATE_AUTH_TOKEN` | vide | **SECRET** : clé API PayGate, placée par l'exploitant dans le `.env` du serveur seulement. Jamais dans le dépôt, les journaux, les rapports ni une conversation. **Démarrage refusé** en production si le coupe-circuit est actif et que la clé est vide. En cas de fuite : la renouveler depuis le profil PayGate (l'ancienne est révoquée aussitôt). |
+| `PAYGATE_API_BASE_URL` | `https://paygateglobal.com` | Base des appels `/api/v1/pay` et `/api/v2/status`. |
+| `PAYGATE_TIMEOUT_SECONDS` | `15` | Délai de chaque appel à PayGate. |
+| `PAYGATE_MAX_AMOUNT` | `1000000` | Plafond par transaction, en FCFA. Au-delà, l'école est invitée au paiement manuel. |
+| `PAYGATE_PENDING_TIMEOUT_MINUTES` | `15` | Une tentative sans confirmation au-delà de ce délai est close (l'école peut réessayer) ; elle reste vérifiée jusqu'à J+7 pour un éventuel succès tardif. |
+
+Dans le profil PayGate : « Callback URL » = `https://api.edulinkage.com/api/v1/payment-providers/paygate/callback`.
+Détail et mise en service : `docs/phases/PHASE_29_LOT_B_IMPLEMENTATION.md`.
 
 ## Variables strictement pour le développement local
 

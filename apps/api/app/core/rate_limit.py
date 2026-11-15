@@ -329,3 +329,42 @@ async def register_announcements_attempt(user_id: uuid.UUID) -> None:
             await client.expire(key, settings.announcements_rate_limit_window_seconds)
     except RedisError:
         logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (announcements).")
+
+
+# --- Notification PayGate (Phase 29, lot B) ---------------------------------------------------
+#
+# Endpoint public, non authentifié et non signé (`POST /payment-providers/paygate/callback`). La
+# notification ne fait jamais foi (le serveur vérifie l'état lui-même) : cette limite borne
+# seulement un envoi massif. Clé IP, comme report-card verify ; derrière le proxy, plusieurs
+# appelants peuvent partager la même adresse, d'où un seuil généreux (voir config.py).
+
+
+def _paygate_callback_key(ip: str) -> str:
+    return f"paygate_callback_attempts:{ip}"
+
+
+async def ensure_paygate_callback_not_rate_limited(ip: str | None) -> None:
+    key = _paygate_callback_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.paygate_callback_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Please try again later.",
+                headers={"Retry-After": str(max(ttl, 1))},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (paygate callback).")
+
+
+async def register_paygate_callback_attempt(ip: str | None) -> None:
+    key = _paygate_callback_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.paygate_callback_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (paygate callback).")

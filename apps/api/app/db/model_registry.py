@@ -37,6 +37,7 @@ from app.modules.rbac.models import Permission, Role, RolePermission, UserRole  
 from app.modules.report_cards.models import ReportCard, ReportCardTemplate  # noqa: F401
 from app.modules.schools.models import School  # noqa: F401
 from app.modules.subscriptions.models import (  # noqa: F401
+    PaymentProviderCallback,
     SchoolSubscriptionPeriod,
     SubscriptionInvoice,
     SubscriptionInvoiceNumberCounter,

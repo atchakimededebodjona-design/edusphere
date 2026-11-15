@@ -12,6 +12,23 @@ export type SubscriptionState = "NONE" | "SCHEDULED" | "TRIAL" | "ACTIVE" | "EXP
 export type InvoiceStatus = "QUOTE_REQUIRED" | "ISSUED" | "PAID" | "EXPIRED" | "CANCELLED";
 export type PeriodKind = "FREE_TRIAL" | "PAID";
 export type ManualPaymentMethod = "FLOOZ" | "TMONEY" | "BANK_TRANSFER" | "CASH" | "OTHER";
+// Lot B — paiement Mobile Money (PayGate Global, méthode directe : seul le serveur parle à PayGate).
+export type OnlineNetwork = "FLOOZ" | "TMONEY";
+export type PaymentStatus = "INITIATED" | "PENDING" | "SUCCEEDED" | "FAILED" | "EXPIRED" | "ANOMALY";
+
+export type OnlinePayment = {
+  id: string;
+  invoice_id: string;
+  method: OnlineNetwork;
+  status: PaymentStatus;
+  amount: string;
+  currency: string;
+  payer_phone_last4: string | null;
+  created_at: string;
+  confirmed_at: string | null;
+};
+
+export const IN_PROGRESS_PAYMENT_STATUSES: PaymentStatus[] = ["INITIATED", "PENDING"];
 
 export type SubscriptionPeriod = {
   id: string;
@@ -47,12 +64,13 @@ export type SubscriptionPayment = {
   id: string;
   provider: "PAYGATE" | "MANUAL";
   method: ManualPaymentMethod;
-  status: string;
+  status: PaymentStatus;
   amount: string;
   currency: string;
   reference: string | null;
   confirmed_at: string | null;
   created_at: string;
+  payer_phone_last4: string | null;
 };
 
 export type Invoice = InvoiceSummary & {
@@ -85,6 +103,8 @@ export type SchoolSubscription = {
   offers: SubscriptionOffer[];
   open_invoice: InvoiceSummary | null;
   periods: SubscriptionPeriod[];
+  online_payment_enabled: boolean;
+  online_payment_max_amount: number;
 };
 
 export type GridPeriodPrices = {
@@ -168,6 +188,21 @@ export const schoolSubscription = {
   /** Lot C — reçu PDF d'une facture payée (409 sinon), ouvert via une URL de blob locale. */
   receiptBlobUrl: async (invoiceId: string) =>
     blobUrl(await apiFetch(`/api/v1/school-subscription/invoices/${encodeURIComponent(invoiceId)}/receipt.pdf`)),
+  /** Lot B — demande de paiement Mobile Money. Aucun montant envoyé : c'est celui de la facture,
+   * fixé par le serveur. Même clé tant que le formulaire est affiché : un double clic ne crée
+   * qu'une tentative. */
+  startOnlinePayment: async (invoiceId: string, network: OnlineNetwork, phoneNumber: string, idempotencyKey: string) =>
+    json<OnlinePayment>(
+      await postJson(`/api/v1/school-subscription/invoices/${encodeURIComponent(invoiceId)}/payments`, {
+        network,
+        phone_number: phoneNumber,
+        idempotency_key: idempotencyKey,
+      }),
+    ),
+  /** État d'une tentative ; le serveur la revérifie auprès de PayGate si elle est en cours. */
+  onlinePayment: async (paymentId: string) =>
+    json<OnlinePayment>(await apiFetch(`/api/v1/school-subscription/payments/${encodeURIComponent(paymentId)}`)),
+  newPaymentKey: () => newIdempotencyKey("subonl"),
 };
 
 // --- Plateforme ----------------------------------------------------------------------------------
@@ -241,6 +276,20 @@ export const MANUAL_METHOD_LABELS: Record<ManualPaymentMethod, string> = {
   TMONEY: "T-Money",
   CASH: "Espèces",
   OTHER: "Autre",
+};
+
+export const NETWORK_LABELS: Record<OnlineNetwork, string> = {
+  FLOOZ: "Flooz",
+  TMONEY: "T-Money",
+};
+
+export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
+  INITIATED: "Demande en cours",
+  PENDING: "En attente de confirmation",
+  SUCCEEDED: "Réussi",
+  FAILED: "Échoué",
+  EXPIRED: "Sans confirmation",
+  ANOMALY: "Anomalie à traiter",
 };
 
 export function periodLabel(months: number): string {

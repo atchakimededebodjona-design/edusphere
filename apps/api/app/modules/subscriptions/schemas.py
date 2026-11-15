@@ -11,10 +11,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.phone import normalize_phone_to_e164
 from app.modules.subscriptions.pricing import is_whole_amount
 
 PeriodMonths = Literal[3, 6, 12]
 ManualPaymentMethod = Literal["FLOOZ", "TMONEY", "BANK_TRANSFER", "CASH", "OTHER"]
+OnlinePaymentNetwork = Literal["FLOOZ", "TMONEY"]
 SubscriptionStateCode = Literal["NONE", "SCHEDULED", "TRIAL", "ACTIVE", "EXPIRING_SOON", "EXPIRED"]
 
 # Plafond de saisie (bien en dessous de la capacité de Numeric(12, 2)) : protège d'une faute de
@@ -132,6 +134,10 @@ class SchoolSubscriptionOut(BaseModel):
     offers: list[OfferOut]
     open_invoice: InvoiceSummaryOut | None
     periods: list[PeriodOut]
+    # Lot B — paiement Mobile Money : proposé seulement si le coupe-circuit est actif, et pour un
+    # montant inférieur ou égal au plafond (au-delà : paiement manuel par la plateforme).
+    online_payment_enabled: bool = False
+    online_payment_max_amount: int = 0
 
 
 # --- Factures ----------------------------------------------------------------------------------
@@ -153,6 +159,47 @@ class PaymentOut(BaseModel):
     reference: str | None
     confirmed_at: datetime | None
     created_at: datetime
+    # Lot B — 4 derniers chiffres du numéro du payeur (jamais le numéro complet).
+    payer_phone_last4: str | None = None
+
+
+# --- Paiement en ligne (lot B) -----------------------------------------------------------------
+def normalize_togo_mobile_number(raw: str) -> str:
+    """Numéro togolais valide, ramené à ses 8 chiffres nationaux (format attendu par PayGate d'après
+    les intégrations existantes ; à confirmer par le premier paiement réel). Accepte les espaces,
+    tirets, l'indicatif +228, 228 ou 00228."""
+    e164 = normalize_phone_to_e164(raw, "TG")
+    if e164 is None or not e164.startswith("+228") or len(e164) != 12:
+        raise ValueError("Numéro de téléphone invalide : indiquez un numéro togolais à 8 chiffres")
+    return e164[4:]
+
+
+class OnlinePaymentInput(BaseModel):
+    network: OnlinePaymentNetwork
+    phone_number: str = Field(min_length=8, max_length=32)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("phone_number")
+    @classmethod
+    def _phone(cls, value: str) -> str:
+        return normalize_togo_mobile_number(value)
+
+
+class OnlinePaymentOut(BaseModel):
+    """État d'une tentative de paiement en ligne, pour l'écran de l'école. Ni identifiant PayGate,
+    ni numéro complet, ni code technique du fournisseur."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    invoice_id: uuid.UUID
+    method: str
+    status: str
+    amount: Decimal
+    currency: str
+    payer_phone_last4: str | None
+    created_at: datetime
+    confirmed_at: datetime | None
 
 
 class InvoiceOut(InvoiceSummaryOut):

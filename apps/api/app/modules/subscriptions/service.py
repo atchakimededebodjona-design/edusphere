@@ -43,6 +43,7 @@ from app.modules.subscriptions.models import (
     INVOICE_STATUS_ISSUED,
     INVOICE_STATUS_PAID,
     INVOICE_STATUS_QUOTE_REQUIRED,
+    IN_PROGRESS_PAYMENT_STATUSES,
     OPEN_INVOICE_STATUSES,
     PAYMENT_PROVIDER_MANUAL,
     PAYMENT_STATUS_SUCCEEDED,
@@ -288,7 +289,23 @@ async def build_school_subscription(db: AsyncSession, school: School) -> SchoolS
         offers=offers,
         open_invoice=invoice_summary(open_invoice, now) if open_invoice is not None else None,
         periods=[PeriodOut.model_validate(period) for period in periods],
+        online_payment_enabled=settings.subscription_online_payment_enabled,
+        online_payment_max_amount=settings.paygate_max_amount,
     )
+
+
+async def has_payment_in_progress(db: AsyncSession, invoice_id: uuid.UUID) -> bool:
+    """Lot B — une tentative de paiement en ligne (`INITIATED`/`PENDING`) attend sa confirmation."""
+    return (
+        await db.execute(
+            select(SubscriptionPayment.id)
+            .where(
+                SubscriptionPayment.invoice_id == invoice_id,
+                SubscriptionPayment.status.in_(IN_PROGRESS_PAYMENT_STATUSES),
+            )
+            .limit(1)
+        )
+    ).first() is not None
 
 
 # --- Factures (côté école) ---------------------------------------------------------------------
@@ -328,6 +345,17 @@ async def create_invoice(db: AsyncSession, school: School, user: User, payload: 
     await expire_stale_invoices_for_school(db, school.id, now)
     if await _open_invoice(db, school.id, now) is not None:
         raise _conflict("An open subscription invoice already exists for this school")
+    # Lot B — une facture échue reste ouverte tant qu'un paiement en ligne est en vérification
+    # (voir expire_stale_invoices_for_school) : pas de nouvelle facture avant son issue.
+    stored_open = (
+        await db.execute(
+            select(SubscriptionInvoice.id).where(
+                SubscriptionInvoice.school_id == school.id, SubscriptionInvoice.status.in_(OPEN_INVOICE_STATUSES)
+            )
+        )
+    ).first()
+    if stored_open is not None:
+        raise _conflict("An online payment is still being verified for the previous subscription invoice")
 
     count = await active_student_count(db, school.id)
     tier = pricing.tier_for_student_count(count)
@@ -391,15 +419,28 @@ async def create_invoice(db: AsyncSession, school: School, user: User, payload: 
 async def expire_stale_invoices_for_school(db: AsyncSession, school_id: uuid.UUID, now: datetime) -> int:
     """Passe en `EXPIRED` les factures `ISSUED` de cette école dont la validité est dépassée, sous le
     verrou de l'école déjà pris par l'appelant (émission d'une facture, ou tâche quotidienne du lot C).
-    Renvoie le nombre de factures expirées."""
+    Renvoie le nombre de factures expirées.
+
+    Lot B : une facture dont un paiement en ligne est en cours de vérification n'est PAS expirée —
+    le paiement a été lancé pendant sa validité ; elle le sera, si besoin, à l'issue de la tentative
+    (au plus `PAYGATE_PENDING_TIMEOUT_MINUTES` plus tard)."""
+    payment_in_progress = (
+        select(SubscriptionPayment.id)
+        .where(
+            SubscriptionPayment.invoice_id == SubscriptionInvoice.id,
+            SubscriptionPayment.status.in_(IN_PROGRESS_PAYMENT_STATUSES),
+        )
+        .exists()
+    )
     result = await db.execute(
         select(SubscriptionInvoice)
         .where(
             SubscriptionInvoice.school_id == school_id,
             SubscriptionInvoice.status == INVOICE_STATUS_ISSUED,
             SubscriptionInvoice.expires_at <= now,
+            ~payment_in_progress,
         )
-        .with_for_update()
+        .with_for_update(of=SubscriptionInvoice)
     )
     stale = list(result.scalars())
     for invoice in stale:
@@ -501,6 +542,8 @@ async def record_manual_payment(
         raise _conflict("Idempotency key already used for a different payment")
 
     _ensure_payable(invoice, now)
+    if await has_payment_in_progress(db, invoice.id):
+        raise _conflict("An online payment is in progress for this subscription invoice")
     if invoice.total_amount is None or Decimal(invoice.total_amount) != payload.amount:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -588,6 +631,8 @@ async def cancel_invoice(db: AsyncSession, invoice_id: uuid.UUID, user: User, re
         raise _conflict("A paid subscription invoice cannot be cancelled")
     if invoice.status not in OPEN_INVOICE_STATUSES:
         raise _conflict("Subscription invoice is not open")
+    if await has_payment_in_progress(db, invoice.id):
+        raise _conflict("An online payment is in progress for this subscription invoice")
     now = utc_now()
     invoice.status = INVOICE_STATUS_CANCELLED
     invoice.cancelled_at = now
@@ -866,7 +911,7 @@ def _receipt_html(school: School, invoice: SubscriptionInvoice, payment: Subscri
           <tbody>{detail}</tbody>
         </table>
         <p><strong>Total payé : {payment.amount} {SUBSCRIPTION_CURRENCY}</strong></p>
-        <p>Paiement reçu le {payment.confirmed_at.strftime('%d/%m/%Y') if payment.confirmed_at else '—'} — moyen : {esc(payment.method)} — référence : {esc(payment.reference or '—')}</p>
+        <p>Paiement reçu le {payment.confirmed_at.strftime('%d/%m/%Y') if payment.confirmed_at else '—'} — moyen : {esc(payment.method)} — référence : {esc(payment.reference or payment.payment_reference or payment.tx_reference or '—')}</p>
       </body>
     </html>
     """
