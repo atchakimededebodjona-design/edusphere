@@ -8,8 +8,8 @@
 
 | Sujet | Décision |
 |---|---|
-| TVA | Entreprise **assujettie**, taux de **18 %**. Prix de la grille **HT**, TVA en plus ; la grille enregistre les montants TTC. |
-| Document | **Reçu enrichi** : identité de l'entreprise, client, détail HT, TVA et TTC. Il atteste un paiement. |
+| TVA | D'abord « assujettie, 18 % », puis **révisée le soir même** : l'entreprise relève de la **TPU** (carte unique de création d'entreprise) et **ne facture pas de TVA**. `SUBSCRIPTION_VAT_RATE` est vidé et la grille revient aux prix HT. Le détail HT, TVA et TTC reste prêt pour un passage au régime réel. |
+| Document | **Reçu enrichi** : identité de l'entreprise, régime fiscal, client, détail des montants. Il atteste un paiement. |
 | Facture normalisée | Délivrée **séparément** ; le reçu le mentionne et ne prétend pas la remplacer. |
 | Identité de l'entreprise | Réglages `BILLING_*` du **serveur**, jamais dans le dépôt (public). |
 
@@ -17,18 +17,18 @@
 
 **Le reçu PDF** (`GET /school-subscription/invoices/{id}/receipt.pdf` et `GET /platform/subscription-invoices/{id}/receipt.pdf`, inchangés) affiche désormais :
 - en tête, le nom commercial (`BILLING_TRADE_NAME`, « EduLinkage » par défaut) ;
-- l'entreprise : raison sociale, forme juridique, adresse du siège, NIF, RCCM, téléphone, e-mail ; un réglage vide n'est pas imprimé ;
+- l'entreprise : raison sociale, forme juridique, adresse du siège, NIF, RCCM, régime fiscal (`BILLING_TAX_REGIME`, « TPU »), téléphone, e-mail ; un réglage vide n'est pas imprimé ;
 - le client : nom de l'école, avec son adresse, son téléphone et son e-mail s'ils sont renseignés ;
 - la facture, sa date d'émission, la période d'abonnement et l'effectif retenu ;
 - le détail :
   - **facture avec taux de TVA figé** : lignes en HT, puis Total HT, TVA au taux de la facture et Total TTC ;
-  - **facture antérieure à la TVA** (`EL-2026-000001`) : lignes et total aux montants payés, sans aucune mention de TVA ;
+  - **facture sans taux de TVA** (entreprise à la TPU, ou `EL-2026-000001`) : lignes et total aux montants payés, sans aucune mention de TVA ;
 - le montant payé, sa date, le moyen en clair (« T-Money (Mobile Money) », « espèces »…) et les références (référence saisie, transaction PayGate, référence de l'opérateur) ;
 - la mention : « Ce reçu atteste le paiement de la facture n° … Il ne tient pas lieu de facture normalisée : celle-ci est délivrée séparément. »
 
 Les montants sont en francs entiers, avec une espace entre les milliers (`47 200`).
 
-**Calcul du HT** (`service.receipt_amounts`). Le Total HT est celui de la commission des partenaires (`pricing.amount_excl_vat`, au franc près). Chaque ligne est convertie au même taux. La dernière ligne absorbe l'arrondi, si bien que les lignes HT font exactement le Total HT. Avec la grille en vigueur (prix HT × 1,18), il n'y a aucun arrondi : 35 400 + 11 800 TTC donnent 30 000 + 10 000 HT, soit 7 200 de TVA.
+**Calcul du HT** (`service.receipt_amounts`). Le Total HT est celui de la commission des partenaires (`pricing.amount_excl_vat`, au franc près). Chaque ligne est convertie au même taux. La dernière ligne absorbe l'arrondi, si bien que les lignes HT font exactement le Total HT. Avec une grille TTC égale aux prix HT × 1,18, comme celle du 2026-11-15, il n'y a aucun arrondi : 35 400 + 11 800 TTC donnent 30 000 + 10 000 HT, soit 7 200 de TVA.
 
 **Supplément d'effectif** : libellé avec les bornes de la tranche (« 101 à 250 élèves »), à condition que l'effectif de la facture s'y trouve. Avant le 2026-11-15, la tranche 3 couvrait 501 à 1 000 élèves.
 
@@ -38,6 +38,7 @@ Les montants sont en francs entiers, avec une espace entre les milliers (`47 200
 - HT, TVA et TTC à partir des montants de la grille, avec le même HT que la commission ;
 - arrondi absorbé par la dernière ligne ;
 - facture sans taux de TVA : aucune mention de TVA, pas de ligne de supplément à 0 ;
+- entreprise à la TPU : « Régime fiscal : TPU » à côté du NIF et du RCCM, aucune mention HT, TVA ou TTC ;
 - libellés : devis, paliers au-delà de 1 000 élèves, tranche ;
 - identité de l'entreprise et nom de l'école échappés, réglage vide non imprimé ;
 - rendu PDF.
@@ -66,6 +67,6 @@ Sans migration ni coupure : seule l'API redémarre, quelques secondes. Dans la c
 
 ## 5. À faire valider par un comptable
 
-- L'assujettissement effectif à la TVA : régime d'imposition attaché au NIF et date d'effet.
+- Le régime fiscal en vigueur : la carte unique date de 2020 et a expiré le 2025-07-23. Un passage au régime réel avec TVA demanderait de remettre `SUBSCRIPTION_VAT_RATE` et une grille TTC au même moment, comme dans `PHASE_30_PARTNER_COMMISSIONS.md`, §4.
 - Le contenu du reçu, et la délivrance de la facture normalisée (vignette de l'OTR) à chaque paiement ou sur demande.
 - L'adéquation des activités déclarées au registre avec la vente d'abonnements à un logiciel en ligne.

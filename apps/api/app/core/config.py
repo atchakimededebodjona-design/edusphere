@@ -171,6 +171,9 @@ class Settings(BaseSettings):
     billing_address: str = ""
     billing_nif: str = ""
     billing_rccm: str = ""
+    # Régime fiscal (ex. « TPU ») : une entreprise à la TPU ne facture pas de TVA, et
+    # `subscription_vat_rate` reste alors vide (décision du 2026-11-15).
+    billing_tax_regime: str = ""
     billing_phone: str = ""
     billing_email: str = ""
 

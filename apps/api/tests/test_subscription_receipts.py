@@ -90,6 +90,7 @@ def company(monkeypatch: pytest.MonkeyPatch) -> None:
         "billing_address": "Rue du Marché, Kara",
         "billing_nif": "1000000000",
         "billing_rccm": "TG-LOM 2020 A 00000",
+        "billing_tax_regime": "",
         "billing_phone": "+228 90 00 00 00",
         "billing_email": "",
     }.items():
@@ -162,7 +163,16 @@ def test_receipt_shows_company_identity_vat_detail_and_legal_note(company: None)
 
 
 def test_receipt_without_company_settings_prints_no_empty_mentions(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("billing_legal_name", "billing_legal_form", "billing_address", "billing_nif", "billing_rccm", "billing_phone", "billing_email"):
+    for name in (
+        "billing_legal_name",
+        "billing_legal_form",
+        "billing_address",
+        "billing_nif",
+        "billing_rccm",
+        "billing_tax_regime",
+        "billing_phone",
+        "billing_email",
+    ):
         monkeypatch.setattr(settings, name, "")
     html = _receipt(
         _invoice(tier=1, base="35400", supplement="11800", total="47200", vat_rate="18"),
@@ -172,10 +182,19 @@ def test_receipt_without_company_settings_prints_no_empty_mentions(monkeypatch: 
         tx_reference=None,
         payment_reference=None,
     )
-    for absent in ("NIF", "RCCM", "Tél.", "E-mail"):
+    for absent in ("NIF", "RCCM", "Régime fiscal", "Tél.", "E-mail"):
         assert absent not in html
     assert "EduLinkage — Reçu de paiement d'abonnement" in html
     assert "par espèces" in html and "Référence : REC-1." in html
+
+
+def test_receipt_of_a_tpu_company_without_vat(company: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Décision du 2026-11-15 : entreprise à la TPU, aucune TVA ; la grille porte les prix HT.
+    monkeypatch.setattr(settings, "billing_tax_regime", "TPU")
+    html = _receipt(_invoice(tier=1, base="30000", supplement="10000", total="40000", vat_rate=None))
+    assert "NIF : 1000000000 — RCCM : TG-LOM 2020 A 00000 — Régime fiscal : TPU" in html
+    assert "TVA" not in html and "HT" not in html and "TTC" not in html
+    assert "Montant (FCFA)" in html and f"Montant payé : 40{NBSP}000 FCFA" in html
 
 
 def test_receipt_renders_as_pdf(company: None) -> None:

@@ -998,7 +998,11 @@ def _issuer_html() -> str:
     s = settings
     rows = [f"<strong>{esc(s.billing_legal_name)}</strong>" if s.billing_legal_name else ""]
     rows += [esc(value) for value in (s.billing_legal_form, s.billing_address) if value]
-    ids = [f"NIF : {esc(s.billing_nif)}" if s.billing_nif else "", f"RCCM : {esc(s.billing_rccm)}" if s.billing_rccm else ""]
+    ids = [
+        f"NIF : {esc(s.billing_nif)}" if s.billing_nif else "",
+        f"RCCM : {esc(s.billing_rccm)}" if s.billing_rccm else "",
+        f"Régime fiscal : {esc(s.billing_tax_regime)}" if s.billing_tax_regime else "",
+    ]
     contacts = [f"Tél. : {esc(s.billing_phone)}" if s.billing_phone else "", f"E-mail : {esc(s.billing_email)}" if s.billing_email else ""]
     rows += [" — ".join(part for part in group if part) for group in (ids, contacts)]
     return "<br/>".join(row for row in rows if row)
