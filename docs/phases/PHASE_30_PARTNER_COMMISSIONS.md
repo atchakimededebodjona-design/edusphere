@@ -15,7 +15,7 @@
 | Taux | **Propre à chaque partenaire**, 20 % par défaut, modifiable par la plateforme. Il est **figé** sur chaque commission : un nouveau taux ne s'applique qu'aux paiements suivants. |
 | Suspension | **Aucune commission** pour un paiement confirmé pendant que le partenaire est suspendu. |
 | Versement | **Manuel** : la plateforme paie le partenaire hors application (Mobile Money, virement, espèces), puis marque les commissions « versées » avec le moyen et la référence. Une commission due peut être annulée avec un motif. |
-| TVA | Prix de la grille **HT**, TVA 18 % **en plus** ; la grille enregistre donc les montants **TTC** payés par l'école. Le taux de TVA est **figé sur chaque facture** à son émission (`SUBSCRIPTION_VAT_RATE`), et le HT s'en déduit au franc près : 35 400 TTC donnent 30 000 HT, soit une commission de 6 000. |
+| TVA | Prix de la grille **HT**, TVA 18 % **en plus** ; la grille enregistre donc les montants **TTC** payés par l'école. Le taux de TVA est **figé sur chaque facture** à son émission (`SUBSCRIPTION_VAT_RATE`), et le HT s'en déduit au franc près : 35 400 TTC donnent 30 000 HT, soit une commission de 6 000. **Révisé le 2026-11-15 au soir** : l'entreprise relève de la TPU et ne facture pas de TVA ; `SUBSCRIPTION_VAT_RATE` est vide et la grille porte les prix HT, la commission restant de 6 000 sur un forfait de base de 30 000. |
 
 ## 2. Ce qui est livré
 

@@ -17,7 +17,7 @@ import asyncio
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from html import escape as html_escape
 from typing import cast
 
@@ -929,38 +929,137 @@ async def activate_grid(db: AsyncSession, grid_id: uuid.UUID, user: User) -> Gri
     return _grid_out(grid, lines)
 
 
-# --- Reçu d'abonnement (Phase 29, lot C) ----------------------------------------------------------
-def _receipt_html(school: School, invoice: SubscriptionInvoice, payment: SubscriptionPayment, period: SchoolSubscriptionPeriod) -> str:
-    """Même principe que fees/service.py::_render_receipt_html : gabarit HTML échappé, valeurs
-    internes uniquement. Les mentions légales et la TVA restent à valider (cadrage, question Q8) :
-    ce reçu atteste un paiement, il ne prétend pas être une facture fiscale."""
-    esc = html_escape
-    if invoice.tier is not None:
+# --- Reçu d'abonnement (Phase 29, lot C ; mentions légales et TVA le 2026-11-15) -----------------
+_PAYMENT_METHOD_LABELS = {
+    "FLOOZ": "Flooz (Mobile Money)",
+    "TMONEY": "T-Money (Mobile Money)",
+    "BANK_TRANSFER": "virement bancaire",
+    "CASH": "espèces",
+    "OTHER": "autre moyen",
+}
+
+
+def _fcfa(amount: Decimal) -> str:
+    """Francs entiers, milliers séparés par une espace insécable : 35400.00 → « 35 400 »."""
+    whole = int(Decimal(amount).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return f"{whole:,}".replace(",", " ")
+
+
+def _percent(rate: Decimal) -> str:
+    """18.00 → « 18 » ; 10.50 → « 10,5 »."""
+    return format(Decimal(rate).normalize(), "f").replace(".", ",")
+
+
+def _receipt_lines(invoice: SubscriptionInvoice) -> list[tuple[str, Decimal]]:
+    """Désignations de la facture, aux montants de la grille (TTC dès qu'un taux de TVA est figé)."""
+    total = invoice.total_amount if invoice.total_amount is not None else Decimal(0)
+    subject = f"Abonnement EduLinkage, {invoice.period_months} mois"
+    if invoice.tier is None or invoice.base_amount is None:
+        return [(f"{subject} : tarif adapté (devis)", total)]
+    lines = [(f"{subject} : forfait de base", invoice.base_amount)]
+    if invoice.supplement_amount:
         if invoice.tier == pricing.STEP_TIER:
             steps = pricing.steps_above_threshold(invoice.student_count)
-            supplement_label = f"Supplément au-delà de 1 000 élèves ({steps} palier{'s' if steps > 1 else ''} de 250 élèves)"
+            label = f"Supplément au-delà de 1 000 élèves ({steps} palier{'s' if steps > 1 else ''} de 250 élèves)"
         else:
-            supplement_label = f"Supplément tranche {invoice.tier}"
-        detail = (
-            f"<tr><td>Forfait de base</td><td style='text-align:right'>{invoice.base_amount}</td></tr>"
-            f"<tr><td>{supplement_label}</td><td style='text-align:right'>{invoice.supplement_amount}</td></tr>"
+            tier = next((t for t in pricing.TIERS if t.number == invoice.tier), None)
+            # Bornes affichées seulement si elles valent pour cette facture : avant le 2026-11-15, la
+            # tranche 3 couvrait 501 à 1 000 élèves.
+            if tier is not None and tier.min_students <= invoice.student_count <= tier.max_students:
+                label = f"Supplément d'effectif ({tier.min_students} à {tier.max_students} élèves)"
+            else:
+                label = f"Supplément d'effectif (tranche {invoice.tier})"
+        lines.append((label, invoice.supplement_amount))
+    return lines
+
+
+def receipt_amounts(invoice: SubscriptionInvoice) -> tuple[list[tuple[str, Decimal]], Decimal, Decimal, Decimal]:
+    """(lignes, total HT, TVA, total TTC) du reçu. Le HT du total est celui de la commission des
+    partenaires (`pricing.amount_excl_vat`) ; la dernière ligne absorbe l'arrondi, pour que les
+    lignes HT fassent exactement le total HT. Sans taux figé (facture antérieure à la TVA), les
+    lignes sont les montants payés et la TVA vaut 0."""
+    lines = _receipt_lines(invoice)
+    total = sum((amount for _, amount in lines), Decimal(0))
+    total_excl_vat = pricing.amount_excl_vat(total, invoice.vat_rate)
+    if not invoice.vat_rate:
+        return lines, total_excl_vat, Decimal(0), total
+    excl_vat_lines: list[tuple[str, Decimal]] = []
+    remaining = total_excl_vat
+    for index, (label, amount) in enumerate(lines):
+        excl_vat = remaining if index == len(lines) - 1 else pricing.amount_excl_vat(amount, invoice.vat_rate)
+        excl_vat_lines.append((label, excl_vat))
+        remaining -= excl_vat
+    return excl_vat_lines, total_excl_vat, total - total_excl_vat, total
+
+
+def _issuer_html() -> str:
+    """Identité de l'entreprise (réglages `BILLING_*` du serveur) ; un champ vide n'est pas imprimé."""
+    esc = html_escape
+    s = settings
+    rows = [f"<strong>{esc(s.billing_legal_name)}</strong>" if s.billing_legal_name else ""]
+    rows += [esc(value) for value in (s.billing_legal_form, s.billing_address) if value]
+    ids = [
+        f"NIF : {esc(s.billing_nif)}" if s.billing_nif else "",
+        f"RCCM : {esc(s.billing_rccm)}" if s.billing_rccm else "",
+        f"Régime fiscal : {esc(s.billing_tax_regime)}" if s.billing_tax_regime else "",
+    ]
+    contacts = [f"Tél. : {esc(s.billing_phone)}" if s.billing_phone else "", f"E-mail : {esc(s.billing_email)}" if s.billing_email else ""]
+    rows += [" — ".join(part for part in group if part) for group in (ids, contacts)]
+    return "<br/>".join(row for row in rows if row)
+
+
+def _receipt_html(school: School, invoice: SubscriptionInvoice, payment: SubscriptionPayment, period: SchoolSubscriptionPeriod) -> str:
+    """Même principe que fees/service.py::_render_receipt_html : gabarit HTML échappé, valeurs
+    internes ou réglages du serveur uniquement. Ce reçu atteste un paiement : il ne tient pas lieu
+    de facture normalisée (délivrée séparément, décision du 2026-11-15)."""
+    esc = html_escape
+    trade_name = esc(settings.billing_trade_name or "EduLinkage")
+    lines, total_excl_vat, vat, total = receipt_amounts(invoice)
+    right = "text-align:right"
+    if invoice.vat_rate:
+        heading = "Montant HT (FCFA)"
+        totals = (
+            f"<tr><td><strong>Total HT</strong></td><td style='{right}'><strong>{_fcfa(total_excl_vat)}</strong></td></tr>"
+            f"<tr><td>TVA {_percent(invoice.vat_rate)} %</td><td style='{right}'>{_fcfa(vat)}</td></tr>"
+            f"<tr><td><strong>Total TTC</strong></td><td style='{right}'><strong>{_fcfa(total)}</strong></td></tr>"
         )
     else:
-        detail = f"<tr><td>Tarif adapté (devis)</td><td style='text-align:right'>{invoice.total_amount}</td></tr>"
+        heading = "Montant (FCFA)"
+        totals = f"<tr><td><strong>Total</strong></td><td style='{right}'><strong>{_fcfa(total)}</strong></td></tr>"
+    detail = "".join(f"<tr><td>{esc(label)}</td><td style='{right}'>{_fcfa(amount)}</td></tr>" for label, amount in lines)
+    client = "<br/>".join(
+        [f"<strong>{esc(school.name)}</strong>"] + [esc(value) for value in (school.address, school.phone, school.email) if value]
+    )
+    references = [esc(payment.reference)] if payment.reference else []
+    if payment.tx_reference:
+        references.append(f"transaction {esc(payment.tx_reference)}")
+    if payment.payment_reference:
+        references.append(f"référence opérateur {esc(payment.payment_reference)}")
+    method = esc(_PAYMENT_METHOD_LABELS.get(payment.method, payment.method))
+    paid_on = payment.confirmed_at.strftime("%d/%m/%Y") if payment.confirmed_at else "—"
+    issued_on = f", émise le {invoice.issued_at.strftime('%d/%m/%Y')}" if invoice.issued_at else ""
+    number = esc(invoice.number or "")
     return f"""
     <html>
-      <body style="font-family: Helvetica, Arial, sans-serif; font-size: 11pt;">
-        <h2>EduLinkage — Reçu d'abonnement</h2>
-        <p><strong>Facture n° {esc(invoice.number or '')}</strong></p>
-        <p>École : {esc(school.name)}</p>
-        <p>Durée : {invoice.period_months} mois — période du {period.starts_on.strftime('%d/%m/%Y')} au {period.ends_on.strftime('%d/%m/%Y')}</p>
-        <p>Effectif retenu (élèves actifs à l'émission) : {invoice.student_count}</p>
-        <table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; width: 100%;">
-          <thead><tr><th style="text-align:left">Élément</th><th style="text-align:right">Montant ({SUBSCRIPTION_CURRENCY})</th></tr></thead>
-          <tbody>{detail}</tbody>
+      <body style="font-family: Helvetica, Arial, sans-serif; font-size: 10pt;">
+        <h2>{trade_name} — Reçu de paiement d'abonnement</h2>
+        <table cellpadding="4" cellspacing="0" style="width: 100%;">
+          <tr>
+            <td style="width: 50%; vertical-align: top;">{_issuer_html()}</td>
+            <td style="width: 50%; vertical-align: top;">Client :<br/>{client}</td>
+          </tr>
         </table>
-        <p><strong>Total payé : {payment.amount} {SUBSCRIPTION_CURRENCY}</strong></p>
-        <p>Paiement reçu le {payment.confirmed_at.strftime('%d/%m/%Y') if payment.confirmed_at else '—'} — moyen : {esc(payment.method)} — référence : {esc(payment.reference or payment.payment_reference or payment.tx_reference or '—')}</p>
+        <p><strong>Facture n° {number}</strong>{issued_on}</p>
+        <p>Période d'abonnement : du {period.starts_on.strftime('%d/%m/%Y')} au {period.ends_on.strftime('%d/%m/%Y')}<br/>
+        Effectif retenu (élèves actifs à l'émission de la facture) : {invoice.student_count}</p>
+        <table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+          <thead><tr><th style="text-align:left; width: 70%;">Désignation</th><th style="{right}; width: 30%;">{heading}</th></tr></thead>
+          <tbody>{detail}{totals}</tbody>
+        </table>
+        <p><strong>Montant payé : {_fcfa(payment.amount)} FCFA</strong>, le {paid_on}, par {method}.
+        {('Référence : ' + ', '.join(references) + '.') if references else ''}</p>
+        <p style="font-size: 9pt;">Ce reçu atteste le paiement de la facture n° {number}. Il ne tient pas lieu de
+        facture normalisée : celle-ci est délivrée séparément.</p>
       </body>
     </html>
     """
