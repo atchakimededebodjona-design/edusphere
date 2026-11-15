@@ -82,4 +82,11 @@ Exécuté par l'exploitant depuis la console web de l'hébergeur (`root`, `srv19
 | Code et image | `de6b86a` → `465de4e` en avance rapide. Image de retour arrière : `edusphere-api:avant-recus`. Construction : code 0. API redémarrée : `healthy` ; les réglages `BILLING_*` sont lus, et le taux de TVA vaut `None`. |
 | Vérification | Le reçu PDF de `EL-2026-000001`, téléchargé depuis l'espace plateforme, porte la raison sociale, la forme juridique, l'adresse, le NIF, le RCCM, « Régime fiscal : TPU », le téléphone et l'e-mail. Il porte aussi le bloc client de l'école, les montants sans aucune mention de TVA, le paiement T-Money avec ses références et la mention de la facture normalisée. |
 
-Images de retour arrière présentes sur le serveur : `avant-phase29`, `avant-lot-b`, `avant-grille`, `avant-commissions` et `avant-recus`, à supprimer vers le 2026-11-29 si aucun incident.
+**Entretien du serveur, le même soir (21:30 à 21:51 UTC).**
+- Images de retour arrière supprimées : `avant-phase29`, `avant-lot-b`, `avant-grille` et `avant-commissions`, pour l'API et le web. Antérieures à la révision `0031`, elles ne pouvaient plus servir sans défaire des migrations. Seule `edusphere-api:avant-recus` est conservée, à supprimer vers le 2026-11-29 si aucun incident.
+- Cache de construction de Docker antérieur à 72 h supprimé : 17,6 Go libérés, disque passé de 56 % à 39 %.
+- Sauvegarde `edulinkage_20261115T214041Z.dump`, avec l'intégrité vérifiée, puis application des 48 mises à jour d'Ubuntu (dont Docker, systemd et netplan ; fichiers de configuration conservés) et redémarrage à 21:46 UTC.
+- Après le redémarrage :
+  - Ubuntu 26.04.1 LTS, noyau `7.0.0-43-generic`, Docker 29.9.3, Compose v5.7.1 ; plus de redémarrage requis ;
+  - les quatre conteneurs `Up`, dont l'API, la base et Redis en `healthy` ; docker et nginx `active` ; `https://edulinkage.com/` répond 200 ;
+  - les cinq minuteries `edusphere-*` sont programmées, et le rapprochement des paiements s'est exécuté à 21:50.
