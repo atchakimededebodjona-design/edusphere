@@ -312,7 +312,7 @@ async def _confirm(
     payment.status = PAYMENT_STATUS_SUCCEEDED
     payment.confirmed_at = now
     await db.flush()
-    period = await _mark_paid_and_create_period(db, school, invoice, now)
+    period = await _mark_paid_and_create_period(db, school, invoice, payment, now)
     await audit_service.record_audit_event(
         db,
         school_id=invoice.school_id,

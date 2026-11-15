@@ -315,6 +315,29 @@ SUBSCRIPTION_PLATFORM_ROLE_PERMISSIONS: dict[str, list[str]] = {
 }
 
 PLATFORM_SUBSCRIPTIONS_READ_DESCRIPTION = "Consulter les abonnements des écoles (états, factures, grilles de prix)"
+
+# --- Commissions des partenaires (migration 0031, décisions du 2026-11-15) ---------------------
+# `platform.commissions.read` et `partner.commissions.read` existent depuis 0023 (PR17, réservées) ;
+# seules leurs descriptions changent (anciennes restaurées au downgrade). Nouvelle permission de
+# gestion : versement manuel, annulation, taux de chaque partenaire.
+COMMISSION_PLATFORM_PERMISSIONS: dict[str, str] = {
+    "platform.commissions.manage": "Gérer les commissions des partenaires (versements, annulations, taux par partenaire)",
+}
+COMMISSION_PLATFORM_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": list(COMMISSION_PLATFORM_PERMISSIONS.keys()),
+    "PLATFORM_OWNER": list(COMMISSION_PLATFORM_PERMISSIONS.keys()),
+}
+COMMISSION_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    # code: (nouvelle description, description antérieure restaurée au downgrade)
+    "platform.commissions.read": (
+        "Consulter les commissions des partenaires (dues, versées, annulées)",
+        "Consulter les commissions dues aux partenaires (réservé PR #18, aucun endpoint dans cette PR)",
+    ),
+    "partner.commissions.read": (
+        "Consulter ses propres commissions de partenaire",
+        "Consulter les commissions de ce partenaire (réservé PR #18, aucun endpoint dans cette PR)",
+    ),
+}
 PLATFORM_SUBSCRIPTIONS_READ_PREVIOUS_DESCRIPTION = (
     "Consulter les abonnements SaaS des organisations (réservé PR #18, aucun endpoint dans cette PR)"
 )

@@ -42,6 +42,10 @@ ACTION_SUBSCRIPTION_PAYMENT_ONLINE_INITIATED = "subscription_payment.online_init
 ACTION_SUBSCRIPTION_PAYMENT_CONFIRMED = "subscription_payment.confirmed"
 ACTION_SUBSCRIPTION_PAYMENT_FAILED = "subscription_payment.failed"
 ACTION_SUBSCRIPTION_PAYMENT_ANOMALY = "subscription_payment.anomaly"
+# Commissions des partenaires (commissions/service.py, migration 0031).
+ACTION_PARTNER_COMMISSION_ACCRUED = "partner_commission.accrued"
+ACTION_PARTNER_COMMISSION_PAID = "partner_commission.paid"
+ACTION_PARTNER_COMMISSION_CANCELLED = "partner_commission.cancelled"
 
 ENTITY_PAYMENT = "Payment"
 ENTITY_STUDENT_FEE = "StudentFee"
@@ -55,6 +59,7 @@ ENTITY_CASH_COUNT = "CashCount"
 ENTITY_SUBSCRIPTION_INVOICE = "SubscriptionInvoice"
 ENTITY_SUBSCRIPTION_PAYMENT = "SubscriptionPayment"
 ENTITY_SUBSCRIPTION_PERIOD = "SchoolSubscriptionPeriod"
+ENTITY_PARTNER_COMMISSION = "PartnerCommission"
 
 
 async def record_audit_event(

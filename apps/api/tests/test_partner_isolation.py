@@ -13,7 +13,12 @@ from app.core.permissions import get_all_permission_codes, get_scoped_permission
 from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.db.session import AsyncSessionLocal
 from app.modules.rbac.models import Role, UserRole
-from app.modules.rbac.seed import PR17_PARTNER_PERMISSIONS, PR17_PLATFORM_PERMISSIONS, SUBSCRIPTION_PLATFORM_PERMISSIONS
+from app.modules.rbac.seed import (
+    COMMISSION_PLATFORM_PERMISSIONS,
+    PR17_PARTNER_PERMISSIONS,
+    PR17_PLATFORM_PERMISSIONS,
+    SUBSCRIPTION_PLATFORM_PERMISSIONS,
+)
 from app.modules.users.models import User
 from tests.conftest import assign_role, register_school, unique_email
 from tests.pr17_helpers import (
@@ -355,7 +360,9 @@ async def test_school_admin_sees_own_enrollment_row_only(client: AsyncClient) ->
 
 # Phase 29, lot A : PLATFORM_OWNER reçoit aussi `platform.subscriptions.manage` (toujours un code
 # `platform.*`, jamais du domaine scolaire — vérifié ci-dessous).
-PLATFORM_OWNER_PERMISSIONS = set(PR17_PLATFORM_PERMISSIONS) | set(SUBSCRIPTION_PLATFORM_PERMISSIONS)
+PLATFORM_OWNER_PERMISSIONS = (
+    set(PR17_PLATFORM_PERMISSIONS) | set(SUBSCRIPTION_PLATFORM_PERMISSIONS) | set(COMMISSION_PLATFORM_PERMISSIONS)
+)
 
 
 # === C.6 — permissions strictement disjointes ==============================================================

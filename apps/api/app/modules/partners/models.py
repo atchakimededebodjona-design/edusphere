@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
+from decimal import Decimal
+
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,7 +32,10 @@ class Partner(Base):
     """
 
     __tablename__ = "partners"
-    __table_args__ = (UniqueConstraint("user_id", name="uq_partners_user_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_partners_user_id"),
+        CheckConstraint("commission_rate >= 0 AND commission_rate <= 100", name="ck_partners_commission_rate"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -40,6 +45,16 @@ class Partner(Base):
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=PARTNER_STATUS_ACTIVE)
+    # Commissions (migration 0031) : taux (% du HT des abonnements payés par ses écoles), 20 par
+    # défaut, modifiable par la plateforme ; FIGÉ sur chaque commission à sa création. Pas d'entrée
+    # d'audit possible (`audit_logs` exige une école) : la modification est tracée ici.
+    commission_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("20"), server_default="20"
+    )
+    commission_rate_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    commission_rate_updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -56,8 +71,8 @@ class PartnerSchoolEnrollment(Base):
       école inscrite via un partenaire (POST /partner/schools), `partner_id` toujours dérivé côté
       serveur du compte appelant, jamais fourni par le client.
 
-    `commission_eligible` n'est qu'un drapeau : AUCUN montant de commission n'est calculé ni
-    stocké dans cette PR (moteur financier différé à la PR #18).
+    `commission_eligible` : seule une école éligible ouvre droit à commission
+    (commissions/service.py, migration 0031).
 
     RLS : policy générique `{table}_tenant_isolation` (organization_id), comme toute table tenant.
     """

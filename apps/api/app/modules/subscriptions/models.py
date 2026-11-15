@@ -235,6 +235,7 @@ class SubscriptionInvoice(Base):
             "AND cancel_reason IS NOT NULL AND length(btrim(cancel_reason)) > 0)",
             name="ck_subscription_invoice_cancel_traced",
         ),
+        CheckConstraint("vat_rate IS NULL OR (vat_rate >= 0 AND vat_rate <= 100)", name="ck_subscription_invoice_vat_rate"),
         UniqueConstraint("number", name="uq_subscription_invoices_number"),
         UniqueConstraint("school_id", "idempotency_key", name="uq_subscription_invoices_idempotency"),
         Index(
@@ -265,6 +266,9 @@ class SubscriptionInvoice(Base):
     base_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     supplement_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     total_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Taux de TVA (%) figé à l'émission (migration 0031) ; NULL : facture antérieure ou sans TVA.
+    # Les montants sont TTC ; le HT se déduit avec `pricing.amount_excl_vat`.
+    vat_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default=SUBSCRIPTION_CURRENCY)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(

@@ -19,7 +19,7 @@ import calendar
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 PERIOD_MONTHS: tuple[int, ...] = (3, 6, 12)
 FREE_QUARTER_MONTHS = 3
@@ -90,6 +90,14 @@ def supplement_for(student_count: int, supplements: Mapping[int, Decimal]) -> De
     if last_tier is None or per_step is None:
         return None
     return last_tier + steps_above_threshold(student_count) * per_step
+
+
+def amount_excl_vat(total_incl_vat: Decimal, vat_rate: Decimal | None) -> Decimal:
+    """Montant HT d'un total TTC au taux de TVA figé sur la facture, arrondi au franc. Sans taux
+    (facture antérieure à la TVA, ou TVA non applicable) : le total est déjà le HT."""
+    if not vat_rate:
+        return Decimal(total_incl_vat)
+    return (Decimal(total_incl_vat) * 100 / (100 + Decimal(vat_rate))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
 def is_whole_amount(amount: Decimal) -> bool:

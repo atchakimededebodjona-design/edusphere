@@ -49,6 +49,7 @@ const PLATFORM_NAV_ITEMS: NavItem[] = [
   { href: "/platform/schools", label: "Établissements", permission: "platform.schools.read" },
   { href: "/platform/accounts", label: "Comptes", permission: "platform.accounts.read" },
   { href: "/platform/partners", label: "Partenaires", permission: "platform.partners.read" },
+  { href: "/platform/commissions", label: "Commissions", permission: "platform.commissions.read" },
   // Phase 29, lot A — abonnements des écoles.
   { href: "/platform/subscriptions", label: "Abonnements", permission: "platform.subscriptions.read" },
   { href: "/platform/subscription-invoices", label: "Factures d'abonnement", permission: "platform.subscriptions.read" },
@@ -59,6 +60,7 @@ const PARTNER_NAV_ITEMS: NavItem[] = [
   { href: "/partner", label: "Tableau de bord", permission: "partner.dashboard.read" },
   { href: "/partner/schools", label: "Mes écoles", permission: "partner.schools.read" },
   { href: "/partner/accounts", label: "Comptes", permission: "partner.accounts.read" },
+  { href: "/partner/commissions", label: "Mes commissions", permission: "partner.commissions.read" },
 ];
 
 export function Nav() {

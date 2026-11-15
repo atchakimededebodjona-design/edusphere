@@ -1,5 +1,6 @@
 import re
 import uuid
+from decimal import Decimal
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -142,6 +143,8 @@ class PlatformPartnerOut(BaseModel):
     status: str
     created_at: datetime
     enrollment_count: int
+    # Commissions (migration 0031) : % du HT des abonnements payés par ses écoles.
+    commission_rate: Decimal
 
 
 class PlatformPartnerCreate(BaseModel):

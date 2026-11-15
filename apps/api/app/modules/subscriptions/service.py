@@ -29,6 +29,7 @@ from app.core.config import settings
 from app.core.tenancy import apply_tenant_context
 from app.modules.audit import service as audit_service
 from app.modules.cash.service import school_today
+from app.modules.commissions import service as commissions_service
 from app.modules.platform.service import student_counts_by_school
 from app.modules.report_cards.service import html_to_pdf
 from app.modules.schools.models import School
@@ -345,6 +346,8 @@ def _issue(invoice: SubscriptionInvoice, number: str, total: Decimal, now: datet
     invoice.issued_at = now
     invoice.expires_at = now + timedelta(days=settings.subscription_invoice_validity_days)
     invoice.status = INVOICE_STATUS_ISSUED
+    # Taux de TVA figé à l'émission : un changement de taux ne modifie jamais une facture émise.
+    invoice.vat_rate = settings.subscription_vat_rate
 
 
 async def create_invoice(db: AsyncSession, school: School, user: User, payload: InvoiceCreate) -> SubscriptionInvoice:
@@ -502,12 +505,13 @@ def _new_payment_identifier() -> str:
 
 
 async def _mark_paid_and_create_period(
-    db: AsyncSession, school: School, invoice: SubscriptionInvoice, now: datetime
+    db: AsyncSession, school: School, invoice: SubscriptionInvoice, payment: SubscriptionPayment, now: datetime
 ) -> SchoolSubscriptionPeriod:
-    """Point UNIQUE de confirmation d'un paiement (paiement manuel ici, PayGate au lot B) : facture
-    `PAID` et création de LA période, sous le verrou de l'école déjà pris par l'appelant. Début :
-    aujourd'hui, ou le lendemain de la dernière période existante (continuité, trimestre gratuit
-    compris)."""
+    """Point UNIQUE de confirmation d'un paiement (paiement manuel, ou Mobile Money confirmé au
+    lot B) : facture `PAID`, création de LA période et, le cas échéant, de la commission du
+    partenaire de l'école, sous le verrou de l'école déjà pris par l'appelant. Début de la
+    période : aujourd'hui, ou le lendemain de la dernière période existante (continuité,
+    trimestre gratuit compris)."""
     periods = await school_periods(db, school.id)
     start = pricing.next_period_start(spans(periods), school_today(school, now))
     period = SchoolSubscriptionPeriod(
@@ -523,6 +527,7 @@ async def _mark_paid_and_create_period(
     invoice.paid_at = now
     db.add(period)
     await db.flush()
+    await commissions_service.accrue_for_paid_invoice(db, school, invoice, payment, now)
     return period
 
 
@@ -594,7 +599,7 @@ async def record_manual_payment(
     )
     db.add(payment)
     await db.flush()
-    period = await _mark_paid_and_create_period(db, school, invoice, now)
+    period = await _mark_paid_and_create_period(db, school, invoice, payment, now)
     await audit_service.record_audit_event(
         db,
         school_id=invoice.school_id,

@@ -201,6 +201,7 @@ def _partner_out(partner: Partner, enrollment_count: int) -> PlatformPartnerOut:
         status=partner.status,
         created_at=partner.created_at,
         enrollment_count=enrollment_count,
+        commission_rate=partner.commission_rate,
     )
 
 
