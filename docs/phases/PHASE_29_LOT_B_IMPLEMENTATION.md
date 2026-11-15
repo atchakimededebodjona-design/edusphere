@@ -3,7 +3,7 @@
 - **Cadrage** : `docs/phases/PHASE_29_SCHOOL_SUBSCRIPTIONS_DISCOVERY.md`, §4, §5.5, §5.8, §9 à §15.
 - **Source PayGate** : guide d'intégration du tableau de bord marchand, transmis le 2026-11-15 **sans la clé API**.
 - **Branche** : `feat/school-subscriptions-lot-b`, partie de `main` (`01c1a1c`). Les lots A et C sont en production depuis le 2026-11-13.
-- **Statut** : code écrit et testé localement (§6). La mise en service se fait coupe-circuit **inactif**, puis il est activé après un vrai paiement test (§8).
+- **Statut** : **en production depuis le 2026-11-15** (`143a29c`, migration `0029`). Paiement en ligne activé et premier paiement réel réussi (T-Money, 100 FCFA, confirmé en 19 secondes). Journal : §9.
 
 ## 1. Ce que le guide a tranché
 
@@ -141,7 +141,7 @@ Le 2026-11-15, sur la même base locale (migration `0029` appliquée), **55 test
 
 La suite complète tourne dans la CI GitHub.
 
-## 7. À confirmer par le premier paiement réel
+## 7. À confirmer par le premier paiement réel (confirmé le 2026-11-15, voir §9)
 
 Il n'existe ni environnement de test PayGate ni remboursement par l'API (cadrage §15). Le premier paiement réel, d'un petit montant, confirme :
 1. que PayGate accepte `phone_number` sur 8 chiffres ;
@@ -196,3 +196,38 @@ Il n'existe ni environnement de test PayGate ni remboursement par l'API (cadrage
 8. **En cas de problème** :
    - remettre `SUBSCRIPTION_ONLINE_PAYMENT_ENABLED=false`, puis `docker compose up -d api`. Le paiement manuel reste toujours disponible, et les tentatives en cours reprendront à la réactivation ;
    - une anomalie se règle depuis le tableau de bord PayGate (remboursement manuel), avec une trace dans le journal d'audit.
+
+## 9. Journal de mise en service (2026-11-15)
+
+Exécuté par l'exploitant depuis la console web de l'hébergeur (`root`, `srv1965166`). Chaque sortie
+a été relue avant l'étape suivante.
+
+| Étape | Heure (UTC) | Constat |
+|---|---|---|
+| 1. Code et images | 13:40 | `3c6796a` → `143a29c` en avance rapide. Images de retour arrière : `edusphere-api:avant-lot-b` (`27649fa17932`) et `edusphere-web:avant-lot-b` (`e29274add7ef`). Construction : code 0. |
+| CI | 13:56 | Verte sur `143a29c`, comme sur la PR #32. |
+| Profil PayGate | 13:57 | « Callback URL » : `https://api.edulinkage.com/api/v1/payment-providers/paygate/callback`. Callback des décaissements laissée vide. |
+| 2. Coupure | 13:58–13:59 | Sauvegarde `edulinkage_20261115T135835Z.dump` (356 Ko, intégrité vérifiée). `0028` → `0029` : code 0. `phase29b-postcheck.sql` : 7 lignes OK sur 7. `/health` et `/ready` à `ok`. |
+| 3. Tâche | 13:59 | Rapprochement installé, toutes les 5 minutes. Premier passage : « paiement en ligne désactivé — rien à faire », code 0. |
+| Contrôle externe | 14:00 | Notification : `405` en GET (la route existe, POST seulement). Suivi d'un paiement : `401`. Page Abonnement : `200`. |
+| 4. Clé et activation | 14:10 | Clé saisie masquée (`read -s`) par l'exploitant, jamais affichée. `SUBSCRIPTION_ONLINE_PAYMENT_ENABLED=true`, `PAYMENT_ONLINE_PROVIDER=paygate`. API `healthy`. |
+| 5. Paiement test | 14:22–14:23 | Grille temporaire `TEST paiement Mobile Money - a archiver` (3 mois : 100 FCFA). Facture `EL-2026-000001`, école de test « Complexe scolaire EDULINKAGE », 3 mois, 100 FCFA. Paiement T-Money (numéro se terminant par 4635) demandé à 14:22:41. Notification reçue à 14:23:00.548 depuis `34.237.72.183` (`CHECK_SCHEDULED`, montant déclaré `100.0`). Confirmation à 14:23:00.586 : `SUCCEEDED`, code `0`, `tx_reference` `8387643`, référence T-Money `20632528894`. Facture `PAID`, période payée du 13/02/2027 au 12/05/2027. |
+| Archivage | après 14:23 | Grille de test archivée par SQL. 0 grille active. Une seule facture émise pendant la fenêtre : celle de l'école de test. |
+
+**Points du §7 confirmés :**
+1. PayGate accepte `phone_number` sur 8 chiffres.
+2. La réponse de `/api/v1/pay` est interprétée comme acceptée (code `0`), et la tentative est passée en attente.
+3. **La notification est envoyée aussi pour la méthode directe**, en JSON, avec `amount` sous la forme `"100.0"`. La confirmation a été déclenchée par cette notification ; la tâche de rapprochement reste le filet de sécurité.
+4. Facture payée, période, reçu et notification « Abonnement payé » sont en place.
+
+**Reste à vérifier par l'exploitant :**
+- le crédit sur le solde T-Money du tableau de bord PayGate, net des frais (3 %), pour la transaction `8387643` ;
+- le reçu PDF, qui doit afficher la référence `20632528894`.
+
+**Écart de procédure.** La grille de test est restée active plus longtemps que prévu : le paiement a été fait avant l'archivage. L'archivage a ensuite montré qu'aucune autre facture n'avait été émise.
+
+**Suites :**
+- activer la grille réelle quand ses montants seront décidés, et au plus tard le 2027-01-13 ;
+- supprimer les images `avant-lot-b` et `avant-phase29` après deux semaines sans incident ;
+- améliorer le formulaire de grille, qui affiche des messages de validation techniques, en anglais, pour une case vide ;
+- déclarer l'adresse IP du serveur dans le profil PayGate est **facultatif**. Ce serait à faire avec un nouveau paiement test, car une erreur bloquerait tous les paiements.
