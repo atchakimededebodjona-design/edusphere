@@ -2,7 +2,8 @@
 
 - **Décision** : 2026-11-15. L'exploitant restitue la grille validée le 2026-11-09 et choisit d'activer d'abord une grille provisoire, puis d'adapter le code.
 - **Branche** : `feat/subscriptions-progressive-grid`, partie de `main` (`143a29c`).
-- **Grille provisoire active depuis le 2026-11-15** : « Grille EduLinkage 2026-11 (501-1000 provisoire) ». Elle est exacte jusqu'à 750 élèves ; elle facture 751 à 1 000 élèves au prix de 501 à 750, et place au-delà de 1 000 élèves en devis.
+- **Statut** : **en production depuis le 2026-11-15** (`0367a71`, migration `0030`). La grille complète « Grille EduLinkage 2026-11 complète » est active, et la grille provisoire est archivée. Journal : §6.
+- **Grille provisoire** (active du 2026-11-15 jusqu'à la mise en service) : « Grille EduLinkage 2026-11 (501-1000 provisoire) ». Elle était exacte jusqu'à 750 élèves, facturait 751 à 1 000 élèves au prix de 501 à 750, et plaçait au-delà de 1 000 élèves en devis.
 
 ## 1. La grille validée le 2026-11-09
 
@@ -97,3 +98,16 @@ Elle suit la même procédure que le lot B (`PHASE_29_LOT_B_IMPLEMENTATION.md`, 
    - vérifier la grille, puis l'**activer**. La grille provisoire est alors archivée.
 
    Entre les étapes 2 et 3, une école de 751 à 1 000 élèves ne pourrait pas émettre de facture (409, « pas de prix »). Aucune n'existe aujourd'hui.
+
+## 6. Journal de mise en service (2026-11-15)
+
+Exécuté par l'exploitant depuis la console web de l'hébergeur (`root`, `srv1965166`), selon le §5.
+
+| Étape | Heure (UTC) | Constat |
+|---|---|---|
+| CI | 15:46, puis vers 16:15 | Verte sur la PR #33 (`214ec3d`), puis sur `main` (`0367a71`). |
+| 1. Code et images | 16:05 | `143a29c` → `0367a71` en avance rapide. Images de retour arrière : `edusphere-api:avant-grille` (`1edba8e76f65`) et `edusphere-web:avant-grille` (`fd831e4822b3`). Construction : code 0. |
+| 2. Coupure | 16:18 | Sauvegarde `edulinkage_20261115T161825Z.dump` (364 Ko, intégrité vérifiée). `0029` → `0030` : code 0. Contrainte `CHECK (((tier >= 0) AND (tier <= 5)))`. API `healthy`, `/health` et `/ready` à `ok`. Paiement en ligne toujours actif (`true`, `paygate`). |
+| 3. Grille complète | après 16:20 | Nouvelle grille préremplie depuis la grille active, libellé « Grille EduLinkage 2026-11 complète ». Les 18 montants du §3 ont été vérifiés sur capture avant activation. Après activation, la grille provisoire est archivée. Page Abonnement de l'école de test : « tranche 1 à 100 élèves (forfait de base) », offres à 30 000, 57 000 et 108 000 FCFA. |
+
+Le nouvel écran a signalé les cases manquantes en français, comme prévu.
