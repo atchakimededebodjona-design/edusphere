@@ -3,6 +3,7 @@
 - **Demande** : 2026-11-15, « mentions légales et TVA des reçus ».
 - **Branche** : `feat/subscription-receipt-legal`, partie de `main` (`de6b86a`).
 - **Migration** : aucune. Le taux de TVA est déjà figé sur chaque facture (`subscription_invoices.vat_rate`, migration `0031`).
+- **Statut** : **en production depuis le 2026-11-15** (`465de4e`, PR #36). Journal : §6.
 
 ## 1. Décisions (2026-11-15)
 
@@ -67,6 +68,18 @@ Sans migration ni coupure : seule l'API redémarre, quelques secondes. Dans la c
 
 ## 5. À faire valider par un comptable
 
-- Le régime fiscal en vigueur : la carte unique date de 2020 et a expiré le 2025-07-23. Un passage au régime réel avec TVA demanderait de remettre `SUBSCRIPTION_VAT_RATE` et une grille TTC au même moment, comme dans `PHASE_30_PARTNER_COMMISSIONS.md`, §4.
+- Le régime fiscal en vigueur, la carte unique de création d'entreprise étant à renouveler. Un passage au régime réel avec TVA demanderait de remettre `SUBSCRIPTION_VAT_RATE` et une grille TTC au même moment, comme dans `PHASE_30_PARTNER_COMMISSIONS.md`, §4.
 - Le contenu du reçu, et la délivrance de la facture normalisée (vignette de l'OTR) à chaque paiement ou sur demande.
 - L'adéquation des activités déclarées au registre avec la vente d'abonnements à un logiciel en ligne.
+
+## 6. Journal de mise en service (2026-11-15, soir)
+
+Exécuté par l'exploitant depuis la console web de l'hébergeur (`root`, `srv1965166`), après la fusion de la PR #36 (21:14 UTC), dont la CI était verte.
+
+| Étape | Constat |
+|---|---|
+| Retrait de la TVA | Grille « 2026-11 HT (TPU) » activée. `SUBSCRIPTION_VAT_RATE` vidé et lignes `BILLING_*` ajoutées au `.env` (les valeurs restent sur le serveur), puis redémarrage de l'API, encore en `de6b86a` : `healthy`, taux de TVA `None`, aucune facture émise dans les trois heures précédentes. Détail : `PHASE_30_PARTNER_COMMISSIONS.md`, §6. |
+| Code et image | `de6b86a` → `465de4e` en avance rapide. Image de retour arrière : `edusphere-api:avant-recus`. Construction : code 0. API redémarrée : `healthy` ; les réglages `BILLING_*` sont lus, et le taux de TVA vaut `None`. |
+| Vérification | Le reçu PDF de `EL-2026-000001`, téléchargé depuis l'espace plateforme, porte la raison sociale, la forme juridique, l'adresse, le NIF, le RCCM, « Régime fiscal : TPU », le téléphone et l'e-mail. Il porte aussi le bloc client de l'école, les montants sans aucune mention de TVA, le paiement T-Money avec ses références et la mention de la facture normalisée. |
+
+Images de retour arrière présentes sur le serveur : `avant-phase29`, `avant-lot-b`, `avant-grille`, `avant-commissions` et `avant-recus`, à supprimer vers le 2026-11-29 si aucun incident.
