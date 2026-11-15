@@ -13,6 +13,8 @@ from app.modules.subscriptions.pricing import PeriodSpan
 
 
 def test_tier_boundaries_follow_the_november_9_grid() -> None:
+    # Bornes de la grille validée le 2026-11-09 (mise en œuvre complète le 2026-11-15) : 501 à 750 et
+    # 751 à 1 000 sont deux tranches distinctes ; au-delà de 1 000 élèves, tranche progressive.
     expected = {
         0: 0,
         1: 0,
@@ -22,12 +24,76 @@ def test_tier_boundaries_follow_the_november_9_grid() -> None:
         251: 2,
         500: 2,
         501: 3,
-        1000: 3,
-        1001: None,
-        5000: None,
+        750: 3,
+        751: 4,
+        1000: 4,
+        1001: pricing.STEP_TIER,
+        5000: pricing.STEP_TIER,
     }
     for count, tier in expected.items():
         assert pricing.tier_for_student_count(count) == tier, count
+
+
+def test_steps_above_one_thousand_students() -> None:
+    expected = {0: 0, 1000: 0, 1001: 1, 1250: 1, 1251: 2, 1500: 2, 1501: 3, 1750: 3, 1751: 4, 2000: 4, 2001: 5}
+    for count, steps in expected.items():
+        assert pricing.steps_above_threshold(count) == steps, count
+
+
+# Grille validée le 2026-11-09, telle que restituée par l'utilisateur le 2026-11-15 (montants en FCFA) :
+# trimestriel par tranche ; semestriel = trimestriel × 2 × 95 % ; annuel = trimestriel × 4 × 90 % ;
+# au-delà de 1 750 élèves, +25 000 F par tranche de 250 élèves sur le trimestriel.
+VALIDATED_GRID = [
+    # (élèves, trimestriel, semestriel, annuel)
+    (1, 30000, 57000, 108000),
+    (100, 30000, 57000, 108000),
+    (101, 40000, 76000, 144000),
+    (250, 40000, 76000, 144000),
+    (251, 55000, 104500, 198000),
+    (500, 55000, 104500, 198000),
+    (501, 75000, 142500, 270000),
+    (750, 75000, 142500, 270000),
+    (751, 100000, 190000, 360000),
+    (1000, 100000, 190000, 360000),
+    (1001, 125000, 237500, 450000),
+    (1250, 125000, 237500, 450000),
+    (1251, 150000, 285000, 540000),
+    (1500, 150000, 285000, 540000),
+    (1501, 175000, 332500, 630000),
+    (1750, 175000, 332500, 630000),
+    # Exemples de la règle au-delà de 1 750 élèves.
+    (1751, 200000, 380000, 720000),
+    (2001, 225000, 427500, 810000),
+    (2251, 250000, 475000, 900000),
+]
+# Saisie de cette grille dans le modèle « forfait de base + supplément » (écran Grille tarifaire).
+VALIDATED_BASES = {3: Decimal("30000"), 6: Decimal("57000"), 12: Decimal("108000")}
+VALIDATED_SUPPLEMENTS = {
+    3: {0: Decimal("0"), 1: Decimal("10000"), 2: Decimal("25000"), 3: Decimal("45000"), 4: Decimal("70000"), pricing.STEP_TIER: Decimal("25000")},
+    6: {0: Decimal("0"), 1: Decimal("19000"), 2: Decimal("47500"), 3: Decimal("85500"), 4: Decimal("133000"), pricing.STEP_TIER: Decimal("47500")},
+    12: {0: Decimal("0"), 1: Decimal("36000"), 2: Decimal("90000"), 3: Decimal("162000"), 4: Decimal("252000"), pricing.STEP_TIER: Decimal("90000")},
+}
+
+
+def test_the_validated_grid_is_reproduced_exactly() -> None:
+    for students, *totals in VALIDATED_GRID:
+        for months, total in zip((3, 6, 12), totals):
+            supplement = pricing.supplement_for(students, VALIDATED_SUPPLEMENTS[months])
+            assert supplement is not None, (students, months)
+            assert VALIDATED_BASES[months] + supplement == Decimal(total), (students, months)
+    # Les remises du 9 novembre (5 % et 10 %) s'appliquent à chaque tranche, palier compris.
+    for students, quarter, half_year, year in VALIDATED_GRID:
+        assert half_year == quarter * 2 * 95 // 100 and year == quarter * 4 * 90 // 100, students
+
+
+def test_without_a_step_line_there_is_no_price_above_one_thousand_students() -> None:
+    no_step = {tier: amount for tier, amount in VALIDATED_SUPPLEMENTS[3].items() if tier != pricing.STEP_TIER}
+    assert pricing.supplement_for(1000, no_step) == Decimal("70000")
+    assert pricing.supplement_for(1001, no_step) is None
+    # Grille antérieure au 2026-11-15 (tranches 0 à 3) : pas de prix pour 751 à 1 000 élèves.
+    old_grid = {tier: amount for tier, amount in no_step.items() if tier <= 3}
+    assert pricing.supplement_for(750, old_grid) == Decimal("45000")
+    assert pricing.supplement_for(751, old_grid) is None
 
 
 def test_negative_student_count_is_rejected() -> None:

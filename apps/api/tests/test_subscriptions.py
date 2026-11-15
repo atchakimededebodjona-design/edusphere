@@ -27,10 +27,13 @@ from tests.test_fees import _create_user_with_role
 API = "/api/v1"
 BASES = {3: 30000, 6: 55000, 12: 100000}
 SUPPLEMENTS = {3: (10000, 20000, 30000), 6: (18000, 36000, 54000), 12: (35000, 70000, 105000)}
+# Tranche 4 (751 à 1 000 élèves) et palier de 250 élèves au-delà de 1 000 (grille complète, 2026-11-15).
+TIER_4 = {3: 40000, 6: 72000, 12: 140000}
+STEPS = {3: 25000, 6: 47500, 12: 90000}
 
 
 # --- Helpers -----------------------------------------------------------------------------------
-def _grid_payload(label: str = "Grille test", base_delta: int = 0) -> dict:
+def _grid_payload(label: str = "Grille test", base_delta: int = 0, with_step: bool = True) -> dict:
     return {
         "label": label,
         "periods": [
@@ -40,6 +43,8 @@ def _grid_payload(label: str = "Grille test", base_delta: int = 0) -> dict:
                 "supplement_tier_1": str(SUPPLEMENTS[months][0]),
                 "supplement_tier_2": str(SUPPLEMENTS[months][1]),
                 "supplement_tier_3": str(SUPPLEMENTS[months][2]),
+                "supplement_tier_4": str(TIER_4[months]),
+                "supplement_step": str(STEPS[months]) if with_step else None,
             }
             for months in (3, 6, 12)
         ],
@@ -50,8 +55,10 @@ async def _owner(client: AsyncClient, prefix: str) -> dict:
     return await create_platform_owner(client, prefix)
 
 
-async def _active_grid(client: AsyncClient, owner_headers: dict, base_delta: int = 0) -> dict:
-    created = await client.post(f"{API}/platform/subscription-grids", json=_grid_payload(base_delta=base_delta), headers=owner_headers)
+async def _active_grid(client: AsyncClient, owner_headers: dict, base_delta: int = 0, with_step: bool = True) -> dict:
+    created = await client.post(
+        f"{API}/platform/subscription-grids", json=_grid_payload(base_delta=base_delta, with_step=with_step), headers=owner_headers
+    )
     assert created.status_code == 201, created.text
     activated = await client.post(f"{API}/platform/subscription-grids/{created.json()['id']}/activate", headers=owner_headers)
     assert activated.status_code == 200, activated.text
@@ -169,6 +176,16 @@ async def test_grid_validation_rejects_incomplete_or_fractional_prices(client: A
     zero_base = _grid_payload()
     zero_base["periods"][0]["base_amount"] = "0"
     assert (await client.post(f"{API}/platform/subscription-grids", json=zero_base, headers=owner["headers"])).status_code == 422
+    # Grille complète (2026-11-15) : tranche 751 à 1 000 obligatoire, palier pour les trois durées ou aucune.
+    no_tier_4 = _grid_payload()
+    no_tier_4["periods"][1]["supplement_tier_4"] = None
+    assert (await client.post(f"{API}/platform/subscription-grids", json=no_tier_4, headers=owner["headers"])).status_code == 422
+    partial_step = _grid_payload()
+    partial_step["periods"][2]["supplement_step"] = None
+    assert (await client.post(f"{API}/platform/subscription-grids", json=partial_step, headers=owner["headers"])).status_code == 422
+    without_step = await client.post(f"{API}/platform/subscription-grids", json=_grid_payload(with_step=False), headers=owner["headers"])
+    assert without_step.status_code == 201, without_step.text
+    assert all(period["supplement_step"] is None for period in without_step.json()["periods"])
 
 
 # --- Émission de facture -----------------------------------------------------------------------
@@ -257,7 +274,8 @@ async def test_concurrent_invoice_requests_create_a_single_invoice(client: Async
 # --- Devis au-delà de 1 000 élèves --------------------------------------------------------------
 async def test_quote_required_above_one_thousand_students(client: AsyncClient) -> None:
     owner = await _owner(client, "subquote")
-    await _active_grid(client, owner["headers"])
+    # Grille SANS palier au-delà de 1 000 élèves : la facture passe en devis (lot A).
+    await _active_grid(client, owner["headers"], with_step=False)
     data = await _school(client, "subquote")
     await _add_students(data, 1001)
     preview = await _subscription(client, data)
@@ -280,6 +298,34 @@ async def test_quote_required_above_one_thousand_students(client: AsyncClient) -
     assert paid.status_code == 201 and paid.json()["status"] == "PAID"
     actions = await _audit_actions(data["school"]["id"])
     assert "subscription_invoice.quote_requested" in actions and "subscription_invoice.quote_set" in actions
+
+
+async def test_progressive_price_above_one_thousand_students(client: AsyncClient) -> None:
+    """Grille complète validée le 2026-11-09 : 751 à 1 000 élèves = tranche 4 ; au-delà, supplément
+    de la tranche 4 plus un supplément par palier de 250 élèves commencé, sans devis."""
+    owner = await _owner(client, "subprog")
+    await _active_grid(client, owner["headers"])
+    middle = await _school(client, "subprogmid")
+    await _add_students(middle, 800)
+    middle_preview = await _subscription(client, middle)
+    assert middle_preview["tier"] == 4 and middle_preview["quote_required"] is False
+    assert {o["period_months"]: float(o["total_amount"]) for o in middle_preview["offers"]} == {
+        m: BASES[m] + TIER_4[m] for m in (3, 6, 12)
+    }
+
+    large = await _school(client, "subproglarge")
+    await _add_students(large, 1251)  # 2 paliers de 250 élèves commencés au-delà de 1 000
+    preview = await _subscription(client, large)
+    assert preview["tier"] == pricing.STEP_TIER and preview["quote_required"] is False
+    expected = {m: BASES[m] + TIER_4[m] + 2 * STEPS[m] for m in (3, 6, 12)}
+    assert {o["period_months"]: float(o["total_amount"]) for o in preview["offers"]} == expected
+
+    created = await _issue(client, large, months=12)
+    assert created.status_code == 201, created.text
+    invoice = created.json()
+    assert invoice["status"] == "ISSUED" and invoice["tier"] == pricing.STEP_TIER and invoice["student_count"] == 1251
+    assert float(invoice["total_amount"]) == expected[12]
+    assert float(invoice["supplement_amount"]) == TIER_4[12] + 2 * STEPS[12]
 
 
 # --- Paiement manuel et périodes ---------------------------------------------------------------

@@ -110,9 +110,13 @@ export type SchoolSubscription = {
 export type GridPeriodPrices = {
   period_months: PeriodMonths;
   base_amount: string;
-  supplement_tier_1: string;
-  supplement_tier_2: string;
-  supplement_tier_3: string;
+  supplement_tier_1: string; // 101 à 250 élèves
+  supplement_tier_2: string; // 251 à 500 élèves
+  supplement_tier_3: string; // 501 à 750 élèves (501 à 1 000 dans les grilles antérieures au 15/11/2026)
+  // 751 à 1 000 élèves : obligatoire à l'enregistrement, absent (null) des grilles antérieures.
+  supplement_tier_4: string | null;
+  // Supplément PAR palier de 250 élèves au-delà de 1 000 ; null = devis au-delà de 1 000 élèves.
+  supplement_step: string | null;
 };
 
 export type PriceGrid = {
@@ -291,6 +295,12 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   EXPIRED: "Sans confirmation",
   ANOMALY: "Anomalie à traiter",
 };
+
+/** Tranche d'effectif (bornes fixées par la grille validée le 9 novembre 2026). */
+export function tierLabel(tier: number): string {
+  const labels = ["1 à 100 élèves (forfait de base)", "101 à 250 élèves", "251 à 500 élèves", "501 à 750 élèves", "751 à 1 000 élèves"];
+  return labels[tier] ?? "au-delà de 1 000 élèves";
+}
 
 export function periodLabel(months: number): string {
   return months === 12 ? "12 mois (annuel)" : months === 6 ? "6 mois (semestriel)" : "3 mois (trimestriel)";

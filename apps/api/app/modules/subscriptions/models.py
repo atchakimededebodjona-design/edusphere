@@ -142,8 +142,10 @@ class SubscriptionPriceGrid(Base):
 
 
 class SubscriptionPriceLine(Base):
-    """Une ligne par couple (durée, tranche) : 3 durées × 4 tranches = 12 lignes par grille.
-    `base_amount` est le forfait de base de la durée (identique pour les 4 tranches d'une même durée,
+    """Une ligne par couple (durée, tranche) : 3 durées × 5 tranches = 15 lignes par grille, plus 3
+    lignes de palier (`tier` 5 : supplément PAR palier de 250 élèves au-delà de 1 000) si la grille
+    chiffre ces effectifs. Les grilles antérieures au 2026-11-15 ont 12 lignes (tranches 0 à 3).
+    `base_amount` est le forfait de base de la durée (identique pour toutes les lignes d'une même durée,
     garanti par le service) ; `supplement_amount` est le supplément de la tranche (0 pour la tranche
     de base, garanti en base)."""
 
@@ -151,7 +153,9 @@ class SubscriptionPriceLine(Base):
     __table_args__ = (
         UniqueConstraint("grid_id", "period_months", "tier", name="uq_subscription_price_line"),
         CheckConstraint("period_months IN (3, 6, 12)", name="ck_subscription_price_line_period"),
-        CheckConstraint("tier BETWEEN 0 AND 3", name="ck_subscription_price_line_tier"),
+        # 0 à 4 : tranches jusqu'à 1 000 élèves ; 5 : supplément par palier de 250 élèves au-delà
+        # (migration 0030 ; les grilles antérieures au 2026-11-15 n'ont que les tranches 0 à 3).
+        CheckConstraint("tier BETWEEN 0 AND 5", name="ck_subscription_price_line_tier"),
         CheckConstraint(
             "base_amount > 0 AND base_amount = trunc(base_amount)", name="ck_subscription_price_line_base_whole"
         ),

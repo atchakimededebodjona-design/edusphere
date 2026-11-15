@@ -38,9 +38,15 @@ def _whole_positive(value: Decimal, *, allow_zero: bool) -> Decimal:
 class GridPeriodPrices(BaseModel):
     period_months: PeriodMonths
     base_amount: Decimal
-    supplement_tier_1: Decimal
-    supplement_tier_2: Decimal
-    supplement_tier_3: Decimal
+    supplement_tier_1: Decimal  # 101 à 250 élèves
+    supplement_tier_2: Decimal  # 251 à 500 élèves
+    supplement_tier_3: Decimal  # 501 à 750 élèves (501 à 1 000 dans les grilles antérieures au 2026-11-15)
+    # 751 à 1 000 élèves : obligatoire pour enregistrer une grille ; absent (None) des grilles
+    # antérieures au 2026-11-15, affichées en lecture seule.
+    supplement_tier_4: Decimal | None = None
+    # Supplément PAR palier de 250 élèves commencé au-delà de 1 000. Facultatif : sans palier, la
+    # facture d'une école de plus de 1 000 élèves passe en devis.
+    supplement_step: Decimal | None = None
 
     @field_validator("base_amount")
     @classmethod
@@ -51,6 +57,11 @@ class GridPeriodPrices(BaseModel):
     @classmethod
     def _supplement(cls, value: Decimal) -> Decimal:
         return _whole_positive(value, allow_zero=True)
+
+    @field_validator("supplement_tier_4", "supplement_step")
+    @classmethod
+    def _optional_supplement(cls, value: Decimal | None) -> Decimal | None:
+        return None if value is None else _whole_positive(value, allow_zero=True)
 
 
 class GridInput(BaseModel):
@@ -70,6 +81,13 @@ class GridInput(BaseModel):
         months = sorted(period.period_months for period in self.periods)
         if months != [3, 6, 12]:
             raise ValueError("La grille doit définir exactement les durées 3, 6 et 12 mois, une fois chacune")
+        if any(period.supplement_tier_4 is None for period in self.periods):
+            raise ValueError("Le supplément de la tranche 751 à 1 000 élèves est obligatoire pour les trois durées")
+        with_step = sum(period.supplement_step is not None for period in self.periods)
+        if with_step not in (0, len(self.periods)):
+            raise ValueError(
+                "Le supplément par palier de 250 élèves au-delà de 1 000 se renseigne pour les trois durées, ou pour aucune"
+            )
         return self
 
 

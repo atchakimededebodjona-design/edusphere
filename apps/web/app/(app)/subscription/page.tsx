@@ -13,6 +13,7 @@ import {
   STATE_LABELS,
   periodLabel,
   schoolSubscription,
+  tierLabel,
   type InvoiceSummary,
   type PeriodMonths,
   type SchoolSubscription,
@@ -132,7 +133,7 @@ export default function SubscriptionPage() {
             <p className="text-sm text-slate-600">
               Effectif actuel : <strong>{sub.active_student_count}</strong> élève
               {sub.active_student_count > 1 ? "s" : ""} actif{sub.active_student_count > 1 ? "s" : ""}
-              {sub.tier !== null && <> — tranche {sub.tier === 0 ? "de base" : sub.tier}</>}. L&apos;effectif et le prix
+              {sub.tier !== null && <> — tranche {tierLabel(sub.tier)}</>}. L&apos;effectif et le prix
               sont figés sur la facture au moment de l&apos;émission.
             </p>
             {sub.quote_required ? (
