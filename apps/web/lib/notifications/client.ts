@@ -9,7 +9,9 @@ export type NotificationType =
   // Phase 29, lot C — rappels d'abonnement des écoles.
   | "SUBSCRIPTION_RENEWAL_DUE"
   | "SUBSCRIPTION_EXPIRED"
-  | "SUBSCRIPTION_INVOICE_DUE";
+  | "SUBSCRIPTION_INVOICE_DUE"
+  // Phase 29, lot B — paiement Mobile Money confirmé.
+  | "SUBSCRIPTION_PAYMENT_CONFIRMED";
 
 export type Notification = {
   id: string;

@@ -14,6 +14,7 @@ const TYPE_LABELS: Record<string, string> = {
   SUBSCRIPTION_RENEWAL_DUE: "Abonnement à renouveler",
   SUBSCRIPTION_EXPIRED: "Abonnement expiré",
   SUBSCRIPTION_INVOICE_DUE: "Facture d'abonnement à régler",
+  SUBSCRIPTION_PAYMENT_CONFIRMED: "Abonnement payé",
 };
 
 export default function NotificationsPage() {

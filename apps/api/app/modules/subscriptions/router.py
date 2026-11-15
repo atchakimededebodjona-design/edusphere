@@ -9,17 +9,26 @@ Côté plateforme (`/platform/subscription*`) : permissions `platform.subscripti
 détenues uniquement par SUPER_ADMIN et PLATFORM_OWNER (rbac/seed.py) — 403 pour tout autre compte,
 indépendamment de ce que le frontend affiche.
 
-Pas de paiement en ligne dans ce lot (PayGate = lot B) : le paiement est enregistré manuellement
-par la plateforme.
+Lot B — paiement Mobile Money (PayGate Global, méthode directe) : lancement et suivi par l'école,
+notification publique de PayGate (non authentifiée, non signée : elle ne fait jamais foi et ne
+déclenche qu'une vérification d'état côté serveur). Voir subscriptions/online_payments.py.
 """
 
+import json
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import parse_qsl
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response, status
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission, require_permission
-from app.modules.subscriptions import service
+from app.core.rate_limit import (
+    ensure_paygate_callback_not_rate_limited,
+    ensure_payments_not_rate_limited,
+    register_paygate_callback_attempt,
+    register_payments_attempt,
+)
+from app.modules.subscriptions import online_payments, service
 from app.modules.subscriptions.schemas import (
     CancelInput,
     GridInput,
@@ -29,6 +38,8 @@ from app.modules.subscriptions.schemas import (
     InvoicesPage,
     InvoiceSummaryOut,
     ManualPaymentInput,
+    OnlinePaymentInput,
+    OnlinePaymentOut,
     PlatformInvoiceOut,
     PlatformSchoolSubscriptionsPage,
     QuoteInput,
@@ -111,6 +122,83 @@ async def download_school_subscription_receipt(invoice_id: uuid.UUID, db: DbSess
         db, current_user, "subscriptions.read", organization_id=school.organization_id, school_id=school.id
     )
     return _pdf_response(*await service.invoice_receipt_pdf(db, invoice))
+
+
+# Lot B — paiement Mobile Money d'une facture émise. Le corps ne porte que le réseau, le numéro du
+# payeur et une clé d'idempotence : le montant est celui de la facture, fixé par le serveur.
+@router.post(
+    "/school-subscription/invoices/{invoice_id}/payments",
+    response_model=OnlinePaymentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def start_school_subscription_online_payment(
+    invoice_id: uuid.UUID, payload: OnlinePaymentInput, db: DbSession, current_user: CurrentUser
+) -> OnlinePaymentOut:
+    invoice = await service.get_invoice_or_404(db, invoice_id)
+    school = await service.get_school_or_404(db, invoice.school_id)
+    await ensure_permission(
+        db, current_user, "subscriptions.pay", organization_id=school.organization_id, school_id=school.id
+    )
+    await ensure_payments_not_rate_limited(current_user.id)
+    await register_payments_attempt(current_user.id)
+    payment = await online_payments.initiate_online_payment(db, invoice_id, current_user, payload)
+    return OnlinePaymentOut.model_validate(payment)
+
+
+# Lot B — état d'une tentative, pour l'écran qui attend la confirmation sur le téléphone. Une
+# tentative en cours est revérifiée auprès de PayGate, au plus une fois toutes les 10 secondes.
+@router.get("/school-subscription/payments/{payment_id}", response_model=OnlinePaymentOut)
+async def get_school_subscription_payment(payment_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> OnlinePaymentOut:
+    payment = await online_payments.get_payment_or_404(db, payment_id)
+    school = await service.get_school_or_404(db, payment.school_id)
+    await ensure_permission(
+        db, current_user, "subscriptions.read", organization_id=school.organization_id, school_id=school.id
+    )
+    checked = await online_payments.check_payment(db, payment_id, user_id=current_user.id, min_interval_seconds=10)
+    return OnlinePaymentOut.model_validate(checked or payment)
+
+
+# --- Notification de PayGate (publique) ----------------------------------------------------------
+CALLBACK_MAX_BODY_BYTES = 8192
+
+
+def _parse_callback_body(body: bytes, content_type: str) -> dict[str, Any] | None:
+    """JSON d'après le guide ; formulaire accepté par prudence. Toute autre forme est invalide."""
+    if not body or len(body) > CALLBACK_MAX_BODY_BYTES:
+        return None
+    try:
+        if "application/x-www-form-urlencoded" in content_type:
+            return dict(parse_qsl(body.decode("utf-8"), keep_blank_values=False))
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _declared_source_ip(request: Request) -> str | None:
+    """Adresse transmise par le proxy, à titre de diagnostic seulement (jamais une vérification)."""
+    real_ip = request.headers.get("x-real-ip")
+    forwarded = request.headers.get("x-forwarded-for")
+    if real_ip:
+        return real_ip.strip()
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+@router.post("/payment-providers/paygate/callback")
+async def paygate_callback(request: Request, background_tasks: BackgroundTasks, db: DbSession) -> dict[str, str]:
+    """Notification de PayGate (« Callback URL » du profil marchand). Réponse toujours identique :
+    elle ne révèle ni l'existence d'un identifiant ni l'état d'un paiement. La vérification d'état
+    s'exécute après la réponse, dans sa propre session."""
+    client_ip = request.client.host if request.client else None
+    await ensure_paygate_callback_not_rate_limited(client_ip)
+    await register_paygate_callback_attempt(client_ip)
+    payload = _parse_callback_body(await request.body(), request.headers.get("content-type", ""))
+    payment_id = await online_payments.record_paygate_callback(db, payload, _declared_source_ip(request))
+    if payment_id is not None:
+        background_tasks.add_task(online_payments.check_payment_in_new_session, payment_id)
+    return {"status": "ok"}
 
 
 # --- Plateforme : grilles de prix --------------------------------------------------------------

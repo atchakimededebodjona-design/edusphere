@@ -148,6 +148,35 @@ class Settings(BaseSettings):
             return None
         return value
 
+    # Paiement en ligne des abonnements (Phase 29, lot B) — PayGate Global, méthode DIRECTE
+    # (`POST /api/v1/pay`) : la redirection et le « Checkout » de PayGate placent la clé API dans
+    # l'URL vue par le navigateur, critère éliminatoire du cadrage (§4.3). Voir
+    # docs/phases/PHASE_29_LOT_B_IMPLEMENTATION.md.
+    #
+    # Coupe-circuit, sur le modèle de SMS_ENABLED : `false` par défaut. Inactif, aucun paiement en
+    # ligne ne peut être lancé (seul le paiement manuel de la plateforme reste possible) et la
+    # tâche de rapprochement ne fait rien.
+    subscription_online_payment_enabled: bool = False
+    # "fake" en développement et en tests (aucun appel réseau) ; "paygate" en production. Refusé
+    # au démarrage en production si le coupe-circuit est actif avec "fake" (validate_production_config).
+    payment_online_provider: str = "fake"
+    # SECRET — clé API PayGate. Uniquement dans l'environnement du serveur de production : jamais
+    # dans le dépôt, les journaux, les messages d'erreur ni une réponse au navigateur.
+    paygate_auth_token: str = ""
+    paygate_api_base_url: str = "https://paygateglobal.com"
+    paygate_timeout_seconds: int = 15
+    # Plafond par transaction en FCFA (non publié par PayGate ; 1 000 000 d'après les intégrations
+    # existantes). Au-delà, seul le paiement manuel est proposé.
+    paygate_max_amount: int = 1_000_000
+    # Une tentative toujours « en cours » au-delà de ce délai est close localement (EXPIRED,
+    # code TIMEOUT) pour que l'école puisse réessayer ; elle est revérifiée une dernière fois à J+1
+    # pour détecter un succès tardif (cadrage §5.5, étape 9).
+    paygate_pending_timeout_minutes: int = 15
+    # Notification PayGate (endpoint public, non authentifié, non signé) : limite de débit large,
+    # simple défense contre un envoi massif ; la notification ne fait jamais foi.
+    paygate_callback_rate_limit_max_attempts: int = 120
+    paygate_callback_rate_limit_window_seconds: int = 60
+
     # URL de base utilisée pour construire les liens de vérification QR des bulletins (Phase 5).
     # Aucun hébergeur n'est encore choisi (règle Phase 0) — reste configurable via env var.
     public_base_url: str = "http://localhost:8000"
@@ -217,6 +246,21 @@ def validate_production_config(config: "Settings") -> None:
             "valeur par défaut de développement ou une adresse locale, et doivent être définies "
             f"explicitement avant le démarrage : {', '.join(sorted(set(unsafe_fields)))}."
         )
+
+    # Phase 29, lot B — paiement en ligne. Le fournisseur "fake" confirme des paiements sans
+    # argent réel : jamais en production avec le coupe-circuit actif. Ni la valeur du jeton ni sa
+    # longueur ne sont jamais mentionnées dans le message.
+    if config.subscription_online_payment_enabled:
+        if config.payment_online_provider != "paygate":
+            raise ProductionConfigError(
+                "Configuration de production invalide : SUBSCRIPTION_ONLINE_PAYMENT_ENABLED=true exige "
+                "PAYMENT_ONLINE_PROVIDER=paygate."
+            )
+        if not config.paygate_auth_token.strip():
+            raise ProductionConfigError(
+                "Configuration de production invalide : SUBSCRIPTION_ONLINE_PAYMENT_ENABLED=true exige "
+                "PAYGATE_AUTH_TOKEN."
+            )
 
     logger = logging.getLogger(__name__)
     if config.email_provider == "smtp" and (not config.smtp_username or not config.smtp_password):

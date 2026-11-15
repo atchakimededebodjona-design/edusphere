@@ -1,0 +1,23 @@
+# EduLinkage — Phase 29, lot B : rapprochement des paiements Mobile Money (PayGate Global).
+#
+# Fichier PRÉPARÉ dans ce dépôt, PAS installé automatiquement — voir
+# docs/phases/PHASE_29_LOT_B_IMPLEMENTATION.md. Même convention que
+# edusphere-subscription-reminders.service : commande exécutée DANS le conteneur `api` déjà
+# configuré (aucun secret ici ; la clé PayGate reste dans l'environnement du conteneur).
+# Sans SUBSCRIPTION_ONLINE_PAYMENT_ENABLED=true, le job ne fait rien (code de sortie 0).
+
+[Unit]
+Description=EduLinkage - rapprochement des paiements Mobile Money des abonnements (Phase 29, lot B)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=edusphere
+Group=edusphere
+WorkingDirectory=/opt/edusphere
+ExecStart=/usr/bin/docker compose exec -T api python -m app.jobs.subscription_payments_reconcile
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

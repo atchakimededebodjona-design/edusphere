@@ -8,6 +8,7 @@ import { formatDateFR } from "@/lib/format/date";
 import {
   INVOICE_STATUS_LABELS,
   MANUAL_METHOD_LABELS,
+  PAYMENT_STATUS_LABELS,
   periodLabel,
   platformSubscriptions,
   type InvoiceStatus,
@@ -27,6 +28,22 @@ type Action =
 // Phase 29, lot A — factures d'abonnement (PLATFORM_OWNER) : chiffrage des devis, enregistrement
 // d'un paiement reçu hors application (virement, Mobile Money, espèces), annulation d'une facture non
 // payée. Le montant d'un paiement est TOUJOURS celui de la facture (refus côté API sinon).
+// Lot B — colonne « Mobile Money » : dernière tentative PayGate. Une ANOMALIE (paiement réussi chez
+// PayGate mais non appliqué : montant différent ou facture déjà payée) se régularise depuis le tableau
+// de bord PayGate ; le détail figure dans le journal d'audit de l'école.
+function onlinePaymentCell(invoice: PlatformInvoice): ReactNode {
+  const online = invoice.payments.filter((payment) => payment.provider === "PAYGATE");
+  if (online.length === 0) return "—";
+  const anomalies = online.filter((payment) => payment.status === "ANOMALY").length;
+  const last = online[online.length - 1];
+  return (
+    <span className={anomalies ? "font-semibold text-red-700" : undefined}>
+      {anomalies ? `${anomalies} anomalie${anomalies > 1 ? "s" : ""} à traiter` : PAYMENT_STATUS_LABELS[last.status]}
+      {last.payer_phone_last4 ? ` (•• ${last.payer_phone_last4})` : ""}
+    </span>
+  );
+}
+
 export default function PlatformSubscriptionInvoicesPage() {
   const { permissions } = useAuth();
   const canManage = permissions.includes("platform.subscriptions.manage");
@@ -136,6 +153,7 @@ export default function PlatformSubscriptionInvoicesPage() {
           render: (invoice) => (invoice.total_amount ? formatApiAmount(invoice.total_amount, invoice.currency) : "—"),
         },
         { header: "Statut", render: (invoice) => INVOICE_STATUS_LABELS[invoice.status] },
+        { header: "Mobile Money", render: onlinePaymentCell },
         {
           header: "Période",
           render: (invoice) =>

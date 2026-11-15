@@ -67,10 +67,28 @@ PAYMENT_PROVIDER_PAYGATE = "PAYGATE"
 PAYMENT_PROVIDER_MANUAL = "MANUAL"
 PAYMENT_PROVIDERS = (PAYMENT_PROVIDER_PAYGATE, PAYMENT_PROVIDER_MANUAL)
 PAYMENT_METHODS = ("FLOOZ", "TMONEY", "BANK_TRANSFER", "CASH", "OTHER")
+# Réseaux Mobile Money acceptés par PayGate Global (lot B).
+ONLINE_PAYMENT_NETWORKS = ("FLOOZ", "TMONEY")
+PAYMENT_STATUS_INITIATED = "INITIATED"
+PAYMENT_STATUS_PENDING = "PENDING"
 PAYMENT_STATUS_SUCCEEDED = "SUCCEEDED"
+PAYMENT_STATUS_FAILED = "FAILED"
+PAYMENT_STATUS_EXPIRED = "EXPIRED"
+PAYMENT_STATUS_ANOMALY = "ANOMALY"
 # INITIATED/PENDING/FAILED/EXPIRED/ANOMALY servent au paiement en ligne (lot B) : déclarés dès
-# maintenant pour que la table n'ait pas à changer de contrainte au lot B.
-PAYMENT_STATUSES = ("INITIATED", "PENDING", PAYMENT_STATUS_SUCCEEDED, "FAILED", "EXPIRED", "ANOMALY")
+# le lot A pour que la table n'ait pas à changer de contrainte au lot B.
+PAYMENT_STATUSES = (
+    PAYMENT_STATUS_INITIATED,
+    PAYMENT_STATUS_PENDING,
+    PAYMENT_STATUS_SUCCEEDED,
+    PAYMENT_STATUS_FAILED,
+    PAYMENT_STATUS_EXPIRED,
+    PAYMENT_STATUS_ANOMALY,
+)
+IN_PROGRESS_PAYMENT_STATUSES = (PAYMENT_STATUS_INITIATED, PAYMENT_STATUS_PENDING)
+# Code posé sur une tentative close localement faute de réponse dans le délai
+# (`PAYGATE_PENDING_TIMEOUT_MINUTES`) : seule une telle tentative est revérifiée à J+1.
+PAYMENT_CODE_LOCAL_TIMEOUT = "TIMEOUT_LOCAL"
 
 PERIOD_KINDS = ("FREE_TRIAL", "PAID")
 
@@ -432,3 +450,36 @@ class SubscriptionReminder(Base):
     stage: Mapped[str] = mapped_column(String(16), nullable=False)
     recipients_count: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+CALLBACK_RESULTS = ("INVALID", "UNKNOWN_IDENTIFIER", "NOT_IN_PROGRESS", "CHECK_SCHEDULED")
+
+
+class PaymentProviderCallback(Base):
+    """Phase 29, lot B — journal MINIMAL des notifications reçues d'un fournisseur de paiement
+    (cadrage §6). La notification PayGate n'est pas signée : elle ne fait jamais foi et ne sert qu'à
+    déclencher une vérification d'état. On ne garde ni le corps intégral ni le numéro du payeur.
+
+    Aucune donnée d'école en clair (le lien passe par `payment_id`) : RLS « plateforme seulement »
+    (contexte platform-wide, comme `partners_platform_only`). `source_ip` est l'adresse DÉCLARÉE par
+    le proxy (en-têtes), jamais vérifiée : information de diagnostic uniquement."""
+
+    __tablename__ = "payment_provider_callbacks"
+    __table_args__ = (
+        CheckConstraint("provider IN ('PAYGATE')", name="ck_payment_provider_callback_provider"),
+        CheckConstraint(f"result IN ({_sql_in(CALLBACK_RESULTS)})", name="ck_payment_provider_callback_result"),
+        Index("ix_payment_provider_callbacks_received", "received_at"),
+        Index("ix_payment_provider_callbacks_payment", "payment_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    identifier: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tx_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    declared_amount: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result: Mapped[str] = mapped_column(String(24), nullable=False)
+    payment_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("subscription_payments.id", ondelete="SET NULL"), nullable=True
+    )

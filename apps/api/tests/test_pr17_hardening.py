@@ -720,6 +720,10 @@ EXPECTED_SUBSCRIPTION_ROUTES = {
     # Phase 29, lot C
     "/api/v1/school-subscription/invoices/{invoice_id}/receipt.pdf",
     "/api/v1/platform/subscription-invoices/{invoice_id}/receipt.pdf",
+    # Phase 29, lot B (la notification publique `/payment-providers/paygate/callback` ne contient
+    # pas « subscription » ; sa table `payment_provider_callbacks` non plus).
+    "/api/v1/school-subscription/invoices/{invoice_id}/payments",
+    "/api/v1/school-subscription/payments/{payment_id}",
 }
 
 

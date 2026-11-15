@@ -24,6 +24,8 @@ NOTIFICATION_TYPES = (
     "SUBSCRIPTION_RENEWAL_DUE",
     "SUBSCRIPTION_EXPIRED",
     "SUBSCRIPTION_INVOICE_DUE",
+    # Phase 29, lot B — paiement Mobile Money confirmé (subscriptions/online_payments.py).
+    "SUBSCRIPTION_PAYMENT_CONFIRMED",
 )
 
 
