@@ -5,14 +5,18 @@ nouvelle période ou du trimestre gratuit) vit ici, isolé de SQLAlchemy et de F
 testé unitairement sans base (tests/test_subscriptions_pricing.py). Le service
 (`subscriptions/service.py`) ne fait qu'appeler ces fonctions avec des données déjà chargées.
 
-Bornes des tranches : décision du 2026-11-09 (cadrage Phase 29, §2), FIXÉES dans le code. Seuls
-les MONTANTS sont modifiables, via la grille en base (écran plateforme) — jamais les bornes, ce qui
-évite toute grille incohérente (tranches qui se chevauchent ou laissent un trou). Au-delà de
-1 000 élèves actifs : « tarif adapté », c'est-à-dire un devis saisi par la plateforme.
+Bornes des tranches : grille validée le 2026-11-09, mise en œuvre complète le 2026-11-15, FIXÉES
+dans le code. Seuls les MONTANTS sont modifiables, via la grille en base (écran plateforme) — jamais
+les bornes, ce qui évite toute grille incohérente (tranches qui se chevauchent ou laissent un trou).
+
+Au-delà de 1 000 élèves actifs : tranche progressive (`STEP_TIER`) — supplément de la tranche
+751 à 1 000, plus un supplément par palier de 250 élèves commencé (« +25 000 F par tranche de
+250 élèves » sur le trimestre, dans la grille validée). Une grille sans ligne de palier ne chiffre
+pas au-delà de 1 000 élèves : la facture passe alors en devis saisi par la plateforme (lot A).
 """
 
 import calendar
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -40,25 +44,52 @@ class Tier:
 
 
 # Tranche 0 = forfait de base seul (0 à 100 élèves : une école sans élève actif paie le forfait de
-# base). Tranches 1 à 3 = base + supplément de la tranche.
+# base). Tranches 1 à 4 = base + supplément de la tranche. Les grilles enregistrées avant le
+# 2026-11-15 n'ont que les tranches 0 à 3 (la tranche 3 couvrait alors 501 à 1 000 élèves).
 TIERS: tuple[Tier, ...] = (
     Tier(0, 0, 100),
     Tier(1, 101, 250),
     Tier(2, 251, 500),
-    Tier(3, 501, 1000),
+    Tier(3, 501, 750),
+    Tier(4, 751, 1000),
 )
+# Lignes obligatoires d'une grille, pour chaque durée.
 TIER_NUMBERS: tuple[int, ...] = tuple(tier.number for tier in TIERS)
-QUOTE_THRESHOLD = TIERS[-1].max_students
+# Ligne FACULTATIVE d'une grille : supplément par palier de 250 élèves commencé au-delà de 1 000.
+STEP_TIER = 5
+STEP_STUDENTS = 250
+PROGRESSIVE_THRESHOLD = TIERS[-1].max_students
 
 
-def tier_for_student_count(student_count: int) -> int | None:
-    """Numéro de tranche pour cet effectif, ou `None` au-delà de 1 000 élèves (devis)."""
+def tier_for_student_count(student_count: int) -> int:
+    """Numéro de tranche pour cet effectif : 0 à 4, ou `STEP_TIER` au-delà de 1 000 élèves."""
     if student_count < 0:
         raise ValueError("student_count must be >= 0")
     for tier in TIERS:
         if tier.min_students <= student_count <= tier.max_students:
             return tier.number
-    return None
+    return STEP_TIER
+
+
+def steps_above_threshold(student_count: int) -> int:
+    """Paliers de 250 élèves commencés au-delà de 1 000 : 1 001 à 1 250 → 1, 1 251 à 1 500 → 2…"""
+    if student_count <= PROGRESSIVE_THRESHOLD:
+        return 0
+    return -(-(student_count - PROGRESSIVE_THRESHOLD) // STEP_STUDENTS)
+
+
+def supplement_for(student_count: int, supplements: Mapping[int, Decimal]) -> Decimal | None:
+    """Supplément d'une durée pour cet effectif, d'après les suppléments de la grille pour cette
+    durée (`tranche -> supplément`, la clé `STEP_TIER` portant le supplément PAR palier). None si la
+    grille n'a pas de prix pour cet effectif : tranche absente (grille antérieure au 2026-11-15) ou,
+    au-delà de 1 000 élèves, pas de ligne de palier (la facture passe alors en devis)."""
+    tier = tier_for_student_count(student_count)
+    if tier != STEP_TIER:
+        return supplements.get(tier)
+    last_tier, per_step = supplements.get(TIERS[-1].number), supplements.get(STEP_TIER)
+    if last_tier is None or per_step is None:
+        return None
+    return last_tier + steps_above_threshold(student_count) * per_step
 
 
 def is_whole_amount(amount: Decimal) -> bool:

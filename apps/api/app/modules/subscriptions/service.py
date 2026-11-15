@@ -150,8 +150,31 @@ async def _active_grid(db: AsyncSession) -> tuple[SubscriptionPriceGrid, list[Su
     return grid, list(lines)
 
 
-def _line_for(lines: list[SubscriptionPriceLine], period_months: int, tier: int) -> SubscriptionPriceLine | None:
-    return next((line for line in lines if line.period_months == period_months and line.tier == tier), None)
+def _grid_has_steps(lines: list[SubscriptionPriceLine]) -> bool:
+    return any(line.tier == pricing.STEP_TIER for line in lines)
+
+
+def requires_quote(student_count: int, active: tuple[SubscriptionPriceGrid, list[SubscriptionPriceLine]] | None) -> bool:
+    """Devis : au-delà de 1 000 élèves, sauf si la grille active chiffre les paliers de 250 élèves
+    (grille validée le 2026-11-09). Sans grille active, toujours un devis au-delà de 1 000 (lot A)."""
+    if pricing.tier_for_student_count(student_count) != pricing.STEP_TIER:
+        return False
+    return active is None or not _grid_has_steps(active[1])
+
+
+def price_for(
+    lines: list[SubscriptionPriceLine], period_months: int, student_count: int
+) -> tuple[int, Decimal, Decimal] | None:
+    """(tranche, forfait de base, supplément) pour cette durée et cet effectif, ou None si la grille
+    n'a pas de prix : tranche 751 à 1 000 absente (grille antérieure au 2026-11-15), ou palier absent
+    au-delà de 1 000 élèves. Le forfait de base est porté, identique, par toutes les lignes d'une durée."""
+    by_tier = {line.tier: line for line in lines if line.period_months == period_months}
+    if 0 not in by_tier:
+        return None
+    supplement = pricing.supplement_for(student_count, {tier: line.supplement_amount for tier, line in by_tier.items()})
+    if supplement is None:
+        return None
+    return pricing.tier_for_student_count(student_count), by_tier[0].base_amount, supplement
 
 
 def effective_invoice_status(invoice: SubscriptionInvoice, now: datetime) -> str:
@@ -259,17 +282,19 @@ async def build_school_subscription(db: AsyncSession, school: School) -> SchoolS
     current = next((p for p in periods if p.starts_on <= today <= p.ends_on), None)
 
     count = await active_student_count(db, school.id)
-    tier = pricing.tier_for_student_count(count)
     active = await _active_grid(db)
+    quote = requires_quote(count, active)
+    # Tranche affichée : None pour un devis (comme au lot A).
+    tier = None if quote else pricing.tier_for_student_count(count)
     offers: list[OfferOut] = []
     for months in pricing.PERIOD_MONTHS:
-        line = _line_for(active[1], months, tier) if active is not None and tier is not None else None
+        price = price_for(active[1], months, count) if active is not None and not quote else None
         offers.append(
             OfferOut(
                 period_months=months,
-                base_amount=line.base_amount if line else None,
-                supplement_amount=line.supplement_amount if line else None,
-                total_amount=(line.base_amount + line.supplement_amount) if line else None,
+                base_amount=price[1] if price else None,
+                supplement_amount=price[2] if price else None,
+                total_amount=(price[1] + price[2]) if price else None,
             )
         )
     open_invoice = await _open_invoice(db, school.id, now)
@@ -283,7 +308,7 @@ async def build_school_subscription(db: AsyncSession, school: School) -> SchoolS
         next_period_starts_on=state.next_starts_on,
         active_student_count=count,
         tier=tier,
-        quote_required=tier is None,
+        quote_required=quote,
         grid_available=active is not None,
         currency=SUBSCRIPTION_CURRENCY,
         offers=offers,
@@ -358,7 +383,7 @@ async def create_invoice(db: AsyncSession, school: School, user: User, payload: 
         raise _conflict("An online payment is still being verified for the previous subscription invoice")
 
     count = await active_student_count(db, school.id)
-    tier = pricing.tier_for_student_count(count)
+    active = await _active_grid(db)
     invoice = SubscriptionInvoice(
         id=uuid.uuid4(),
         school_id=school.id,
@@ -369,23 +394,23 @@ async def create_invoice(db: AsyncSession, school: School, user: User, payload: 
         idempotency_key=payload.idempotency_key,
         created_by=user.id,
     )
-    if tier is None:
+    if requires_quote(count, active):
         invoice.status = INVOICE_STATUS_QUOTE_REQUIRED
         action = audit_service.ACTION_SUBSCRIPTION_INVOICE_QUOTE_REQUESTED
         summary = f"Demande de devis d'abonnement ({payload.period_months} mois, {count} élèves actifs)"
     else:
-        active = await _active_grid(db)
         if active is None:
             raise _conflict("Subscription prices are not configured yet")
         grid, lines = active
-        line = _line_for(lines, payload.period_months, tier)
-        if line is None:
+        price = price_for(lines, payload.period_months, count)
+        if price is None:
             raise _conflict("The active price grid has no price for this period and tier")
+        tier, base_amount, supplement_amount = price
         invoice.tier = tier
         invoice.grid_id = grid.id
-        invoice.base_amount = line.base_amount
-        invoice.supplement_amount = line.supplement_amount
-        _issue(invoice, await _next_invoice_number(db, now), line.base_amount + line.supplement_amount, now)
+        invoice.base_amount = base_amount
+        invoice.supplement_amount = supplement_amount
+        _issue(invoice, await _next_invoice_number(db, now), base_amount + supplement_amount, now)
         action = audit_service.ACTION_SUBSCRIPTION_INVOICE_ISSUED
         summary = (
             f"Facture d'abonnement {invoice.number} émise : {payload.period_months} mois, {count} élèves actifs, "
@@ -736,8 +761,11 @@ def _grid_out(grid: SubscriptionPriceGrid, lines: list[SubscriptionPriceLine]) -
     periods: list[GridPeriodPrices] = []
     for months in pricing.PERIOD_MONTHS:
         by_tier = {line.tier: line for line in lines if line.period_months == months}
-        if len(by_tier) != len(pricing.TIER_NUMBERS):
+        # Tranches 0 à 3 présentes dans toute grille ; 4 et le palier, depuis le 2026-11-15 seulement.
+        if any(tier not in by_tier for tier in (0, 1, 2, 3)):
             continue
+        tier_4 = by_tier.get(4)
+        step = by_tier.get(pricing.STEP_TIER)
         periods.append(
             GridPeriodPrices(
                 period_months=cast(PeriodMonths, months),
@@ -745,6 +773,8 @@ def _grid_out(grid: SubscriptionPriceGrid, lines: list[SubscriptionPriceLine]) -
                 supplement_tier_1=by_tier[1].supplement_amount,
                 supplement_tier_2=by_tier[2].supplement_amount,
                 supplement_tier_3=by_tier[3].supplement_amount,
+                supplement_tier_4=tier_4.supplement_amount if tier_4 is not None else None,
+                supplement_step=step.supplement_amount if step is not None else None,
             )
         )
     return GridOut(
@@ -760,17 +790,22 @@ def _grid_out(grid: SubscriptionPriceGrid, lines: list[SubscriptionPriceLine]) -
 
 
 def _lines_from_payload(grid_id: uuid.UUID, payload: GridInput) -> list[SubscriptionPriceLine]:
-    """Le forfait de base d'une durée est recopié sur ses 4 lignes : il est donc identique pour
-    toutes les tranches par construction (jamais saisi tranche par tranche)."""
+    """Le forfait de base d'une durée est recopié sur toutes ses lignes : il est donc identique pour
+    toutes les tranches par construction (jamais saisi tranche par tranche). Ligne de palier
+    (`STEP_TIER`) seulement si elle est renseignée (`GridInput` impose les trois durées ou aucune)."""
     lines: list[SubscriptionPriceLine] = []
     for period in payload.periods:
+        assert period.supplement_tier_4 is not None  # imposé par GridInput
         supplements = {
             0: Decimal("0"),
             1: period.supplement_tier_1,
             2: period.supplement_tier_2,
             3: period.supplement_tier_3,
+            4: period.supplement_tier_4,
         }
-        for tier in pricing.TIER_NUMBERS:
+        if period.supplement_step is not None:
+            supplements[pricing.STEP_TIER] = period.supplement_step
+        for tier in supplements:
             lines.append(
                 SubscriptionPriceLine(
                     id=uuid.uuid4(),
@@ -864,7 +899,11 @@ async def activate_grid(db: AsyncSession, grid_id: uuid.UUID, user: User) -> Gri
     if grid.status == GRID_STATUS_ARCHIVED:
         raise _conflict("An archived price grid cannot be reactivated")
     lines = await _grid_lines(db, grid.id)
-    if len(lines) != len(pricing.PERIOD_MONTHS) * len(pricing.TIER_NUMBERS):
+    # Complète = tranches 0 à 4 pour chaque durée, et le palier pour les trois durées ou pour aucune.
+    present = {(line.period_months, line.tier) for line in lines}
+    required = {(months, tier) for months in pricing.PERIOD_MONTHS for tier in pricing.TIER_NUMBERS}
+    step_periods = {months for months, tier in present if tier == pricing.STEP_TIER}
+    if not required <= present or step_periods not in (set(), set(pricing.PERIOD_MONTHS)):
         raise _conflict("Price grid is incomplete")
 
     now = utc_now()
@@ -892,9 +931,14 @@ def _receipt_html(school: School, invoice: SubscriptionInvoice, payment: Subscri
     ce reçu atteste un paiement, il ne prétend pas être une facture fiscale."""
     esc = html_escape
     if invoice.tier is not None:
+        if invoice.tier == pricing.STEP_TIER:
+            steps = pricing.steps_above_threshold(invoice.student_count)
+            supplement_label = f"Supplément au-delà de 1 000 élèves ({steps} palier{'s' if steps > 1 else ''} de 250 élèves)"
+        else:
+            supplement_label = f"Supplément tranche {invoice.tier}"
         detail = (
             f"<tr><td>Forfait de base</td><td style='text-align:right'>{invoice.base_amount}</td></tr>"
-            f"<tr><td>Supplément tranche {invoice.tier}</td><td style='text-align:right'>{invoice.supplement_amount}</td></tr>"
+            f"<tr><td>{supplement_label}</td><td style='text-align:right'>{invoice.supplement_amount}</td></tr>"
         )
     else:
         detail = f"<tr><td>Tarif adapté (devis)</td><td style='text-align:right'>{invoice.total_amount}</td></tr>"

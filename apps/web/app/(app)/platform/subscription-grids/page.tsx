@@ -11,6 +11,7 @@ import {
   periodLabel,
   platformSubscriptions,
   type GridPeriodPrices,
+  type PeriodMonths,
   type PriceGrid,
 } from "@/lib/subscriptions/client";
 
@@ -20,35 +21,75 @@ const STATUS_LABELS: Record<PriceGrid["status"], string> = {
   ARCHIVED: "Archivée",
 };
 
-const AMOUNT_FIELDS: { key: keyof Omit<GridPeriodPrices, "period_months">; label: string }[] = [
+type AmountKey = keyof Omit<GridPeriodPrices, "period_months">;
+
+// Bornes fixées dans le code (grille validée le 9 novembre 2026, complète depuis le 15 novembre) ;
+// seuls les montants se saisissent. Le palier est facultatif : vide pour les trois durées = devis
+// au-delà de 1 000 élèves.
+const AMOUNT_FIELDS: { key: AmountKey; label: string; optional?: boolean }[] = [
   { key: "base_amount", label: "Forfait de base (jusqu'à 100 élèves)" },
-  { key: "supplement_tier_1", label: "Supplément tranche 1 (101 à 250)" },
-  { key: "supplement_tier_2", label: "Supplément tranche 2 (251 à 500)" },
-  { key: "supplement_tier_3", label: "Supplément tranche 3 (501 à 1 000)" },
+  { key: "supplement_tier_1", label: "Supplément 101 à 250 élèves" },
+  { key: "supplement_tier_2", label: "Supplément 251 à 500 élèves" },
+  { key: "supplement_tier_3", label: "Supplément 501 à 750 élèves" },
+  { key: "supplement_tier_4", label: "Supplément 751 à 1 000 élèves" },
+  {
+    key: "supplement_step",
+    label: "Au-delà de 1 000 élèves : supplément par tranche de 250 élèves (vide = devis)",
+    optional: true,
+  },
 ];
 
-function emptyPeriods(): GridPeriodPrices[] {
-  return PERIOD_MONTHS.map((months) => ({
-    period_months: months,
-    base_amount: "",
-    supplement_tier_1: "",
-    supplement_tier_2: "",
-    supplement_tier_3: "",
-  }));
-}
+type EditorPeriod = { period_months: PeriodMonths } & Record<AmountKey, string>;
+type Editor = { gridId: string | null; label: string; periods: EditorPeriod[] };
 
-function integerString(value: string): string {
+function integerString(value: string | null): string {
   // L'API renvoie "30000.00" ; la saisie se fait en FCFA entiers.
+  if (value === null) return "";
   const match = /^(\d+)(?:\.0+)?$/.exec(value.trim());
   return match ? match[1] : value;
 }
 
-type Editor = { gridId: string | null; label: string; periods: GridPeriodPrices[] };
+function toEditorPeriods(periods: GridPeriodPrices[] | null): EditorPeriod[] {
+  return PERIOD_MONTHS.map((months) => {
+    const p = periods?.find((period) => period.period_months === months);
+    return {
+      period_months: months,
+      base_amount: integerString(p?.base_amount ?? null),
+      supplement_tier_1: integerString(p?.supplement_tier_1 ?? null),
+      supplement_tier_2: integerString(p?.supplement_tier_2 ?? null),
+      supplement_tier_3: integerString(p?.supplement_tier_3 ?? null),
+      supplement_tier_4: integerString(p?.supplement_tier_4 ?? null),
+      supplement_step: integerString(p?.supplement_step ?? null),
+    };
+  });
+}
 
-// Phase 29, lot A — grille tarifaire (PLATFORM_OWNER). Les bornes des tranches sont fixées (décision
-// du 9 novembre) ; seuls les montants se saisissent. Une seule grille active ; une grille activée
-// n'est plus jamais modifiée (les factures émises référencent leur version). Au-delà de 1 000
-// élèves : devis, hors grille. Contrôles réels côté API (`platform.subscriptions.*`).
+/** Contrôle local, en français, avant l'envoi : l'API reste la seule vraie validation. */
+function editorProblem(editor: Editor): string | null {
+  if (!editor.label.trim()) return "Le libellé est obligatoire.";
+  for (const field of AMOUNT_FIELDS.filter((f) => !f.optional)) {
+    if (editor.periods.some((p) => p[field.key] === "")) {
+      return `Montant manquant : « ${field.label} ». Saisissez 0 s'il n'y a pas de supplément.`;
+    }
+  }
+  if (editor.periods.some((p) => p.base_amount !== "" && Number(p.base_amount) === 0)) {
+    return "Le forfait de base doit être supérieur à 0.";
+  }
+  const steps = editor.periods.filter((p) => p.supplement_step !== "").length;
+  if (steps !== 0 && steps !== editor.periods.length) {
+    return "Le supplément au-delà de 1 000 élèves se renseigne pour les trois durées, ou pour aucune (devis).";
+  }
+  return null;
+}
+
+function amountCell(value: string | null, currency: string, optional: boolean | undefined): string {
+  if (value === null) return optional ? "Devis" : "—";
+  return formatApiAmount(value, currency);
+}
+
+// Phase 29 — grille tarifaire (PLATFORM_OWNER). Une seule grille active ; une grille activée n'est
+// plus jamais modifiée (les factures émises référencent leur version et gardent leur prix).
+// Contrôles réels côté API (`platform.subscriptions.*`).
 export default function SubscriptionGridsPage() {
   const { permissions } = useAuth();
   const canManage = permissions.includes("platform.subscriptions.manage");
@@ -63,35 +104,13 @@ export default function SubscriptionGridsPage() {
 
   function startNew() {
     setActionError(null);
-    setEditor({
-      gridId: null,
-      label: "",
-      // Préremplie avec la grille active, pour ne modifier que ce qui change.
-      periods: active
-        ? active.periods.map((p) => ({
-            period_months: p.period_months,
-            base_amount: integerString(p.base_amount),
-            supplement_tier_1: integerString(p.supplement_tier_1),
-            supplement_tier_2: integerString(p.supplement_tier_2),
-            supplement_tier_3: integerString(p.supplement_tier_3),
-          }))
-        : emptyPeriods(),
-    });
+    // Préremplie avec la grille active, pour ne modifier que ce qui change.
+    setEditor({ gridId: null, label: "", periods: toEditorPeriods(active ? active.periods : null) });
   }
 
   function startEdit(grid: PriceGrid) {
     setActionError(null);
-    setEditor({
-      gridId: grid.id,
-      label: grid.label,
-      periods: grid.periods.map((p) => ({
-        period_months: p.period_months,
-        base_amount: integerString(p.base_amount),
-        supplement_tier_1: integerString(p.supplement_tier_1),
-        supplement_tier_2: integerString(p.supplement_tier_2),
-        supplement_tier_3: integerString(p.supplement_tier_3),
-      })),
-    });
+    setEditor({ gridId: grid.id, label: grid.label, periods: toEditorPeriods(grid.periods) });
   }
 
   async function run(action: () => Promise<unknown>, after?: () => void) {
@@ -110,7 +129,15 @@ export default function SubscriptionGridsPage() {
 
   function saveEditor() {
     if (!editor) return;
-    const input = { label: editor.label, periods: editor.periods };
+    const problem = editorProblem(editor);
+    if (problem) {
+      setActionError(problem);
+      return;
+    }
+    const input = {
+      label: editor.label.trim(),
+      periods: editor.periods.map((p) => ({ ...p, supplement_step: p.supplement_step === "" ? null : p.supplement_step })),
+    };
     return run(
       () => (editor.gridId ? platformSubscriptions.updateGrid(editor.gridId, input) : platformSubscriptions.createGrid(input)),
       () => setEditor(null),
@@ -122,8 +149,9 @@ export default function SubscriptionGridsPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Grille tarifaire</h1>
         <p className="text-sm text-slate-600">
-          Prix des abonnements : forfait de base + supplément selon la tranche d&apos;effectif, pour 3, 6 et 12 mois (FCFA
-          entiers). Au-delà de 1 000 élèves : devis.
+          Prix des abonnements : forfait de base + supplément selon l&apos;effectif d&apos;élèves actifs, pour 3, 6 et 12 mois
+          (FCFA entiers). Au-delà de 1 000 élèves : supplément de la tranche 751 à 1 000, plus un supplément par tranche de
+          250 élèves commencée ; sans ce supplément, la facture passe en devis.
         </p>
       </div>
 
@@ -235,7 +263,7 @@ export default function SubscriptionGridsPage() {
                     <td className="px-2 py-1 text-slate-700">{field.label}</td>
                     {grid.periods.map((p) => (
                       <td key={p.period_months} className="px-2 py-1 text-slate-900">
-                        {formatApiAmount(p[field.key], grid.currency)}
+                        {amountCell(p[field.key], grid.currency, field.optional)}
                       </td>
                     ))}
                   </tr>
@@ -243,6 +271,12 @@ export default function SubscriptionGridsPage() {
               </tbody>
             </table>
           </div>
+          {grid.periods.some((p) => p.supplement_tier_4 === null) && (
+            <p className="text-xs text-slate-500">
+              Grille antérieure au 15/11/2026 : sa tranche « 501 à 750 » couvrait alors 501 à 1 000 élèves, et elle ne chiffre pas
+              751 à 1 000 élèves.
+            </p>
+          )}
           {canManage && grid.status === "DRAFT" && (
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={busy} onClick={() => startEdit(grid)} className="rounded border border-slate-300 px-3 py-1 text-sm">
