@@ -44,6 +44,9 @@ class AssessmentCreate(BaseModel):
     max_score: float = Field(default=20, gt=0)
     weight: float = Field(default=1, gt=0)
     assessment_date: date
+    # Phase 32, lot 2 — clé fournie par l'appareil pour une saisie hors connexion : renvoyer la même
+    # demande rend l'élément déjà créé ; la même clé avec d'autres données est refusée (409).
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 # --- Results ---------------------------------------------------------------------

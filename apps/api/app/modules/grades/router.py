@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_teacher_only
+from app.core.tenancy import apply_tenant_context
 from app.modules.academics.models import AcademicTerm, ClassSubject, SchoolClass, TeacherAssignment
 from app.modules.grades import service
 from app.modules.grades.models import (
@@ -181,10 +182,49 @@ async def list_assessments(
     return list(result.scalars().all())
 
 
+async def _assessment_by_idempotency_key(db: AsyncSession, school_id: uuid.UUID, key: str) -> Assessment | None:
+    result = await db.execute(
+        select(Assessment).where(Assessment.school_id == school_id, Assessment.idempotency_key == key)
+    )
+    return result.scalar_one_or_none()
+
+
+def _same_amount(stored: float, sent: float) -> bool:
+    # NUMERIC(5,2) / NUMERIC(4,2) : la valeur stockée est arrondie au centième.
+    return abs(float(stored) - sent) <= 0.005 + 1e-9
+
+
+def _same_assessment_or_conflict(existing: Assessment, payload: AssessmentCreate) -> Assessment:
+    """Même clé + mêmes données => même évaluation (renvoi d'une saisie hors connexion) ; même clé +
+    données différentes => conflit explicite (motif des mouvements de caisse, cash/service.py)."""
+    if (
+        existing.class_subject_id == payload.class_subject_id
+        and existing.academic_term_id == payload.academic_term_id
+        and existing.assessment_type_id == payload.assessment_type_id
+        and existing.name == payload.name
+        and _same_amount(existing.max_score, payload.max_score)
+        and _same_amount(existing.weight, payload.weight)
+        and existing.assessment_date == payload.assessment_date
+    ):
+        return existing
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT, detail="Idempotency key already used for a different assessment"
+    )
+
+
 @router.post("/assessments", response_model=AssessmentOut, status_code=status.HTTP_201_CREATED)
 async def create_assessment(payload: AssessmentCreate, db: DbSession, current_user: CurrentUser) -> Assessment:
     class_subject = await _get_class_subject_or_404(db, payload.class_subject_id)
     await _ensure_can_manage_class_subject_grades(db, current_user, class_subject)
+    # Capturés avant tout flush (voir attendance/router.py::create_session).
+    school_id = class_subject.school_id
+    user_id = current_user.id
+
+    # Phase 32, lot 2 — renvoi d'une évaluation créée hors connexion (après le contrôle d'accès).
+    if payload.idempotency_key is not None:
+        existing = await _assessment_by_idempotency_key(db, school_id, payload.idempotency_key)
+        if existing is not None:
+            return _same_assessment_or_conflict(existing, payload)
 
     # Référentiels doivent appartenir au même tenant que la classe-matière (sinon 404, sans
     # écriture). Les clés étrangères seules ne suffisent pas : leur vérification ignore la RLS.
@@ -214,9 +254,21 @@ async def create_assessment(payload: AssessmentCreate, db: DbSession, current_us
         max_score=payload.max_score,
         weight=payload.weight,
         assessment_date=payload.assessment_date,
+        idempotency_key=payload.idempotency_key,
     )
     db.add(assessment)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if payload.idempotency_key is None:
+            raise
+        # Envoi simultané de la même clé : même traitement que create_session (attendance).
+        await db.rollback()
+        await apply_tenant_context(db, user_id)
+        winner = await _assessment_by_idempotency_key(db, school_id, payload.idempotency_key)
+        if winner is not None:
+            return _same_assessment_or_conflict(winner, payload)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Could not create assessment") from exc
     await db.refresh(assessment)
     await db.commit()
     return assessment

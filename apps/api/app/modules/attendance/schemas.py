@@ -38,6 +38,9 @@ class AttendanceSessionCreate(BaseModel):
     class_id: uuid.UUID
     academic_term_id: uuid.UUID
     session_date: date
+    # Phase 32, lot 2 — clé fournie par l'appareil pour une saisie hors connexion : renvoyer la même
+    # demande rend l'élément déjà créé ; la même clé avec d'autres données est refusée (409).
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class AttendanceSessionUpdate(BaseModel):

@@ -7,6 +7,7 @@ import { TenantSwitcher } from "@/components/app-shell/TenantSwitcher";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { useAuth } from "@/lib/auth/useAuth";
 import { notifications } from "@/lib/notifications/client";
+import { confirmLogoutWithUnsentEntries } from "@/lib/offline/outbox";
 
 // Une requête légère toutes les 30s suffit pour un badge non-lu — pas de state management
 // global ni de mécanisme temps réel pour ce besoin (voir PHASE_21_DISCOVERY.md/commande §24).
@@ -45,6 +46,8 @@ export function TopBar() {
   const unreadCount = useUnreadCount(Boolean(user));
 
   async function handleLogout() {
+    // Phase 32, lot 2 — des saisies non envoyées (appel, notes) seraient perdues : on prévient.
+    if (!(await confirmLogoutWithUnsentEntries())) return;
     await logout();
     router.push("/login");
   }

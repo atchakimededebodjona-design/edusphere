@@ -31,6 +31,8 @@ export type AssessmentCreate = {
   max_score?: number;
   weight?: number;
   assessment_date: string;
+  /** Phase 32 — clé fournie par l'appareil : un renvoi ne crée qu'une évaluation. */
+  idempotency_key?: string;
 };
 
 export type AssessmentResult = {

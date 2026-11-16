@@ -5,6 +5,7 @@ import { ApiError, onSessionExpired } from "@/lib/api/client";
 import * as authClient from "@/lib/auth/client";
 import type { Me } from "@/lib/auth/client";
 import { getStoredTokens, getStoredUserId, setStoredTokens } from "@/lib/auth/session";
+import { clearOutboxForUser } from "@/lib/offline/outbox";
 import { clearAllCachedResponses, clearCachedResponsesExcept } from "@/lib/offline/responseCache";
 import {
   distinctOrganizationIds,
@@ -175,9 +176,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // navigateur doit pouvoir le restaurer (revalidé contre l'API, jamais fait confiance tel quel —
   // voir resolveSchoolsForOrganization ci-dessous).
   const logout = useCallback(async () => {
+    const userId = getStoredUserId();
     await authClient.logout();
     // Phase 32 — déconnexion explicite : plus aucune donnée de l'école ne reste sur l'appareil.
+    // Les saisies non envoyées de ce compte aussi : la perte a été confirmée par l'utilisateur
+    // (lib/offline/outbox.ts::confirmLogoutWithUnsentEntries, appelée par chaque barre).
     await clearAllCachedResponses();
+    if (userId) await clearOutboxForUser(userId);
     setMe(null);
     setStatus("anonymous");
     resetTenantState();

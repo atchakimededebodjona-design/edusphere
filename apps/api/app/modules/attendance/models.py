@@ -22,6 +22,9 @@ class AttendanceSession(Base):
     """
 
     __tablename__ = "attendance_sessions"
+    # Phase 32, lot 2 — un appel saisi hors connexion peut être renvoyé plusieurs fois : la clé
+    # fournie par l'appareil (migration 0032) garantit une seule séance. NULL sans clé.
+    __table_args__ = (UniqueConstraint("school_id", "idempotency_key", name="uq_attendance_session_idempotency"),)
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     school_id: Mapped[uuid.UUID] = mapped_column(
@@ -45,6 +48,7 @@ class AttendanceSession(Base):
     locked_by: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
