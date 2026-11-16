@@ -69,6 +69,8 @@ from app.modules.subscriptions.schemas import (
     PeriodOut,
     PlatformInvoiceOut,
     PlatformSchoolSubscriptionOut,
+    PublicPricingOut,
+    PublicTierOut,
     QuoteInput,
     SchoolSubscriptionOut,
     SubscriptionStateCode,
@@ -762,6 +764,18 @@ async def list_school_subscriptions(db: AsyncSession, state_filter: str | None) 
 
 
 # --- Grilles de prix (côté plateforme) ---------------------------------------------------------
+async def public_pricing(db: AsyncSession) -> PublicPricingOut:
+    """Tarifs publics de la page d'accueil : la grille active seulement. Lecture permise sans
+    contexte (politique RLS `read_all` des grilles, migration 0027)."""
+    active = await _active_grid(db)
+    return PublicPricingOut(
+        currency=SUBSCRIPTION_CURRENCY,
+        tiers=[PublicTierOut(tier=t.number, min_students=t.min_students, max_students=t.max_students) for t in pricing.TIERS],
+        step_students=pricing.STEP_STUDENTS,
+        periods=_grid_out(*active).periods if active is not None else [],
+    )
+
+
 def _grid_out(grid: SubscriptionPriceGrid, lines: list[SubscriptionPriceLine]) -> GridOut:
     periods: list[GridPeriodPrices] = []
     for months in pricing.PERIOD_MONTHS:

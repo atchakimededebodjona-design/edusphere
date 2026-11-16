@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { CloseIcon, MenuIcon } from "@/components/landing/icons";
+import { whatsappLink } from "@/lib/landing/contact";
 
 const NAV_LINKS = [
-  { href: "#accueil", label: "Accueil" },
   { href: "#fonctionnalites", label: "Fonctionnalités" },
-  { href: "#solutions", label: "Solutions" },
-  { href: "#a-propos", label: "À propos" },
+  { href: "#tarifs", label: "Tarifs" },
+  { href: "#partenaires", label: "Partenaires" },
+  { href: "#contact", label: "Contact" },
 ];
 
 export function LandingNav() {
@@ -59,10 +60,12 @@ export function LandingNav() {
             Se connecter
           </Link>
           <a
-            href="#contact"
+            href={whatsappLink()}
+            target="_blank"
+            rel="noopener noreferrer"
             className="rounded-lg bg-gradient-to-r from-brand-blue to-brand-cyan px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
           >
-            Demander une démo
+            Nous écrire sur WhatsApp
           </a>
         </div>
 
@@ -100,11 +103,13 @@ export function LandingNav() {
                 Se connecter
               </Link>
               <a
-                href="#contact"
+                href={whatsappLink()}
+                target="_blank"
+                rel="noopener noreferrer"
                 onClick={() => setMenuOpen(false)}
                 className="rounded-lg bg-gradient-to-r from-brand-blue to-brand-cyan px-4 py-2.5 text-center text-sm font-semibold text-white"
               >
-                Demander une démo
+                Nous écrire sur WhatsApp
               </a>
             </div>
           </nav>

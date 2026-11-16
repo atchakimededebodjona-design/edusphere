@@ -1,29 +1,31 @@
 import Link from "next/link";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
+import { CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
 
 // Aucun lien social : aucun compte social réel n'existe encore pour ce projet — mieux vaut n'en
-// afficher aucun que d'inventer une URL, conformément à la consigne.
+// afficher aucun que d'inventer une URL. Seuls contacts publics : WhatsApp et appel (2026-11-16).
 const COLUMNS = [
   {
     title: "Produit",
     links: [
       { label: "Fonctionnalités", href: "#fonctionnalites" },
-      { label: "Portail parent", href: "#solutions" },
-      { label: "À venir", href: "#fonctionnalites" },
+      { label: "Tarifs", href: "#tarifs" },
+      { label: "Aperçu", href: "#solutions" },
     ],
   },
   {
-    title: "Entreprise",
+    title: "EduLinkage",
     links: [
+      { label: "Devenir partenaire", href: "#partenaires" },
       { label: "À propos", href: "#a-propos" },
-      { label: "Contact", href: "#contact" },
+      { label: "Connexion", href: "/login" },
     ],
   },
   {
-    title: "Support",
+    title: "Contact",
     links: [
-      { label: "Aide", href: "#contact" },
-      { label: "Connexion", href: "/login" },
+      { label: "WhatsApp", href: whatsappLink() },
+      { label: CONTACT_PHONE_DISPLAY, href: CONTACT_PHONE_LINK },
     ],
   },
 ];
@@ -49,7 +51,16 @@ export function LandingFooter() {
               <ul className="mt-3 space-y-2">
                 {column.links.map((link) => (
                   <li key={link.label}>
-                    {link.href.startsWith("/") ? (
+                    {link.href.startsWith("https://") ? (
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-slate-500 transition hover:text-brand-blue"
+                      >
+                        {link.label}
+                      </a>
+                    ) : link.href.startsWith("/") ? (
                       <Link href={link.href} className="text-sm text-slate-500 transition hover:text-brand-blue">
                         {link.label}
                       </Link>
