@@ -9,6 +9,7 @@ from app.core.storage import safe_filename, storage
 from app.modules.schools import service
 from app.modules.schools.models import School
 from app.modules.schools.schemas import SchoolDashboardOut, SchoolOut, SchoolUpdate
+from app.modules.students.service import validate_logo_upload
 
 router = APIRouter()
 
@@ -110,6 +111,9 @@ async def upload_school_logo(
     )
 
     content = await file.read()
+    # Refus (422) AVANT tout stockage : fichier vide, plus de 2 Mio, ou qui n'est pas réellement
+    # une image JPEG, PNG ou WebP. Les logos déjà enregistrés ne sont pas touchés.
+    validate_logo_upload(content, file.filename)
     storage_path = f"schools/{school.id}/logo_{uuid.uuid4().hex}_{safe_filename(file.filename)}"
     await storage.upload(storage_path, content)
 

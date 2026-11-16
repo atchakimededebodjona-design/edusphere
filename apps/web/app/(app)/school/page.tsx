@@ -16,6 +16,11 @@ import { announceSchoolLogoChange } from "@/lib/schools/useSchoolLogo";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
+// Mêmes règles que l'API (apps/api/app/modules/students/service.py::validate_logo_upload), vérifiées
+// ici pour prévenir avant l'envoi : l'API reste l'autorité et refuse elle-même tout autre fichier.
+const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+const LOGO_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 export default function SchoolSettingsPage() {
   const { currentSchoolId, permissions } = useAuth();
   const canManage = permissions.includes("schools.manage");
@@ -26,6 +31,8 @@ export default function SchoolSettingsPage() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   const loadSchool = useCallback(() => {
     if (!currentSchoolId) return;
@@ -72,7 +79,26 @@ export default function SchoolSettingsPage() {
 
   async function handleLogoChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
+    // Réinitialisé tout de suite : sans ça, choisir à nouveau le même fichier (après une erreur) ne
+    // redéclenche pas onChange.
+    event.target.value = "";
     if (!file || !currentSchoolId) return;
+
+    setLogoError(null);
+    if (file.size === 0) {
+      setLogoError("Ce fichier est vide.");
+      return;
+    }
+    if (file.size > LOGO_MAX_BYTES) {
+      setLogoError("Logo trop volumineux (maximum 2 Mio). Réduisez l'image avant de l'envoyer.");
+      return;
+    }
+    if (!LOGO_MIME_TYPES.includes(file.type)) {
+      setLogoError("Type de fichier non autorisé (JPEG, PNG ou WebP uniquement).");
+      return;
+    }
+
+    setLogoUploading(true);
     try {
       const updated = await uploadSchoolLogo(currentSchoolId, file);
       const newUrl = await getSchoolLogoBlobUrl(currentSchoolId);
@@ -80,7 +106,9 @@ export default function SchoolSettingsPage() {
       // Le menu latéral affiche aussi ce logo : il le recharge sans attendre une nouvelle connexion.
       announceSchoolLogoChange(currentSchoolId, updated.logo_path);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec de l'envoi du logo.");
+      setLogoError(err instanceof ApiError ? err.message : "Échec de l'envoi du logo.");
+    } finally {
+      setLogoUploading(false);
     }
   }
 
@@ -101,12 +129,30 @@ export default function SchoolSettingsPage() {
           </div>
         )}
         {canManage && (
-          <label className="cursor-pointer rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-            Changer le logo
-            <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
-          </label>
+          <div className="flex flex-col gap-1">
+            <label
+              className={`w-fit rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 ${
+                logoUploading ? "cursor-wait opacity-60" : "cursor-pointer hover:bg-slate-100"
+              }`}
+            >
+              {logoUploading ? "Envoi en cours..." : "Changer le logo"}
+              <input
+                type="file"
+                accept={LOGO_MIME_TYPES.join(",")}
+                onChange={handleLogoChange}
+                disabled={logoUploading}
+                className="hidden"
+              />
+            </label>
+            <p className="text-xs text-slate-500">JPEG, PNG ou WebP, 2 Mio au maximum.</p>
+          </div>
         )}
       </div>
+      {logoError && (
+        <p role="alert" className="-mt-3 text-sm text-red-700">
+          {logoError}
+        </p>
+      )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <input

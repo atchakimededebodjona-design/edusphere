@@ -250,6 +250,18 @@ def validate_document_upload(content: bytes, filename: str | None) -> str:
     )
 
 
+# 2026-11-16 — logo d'école (POST /schools/{id}/logo, jusqu'ici sans aucun contrôle) : mêmes formats
+# réels que la photo d'élève, plafond plus bas. Le logo s'affiche en petit dans les menus et y est
+# téléchargé à chaque ouverture d'un espace : un fichier lourd y retardait son affichage.
+LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB
+
+
+def validate_logo_upload(content: bytes, filename: str | None) -> str:
+    return _validate_upload(
+        content, filename, allowed_mimes=_PHOTO_MIME_EXTENSIONS, max_bytes=LOGO_MAX_BYTES, label="Logo"
+    )
+
+
 # --- Affectation en masse à une classe -------------------------------------------------------------
 class BulkEnrollmentError(HTTPException):
     """Erreur de validation métier (élève hors école, capacité insuffisante...) levée AVANT toute
