@@ -29,20 +29,43 @@ function formatSavedAt(iso: string): string {
   return `${day} à ${time}`;
 }
 
+// Retour à une version du site SANS service worker (image de secours) : le navigateur garderait
+// sinon l'ancien service worker et continuerait de servir la version gardée sur l'appareil.
+// Seulement si le serveur répond explicitement 404 pour /sw.js — jamais sur une simple coupure.
+async function removeServiceWorkerIfWithdrawn(): Promise<void> {
+  try {
+    const response = await fetch("/sw.js", { cache: "no-store" });
+    if (response.status !== 404) return;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    const names = await caches.keys();
+    await Promise.all(names.filter((name) => name.startsWith("edulinkage-")).map((name) => caches.delete(name)));
+    if (registrations.length > 0) window.location.reload();
+  } catch {
+    // hors connexion : on ne retire rien
+  }
+}
+
 function useServiceWorker(enabled: boolean): boolean {
   const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => {
     // Jamais en développement (ni donc dans les tests e2e, lancés avec `pnpm dev`) : public/sw.js
     // n'existe qu'après `next build`.
-    if (!enabled || process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
+    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
+    // Enregistré après une connexion ; ensuite, vérifié à chaque ouverture (mises à jour, retrait).
+    if (!enabled && !navigator.serviceWorker.controller) return;
     const hadController = Boolean(navigator.serviceWorker.controller);
     const onControllerChange = () => {
       if (hadController) setUpdateReady(true);
     };
     navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
-    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
-      // Sans service worker, le site fonctionne en ligne exactement comme avant.
-    });
+    // `update()` explicite : un enregistrement déjà présent ne recontacte pas le serveur, et un
+    // /sw.js retiré (404) passerait inaperçu. Sans service worker, le site fonctionne en ligne
+    // exactement comme avant.
+    navigator.serviceWorker
+      .register("/sw.js", { scope: "/" })
+      .then((registration) => registration.update())
+      .catch(() => void removeServiceWorkerIfWithdrawn());
     // Demande au navigateur de ne pas effacer de lui-même les données gardées (accordé en général
     // aux applications installées).
     void navigator.storage?.persist?.().catch(() => false);

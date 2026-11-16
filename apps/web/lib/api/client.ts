@@ -131,6 +131,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 }
 
 const SLOW_NETWORK_FALLBACK_MS = 10_000;
+const STORE_WAIT_MAX_MS = 1_500;
 
 // Aucune réponse de l'API : erreur réseau de fetch()/du refresh, ou passerelle sans API derrière.
 function apiUnreachable(err: unknown): boolean {
@@ -159,8 +160,16 @@ async function readWithOfflineCopy(path: string, init: RequestInit): Promise<Res
     throw noCopyError();
   }
 
-  const network = sendRequest(path, init).then((response) => {
-    void storeResponse(userId, path, response.clone());
+  const network = sendRequest(path, init).then(async (response) => {
+    // Copie écrite AVANT de rendre la réponse : ce qui a été affiché reste consultable hors
+    // connexion, même si l'application est fermée aussitôt. Jamais plus de 1,5 s d'attente.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      storeResponse(userId, path, response.clone()),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, STORE_WAIT_MAX_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
     announceDataSource({ source: "network" });
     return response;
   });

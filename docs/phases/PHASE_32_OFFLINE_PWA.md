@@ -26,10 +26,11 @@
 - **Pages à identifiant** (fiche d'un élève, d'un enfant…) : gardées quand on les ouvre avec internet. Une page jamais ouverte affiche « Page indisponible hors connexion » (`/offline`).
 - **Ce que le service worker ne touche pas** : les requêtes vers l'API (autre origine) et la navigation interne de Next.js (RSC). Sans réseau, Next.js recharge alors la page entière, servie depuis l'appareil.
 - **Mise à jour** : chaque construction a sa propre version. La nouvelle version se télécharge en arrière-plan ; une fois prête, elle supprime l'ancienne. Le bandeau « Une nouvelle version d'EduLinkage est prête » propose de recharger. Le rechargement n'est jamais forcé, pour ne pas perdre une saisie en cours. `/sw.js` est servi en `Cache-Control: no-cache`.
-- **Service worker inactif** : en développement, donc dans les tests e2e (`pnpm dev`), et pour un visiteur jamais connecté. Il n'est enregistré qu'après une connexion.
+- **Service worker inactif** : en développement, donc dans les tests e2e (`pnpm dev`), et pour un visiteur jamais connecté. Il n'est enregistré qu'après une connexion. Ensuite, sa mise à jour est demandée à chaque ouverture du site.
+- **Retour en arrière** : si le serveur répond **404** pour `/sw.js` (image de secours d'avant cette phase), l'application retire le service worker, efface les fichiers gardés et recharge depuis le serveur. Sans cela, les navigateurs continueraient à servir la version gardée. Une simple coupure ne retire rien.
 
 **Les données restent consultables** (`lib/api/client.ts`, `lib/offline/responseCache.ts`).
-- Chaque **lecture** réussie de l'API est copiée dans IndexedDB, **rangée par compte**. L'identifiant du compte est lu dans le jeton ; il ne sert qu'au rangement.
+- Chaque **lecture** réussie de l'API est copiée dans IndexedDB, **rangée par compte**. L'identifiant du compte est lu dans le jeton ; il ne sert qu'au rangement. La copie est écrite **avant** l'affichage (1,5 s d'attente au plus) : ce qui a été vu reste consultable, même si l'application est fermée aussitôt.
 - Si l'API est injoignable, la copie est servie à la place. C'est le cas quand l'appareil est hors ligne, quand aucune réponse n'arrive (wifi sans internet, forfait épuisé) ou quand la passerelle répond 502, 503 ou 504. En production, la copie est aussi servie après 10 s sans réponse ; la requête continue et met la copie à jour.
 - **Aucune copie** : message « Hors connexion : ces informations n'ont pas encore été ouvertes avec internet sur cet appareil. »
 - **Limites** : 5 Mo par réponse et 600 réponses par appareil ; les plus anciennes sont effacées au-delà.
@@ -60,7 +61,9 @@
   - message clair pour une connexion hors ligne ;
   - page École (administration) et son logo hors connexion ; envoi d'un logo hors ligne refusé sans requête ;
   - mise à jour d'une version à l'autre : bandeau affiché, page ouverte utilisable, seule la nouvelle version gardée, nouvelle version consultable hors connexion ;
-  - aucune erreur de page.
+  - retour en arrière : service worker gardé pendant une coupure ; service worker et fichiers retirés quand `/sw.js` répond 404, puis site servi normalement ;
+  - aucune erreur de page ;
+  - scénario hors connexion réussi deux fois de suite après la dernière modification.
 - **Non vérifié** :
   - Safari et iPhone : pas d'invite d'installation (ajout manuel par Partager → « Sur l'écran d'accueil ») ; stockage moins durable.
   - Un vrai téléphone Android : à faire après le déploiement.
