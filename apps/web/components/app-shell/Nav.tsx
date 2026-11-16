@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { hasTeacherRole, isPartnerOnlyAccount, isPlatformAdmin } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
+import { useCurrentSchoolLogo } from "@/lib/schools/useSchoolLogo";
 
 type NavItem = {
   href: string;
@@ -64,8 +65,9 @@ const PARTNER_NAV_ITEMS: NavItem[] = [
 ];
 
 export function Nav() {
-  const { permissions, user, roles } = useAuth();
+  const { permissions, user, roles, currentSchool } = useAuth();
   const pathname = usePathname();
+  const schoolLogo = useCurrentSchoolLogo();
 
   // Un compte plateforme (SUPER_ADMIN) cumule TOUTES les permissions du catalogue RBAC (voir
   // rbac/seed.py) et verrait donc ici la quasi-totalité des liens de gestion scolaire — qui
@@ -90,8 +92,22 @@ export function Nav() {
 
   return (
     <nav className="flex w-full gap-1 overflow-x-auto border-b border-slate-200 bg-white p-2 md:w-56 md:flex-col md:overflow-x-visible md:border-b-0 md:border-r md:p-4">
-      <div className="mb-4 hidden justify-center md:flex">
-        <BrandSymbol className="h-10 w-10" />
+      {/* Logo de l'école courante s'il existe (2026-11-16), sinon le symbole EduLinkage. La marque
+          EduLinkage reste dans la barre du haut. */}
+      <div
+        className={`mb-4 hidden items-center justify-center md:flex ${schoolLogo.url || schoolLogo.pending ? "h-20" : ""}`}
+      >
+        {schoolLogo.url ? (
+          // Blob authentifié (voir lib/schools/useSchoolLogo.ts) : next/image ne s'applique pas.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={schoolLogo.url}
+            alt={currentSchool ? `Logo de ${currentSchool.name}` : "Logo de l'école"}
+            className="h-20 w-auto max-w-full rounded object-contain"
+          />
+        ) : schoolLogo.pending ? null : (
+          <BrandSymbol className="h-10 w-10" />
+        )}
       </div>
       {items.map((item) => {
         // `/partner` est aussi le préfixe de ses sous-pages : correspondance exacte pour cet accueil.
