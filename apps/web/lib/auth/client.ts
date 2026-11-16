@@ -28,12 +28,22 @@ export type Me = {
   permissions: string[];
 };
 
+// Phase 32 — la connexion vérifie le mot de passe sur le serveur : elle demande toujours internet.
+const LOGIN_NEEDS_INTERNET =
+  "Pas de connexion internet. La connexion demande internet ; ensuite, EduLinkage reste consultable hors connexion sur cet appareil.";
+
 export async function login(email: string, password: string): Promise<TokenPair> {
-  const response = await fetch(`${API_URL}/api/v1/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  if (typeof navigator !== "undefined" && navigator.onLine === false) throw new ApiError(LOGIN_NEEDS_INTERNET, 0);
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    throw new ApiError(LOGIN_NEEDS_INTERNET, 0);
+  }
   if (!response.ok) throw new ApiError(await parseErrorDetail(response), response.status);
   return response.json();
 }

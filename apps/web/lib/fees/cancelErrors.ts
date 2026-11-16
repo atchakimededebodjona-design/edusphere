@@ -6,7 +6,9 @@ import { ApiError } from "@/lib/api/client";
 // - réponse HTTP non 2xx -> `ApiError(message, status)` ; `message` = `detail` du corps JSON s'il est
 //   exploitable, sinon le repli générique `Request failed with status N` (corps absent, non JSON,
 //   ou sans `detail`) — jamais supposé toujours présent ;
-// - aucune réponse reçue (coupure réseau) -> `TypeError` de fetch() ou `NetworkError` (refresh).
+// - aucune réponse reçue (coupure réseau) -> `TypeError` de fetch() ou `NetworkError` (refresh) ;
+// - appareil déjà hors ligne AVANT l'envoi (Phase 32) -> `ApiError(…, 0)` : rien n'a été envoyé,
+//   d'où le message par défaut ci-dessous (« L'annulation n'a pas été effectuée. »), exact ici.
 // Le backend reste l'autorité : ces messages ne font qu'expliquer un refus, ils ne décident de rien.
 
 export const CLOSED_SESSION_FALLBACK = "Annulation impossible : la session de caisse est clôturée.";

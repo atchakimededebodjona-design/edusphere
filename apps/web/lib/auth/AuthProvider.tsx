@@ -4,7 +4,8 @@ import { createContext, useCallback, useEffect, useMemo, useState } from "react"
 import { ApiError, onSessionExpired } from "@/lib/api/client";
 import * as authClient from "@/lib/auth/client";
 import type { Me } from "@/lib/auth/client";
-import { getStoredTokens, setStoredTokens } from "@/lib/auth/session";
+import { getStoredTokens, getStoredUserId, setStoredTokens } from "@/lib/auth/session";
+import { clearAllCachedResponses, clearCachedResponsesExcept } from "@/lib/offline/responseCache";
 import {
   distinctOrganizationIds,
   organizationIdForSchool,
@@ -156,6 +157,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (email: string, password: string): Promise<Me> => {
     const tokens = await authClient.login(email, password);
     setStoredTokens({ access_token: tokens.access_token, refresh_token: tokens.refresh_token });
+    // Phase 32 — poste partagé : les données gardées pour le hors connexion par un AUTRE compte
+    // (session expirée sans déconnexion explicite) sont effacées avant toute lecture.
+    const userId = getStoredUserId();
+    if (userId) await clearCachedResponsesExcept(userId);
     // Appel direct (pas `loadMe`, qui avale toute erreur en "anonymous") : un échec de `me()`
     // juste après une connexion réussie est une vraie erreur à remonter à l'appelant (écran de
     // connexion), pas un simple retour à l'état déconnecté.
@@ -171,6 +176,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // voir resolveSchoolsForOrganization ci-dessous).
   const logout = useCallback(async () => {
     await authClient.logout();
+    // Phase 32 — déconnexion explicite : plus aucune donnée de l'école ne reste sur l'appareil.
+    await clearAllCachedResponses();
     setMe(null);
     setStatus("anonymous");
     resetTenantState();

@@ -16,6 +16,9 @@ out/
 *.tsbuildinfo
 .turbo/
 
+# --- Service worker généré après `next build` (Phase 32, apps/web/scripts/generate-sw.mjs) ---
+apps/web/public/sw.js
+
 # --- Playwright (e2e) ---
 playwright-report/
 test-results/
