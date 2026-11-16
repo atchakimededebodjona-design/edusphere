@@ -368,3 +368,39 @@ async def register_paygate_callback_attempt(ip: str | None) -> None:
             await client.expire(key, settings.paygate_callback_rate_limit_window_seconds)
     except RedisError:
         logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (paygate callback).")
+
+
+# --- Tarifs publics de la page d'accueil (2026-11-16) ----------------------------------------
+#
+# Clé IP : endpoint non authentifié, lecture seule de la grille active.
+
+
+def _public_pricing_key(ip: str) -> str:
+    return f"public_pricing_attempts:{ip}"
+
+
+async def ensure_public_pricing_not_rate_limited(ip: str | None) -> None:
+    key = _public_pricing_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.public_pricing_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Please try again later.",
+                headers={"Retry-After": str(max(ttl, 1))},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (public pricing).")
+
+
+async def register_public_pricing_attempt(ip: str | None) -> None:
+    key = _public_pricing_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.public_pricing_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — tentative non comptabilisée (public pricing).")

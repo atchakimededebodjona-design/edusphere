@@ -205,6 +205,10 @@ class Settings(BaseSettings):
     # simple défense contre un envoi massif ; la notification ne fait jamais foi.
     paygate_callback_rate_limit_max_attempts: int = 120
     paygate_callback_rate_limit_window_seconds: int = 60
+    # Tarifs publics de la page d'accueil (endpoint non authentifié, lecture seule). La page les lit
+    # côté serveur au plus une fois toutes les 5 minutes : la limite ne vise qu'un appel massif.
+    public_pricing_rate_limit_max_attempts: int = 120
+    public_pricing_rate_limit_window_seconds: int = 60
 
     # URL de base utilisée pour construire les liens de vérification QR des bulletins (Phase 5).
     # Aucun hébergeur n'est encore choisi (règle Phase 0) — reste configurable via env var.

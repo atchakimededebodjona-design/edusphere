@@ -153,3 +153,35 @@ export function CloseIcon({ className = "h-6 w-6" }: IconProps) {
     </svg>
   );
 }
+
+export function PhoneIcon({ className = base }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className} aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 4h3l1.5 4-2 1.25a11 11 0 0 0 7.25 7.25L16 14.5l4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"
+      />
+    </svg>
+  );
+}
+
+export function GiftIcon({ className = base }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className} aria-hidden="true">
+      <rect x="3" y="8" width="18" height="4" rx="1" strokeLinejoin="round" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 12v8h14v-8M12 8v12" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8S10.5 4 8 4a2 2 0 0 0 0 4M12 8s1.5-4 4-4a2 2 0 0 1 0 4" />
+    </svg>
+  );
+}
+
+export function WalletIcon({ className = base }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 7a2 2 0 0 1 2-2h11v3" />
+      <rect x="4" y="8" width="16" height="11" rx="2" strokeLinejoin="round" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16 13.5h.01" />
+    </svg>
+  );
+}

@@ -102,6 +102,24 @@ class GridOut(BaseModel):
     periods: list[GridPeriodPrices]
 
 
+# --- Tarifs publics (page d'accueil, 2026-11-16) ----------------------------------------------
+class PublicTierOut(BaseModel):
+    tier: int
+    min_students: int
+    max_students: int
+
+
+class PublicPricingOut(BaseModel):
+    """Montants de la grille ACTIVE et bornes des tranches, sans rien d'autre : ni identifiant, ni
+    libellé, ni historique. `periods` est vide sans grille active (la page affiche alors « tarifs
+    sur demande »)."""
+
+    currency: str
+    tiers: list[PublicTierOut]
+    step_students: int
+    periods: list[GridPeriodPrices]
+
+
 # --- État de l'abonnement d'une école ----------------------------------------------------------
 class PeriodOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

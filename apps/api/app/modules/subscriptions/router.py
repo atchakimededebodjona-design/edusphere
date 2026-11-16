@@ -25,8 +25,10 @@ from app.core.permissions import CurrentUser, DbSession, ensure_permission, requ
 from app.core.rate_limit import (
     ensure_paygate_callback_not_rate_limited,
     ensure_payments_not_rate_limited,
+    ensure_public_pricing_not_rate_limited,
     register_paygate_callback_attempt,
     register_payments_attempt,
+    register_public_pricing_attempt,
 )
 from app.modules.subscriptions import online_payments, service
 from app.modules.subscriptions.schemas import (
@@ -42,6 +44,7 @@ from app.modules.subscriptions.schemas import (
     OnlinePaymentOut,
     PlatformInvoiceOut,
     PlatformSchoolSubscriptionsPage,
+    PublicPricingOut,
     QuoteInput,
     SchoolSubscriptionOut,
     SubscriptionStateCode,
@@ -184,6 +187,17 @@ def _declared_source_ip(request: Request) -> str | None:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
+
+
+# Page d'accueil publique (2026-11-16) : tarifs de la grille active, sans authentification. La page
+# les lit côté serveur au plus une fois toutes les 5 minutes ; aucune donnée d'école n'y figure.
+@router.get("/public/subscription-pricing", response_model=PublicPricingOut)
+async def public_subscription_pricing(request: Request, response: Response, db: DbSession) -> PublicPricingOut:
+    client_ip = request.client.host if request.client else None
+    await ensure_public_pricing_not_rate_limited(client_ip)
+    await register_public_pricing_attempt(client_ip)
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return await service.public_pricing(db)
 
 
 @router.post("/payment-providers/paygate/callback")
