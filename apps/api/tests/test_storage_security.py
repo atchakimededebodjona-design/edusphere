@@ -161,7 +161,7 @@ async def test_school_logo_upload_with_traversal_filename_stays_contained(client
     response = await client.post(
         f"/api/v1/schools/{school_id}/logo",
         headers=headers,
-        files={"file": ("..\\..\\..\\windows\\win.ini", b"fake-png-bytes", "image/png")},
+        files={"file": ("..\\..\\..\\windows\\system32", valid_image_bytes("PNG"), "image/png")},
     )
     assert response.status_code == 200, response.text
 
