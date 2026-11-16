@@ -315,9 +315,10 @@ test("clic à l'extérieur du panneau : ferme le sélecteur sans changer de cont
 
   await switcherTrigger(page).click();
   await expect(page.getByRole("menu")).toBeVisible();
-  // Le panneau est ancré à droite du header (sous le déclencheur) : le logo, tout à gauche, n'est
-  // jamais sous son emprise — un clic dessus est un clic extérieur sans ambiguïté de superposition.
-  await page.getByText("EduLinkage", { exact: true }).click();
+  // Le panneau est ancré à droite du header (sous le déclencheur) : le bord gauche du texte
+  // d'accueil n'est jamais sous son emprise, donc un clic à cet endroit est sans ambiguïté un clic
+  // extérieur. Ce n'est plus le logo : depuis le 2026-11-16, il mène à la page d'accueil publique.
+  await page.getByText(/Bienvenue sur l'espace de/).click({ position: { x: 5, y: 5 } });
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(switcherTrigger(page)).toContainText(school1.name);
 });

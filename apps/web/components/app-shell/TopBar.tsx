@@ -54,10 +54,12 @@ export function TopBar() {
       {/* Barre étroite (min-h-16) : le logo complet y devient illisible (nom/slogan trop
           petits, vérifié visuellement) — symbole officiel + nom en texte, comme le prévoit la
           consigne "symbole seul lorsque l'espace est limité". */}
-      <span className="flex items-center gap-2">
+      {/* 2026-11-16 : la marque ramène à la page d'accueil publique, seul chemin vers elle une fois
+          connecté. La session reste ouverte : « Mon espace » y ramène au tableau de bord. */}
+      <Link href="/" className="flex items-center gap-2 rounded hover:opacity-80" title="Page d'accueil EduLinkage">
         <BrandSymbol className="h-9 w-9" priority />
         <span className="text-lg font-bold text-slate-900">EduLinkage</span>
-      </span>
+      </Link>
       <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         {user && <TenantSwitcher />}
         {user && (
