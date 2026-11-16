@@ -725,6 +725,8 @@ EXPECTED_SUBSCRIPTION_ROUTES = {
     # pas « subscription » ; sa table `payment_provider_callbacks` non plus).
     "/api/v1/school-subscription/invoices/{invoice_id}/payments",
     "/api/v1/school-subscription/payments/{payment_id}",
+    # Page d'accueil publique (2026-11-16) : montants de la grille active, en lecture seule.
+    "/api/v1/public/subscription-pricing",
 }
 EXPECTED_COMMISSION_TABLES = {"partner_commissions"}
 EXPECTED_COMMISSION_COLUMNS = {
