@@ -3,6 +3,7 @@
 - **Demande** : 2026-11-15. « Ils auront 20 % du montant HT d'abonnement des écoles qui les concernent, après un paiement réussi et confirmé d'un abonnement. »
 - **Branche** : `feat/partner-commissions`, partie de `main` (`a78f4e2`).
 - **Migration** : `0031`.
+- **Statut** : **en production depuis le 2026-11-15** (`de6b86a`). La TVA à 18 % et la grille TTC, actives à 19:00 UTC, ont été retirées le soir même : l'entreprise relève de la TPU. Grille HT active et aucun taux de TVA depuis. Journal : §6.
 
 ## 1. Décisions (2026-11-15)
 
@@ -99,3 +100,22 @@ Elle suit la même procédure que les mises en service précédentes, dans la co
 
 - **Reçus** : mentions légales et détail HT, TVA et TTC (décisions du 2026-11-15 : entreprise assujettie à 18 %, reçu enrichi, facture normalisée délivrée séparément). Il faut d'abord la raison sociale, l'adresse, le NIF, le RCCM et les contacts.
 - **Versement automatique** par l'API de décaissement PayGate : écarté pour l'instant, à reconsidérer après une période de versements manuels.
+
+## 6. Journal de mise en service (2026-11-15)
+
+Exécuté par l'exploitant depuis la console web de l'hébergeur (`root`, `srv1965166`), selon le §4.
+
+| Étape | Heure (UTC) | Constat |
+|---|---|---|
+| CI | 18:22, puis vers 18:47 | Verte sur la PR #35 (`8cb7e4e`), puis sur `main` (`de6b86a`). |
+| 1. Code et images | 18:40 | `0367a71` → `de6b86a` en avance rapide. Images de retour arrière : `edusphere-api:avant-commissions` (`ab7ed18274fe`) et `edusphere-web:avant-commissions` (`aa726ee05b06`). Construction : code 0. |
+| 2. Coupure | 18:56 | Sauvegarde `edulinkage_20261115T185638Z.dump` (368 Ko, intégrité vérifiée). `0030` → `0031` : code 0. Contrôles : `0031`, RLS activée et forcée sur `partner_commissions`, aucun partenaire sans taux, `platform.commissions.manage` attribuée à 2 rôles. API `healthy`, `/health` et `/ready` à `ok`. Partenaire existant : « Partner test », actif, 20,00 %. |
+| 3. TVA et grille TTC | après 19:00 | Brouillon « Grille EduLinkage 2026-11 TTC (TVA 18 %) » ; les 18 montants du §4 ont été vérifiés sur capture. Ajout de `SUBSCRIPTION_VAT_RATE=18` au `.env`, puis redémarrage de l'API (`healthy`, `18`, paiement en ligne `true`) et activation aussitôt de la grille TTC, la grille HT étant archivée. Page Abonnement de l'école de test : offres à 35 400, 67 260 et 127 440 FCFA. |
+
+À partir de ce moment, chaque nouvelle facture enregistre `vat_rate = 18`, et la commission d'un partenaire porte sur le HT : 6 000 F pour un trimestre à 35 400 F avec un taux de 20 %. La facture de test `EL-2026-000001` (100 FCFA), antérieure, n'a pas de taux de TVA ; son école n'a pas été inscrite par un partenaire, elle n'ouvre donc droit à aucune commission.
+
+**Retrait de la TVA, le soir même.** La carte unique de création d'entreprise indique le régime de la TPU : l'entreprise ne facture pas de TVA. Après la fusion de la PR #36 (21:14 UTC), l'exploitant a :
+- créé et activé « Grille EduLinkage 2026-11 HT (TPU) », avec les montants HT de la grille archivée « 2026-11 complète », vérifiés sur capture ; la grille TTC est archivée ;
+- vidé `SUBSCRIPTION_VAT_RATE` dans le `.env`, puis redémarré l'API : `healthy`, taux de TVA `None`, paiement en ligne `true`.
+
+La grille HT a été activée quelques minutes avant que le taux soit vidé. Aucune facture n'a été émise dans les trois heures précédant ce contrôle : aucune facture ne porte de taux de TVA. La commission d'un partenaire reste de 6 000 F pour un forfait de base de 30 000 F.

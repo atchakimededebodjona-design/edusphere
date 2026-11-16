@@ -60,3 +60,42 @@ Vérifications :
 - Ensuite, `https://edulinkage.com/#tarifs` montre 30 000 / 57 000 / 108 000 FCFA, et les boutons WhatsApp ouvrent une conversation avec le bon numéro.
 
 **Retour arrière** : retaguer `avant-landing` en `latest` pour `edusphere-api` et `edusphere-web`, puis `docker compose up -d api web`.
+
+## 5. Journal de mise en production (2026-11-16)
+
+Déploiement depuis `/opt/edusphere`, avec les commandes du §4 enchaînées dans un seul bloc qui s'arrête à la première erreur :
+- avance rapide `465de4e..5c7f8f0` (PR #37) ;
+- images de secours `edusphere-api:avant-landing` et `edusphere-web:avant-landing` ;
+- construction de l'API et du web réussie, puis `up -d api web`.
+
+La CI de `main` tournait encore au moment du déploiement. Le code fusionné avait le même arbre (`cceec5e`) que la branche, dont les trois contrôles étaient verts.
+
+Vérifications :
+- l'API est `healthy` ;
+- `GET https://api.edulinkage.com/api/v1/public/subscription-pricing` renvoie la devise `XOF`, les cinq tranches, le palier de 250 élèves et les montants de la grille HT active (30 000 / 57 000 / 108 000 de base, le reste conforme à la grille du 2026-11-15) ;
+- depuis le conteneur web, la même adresse répond `200` : le serveur Next.js lit bien les tarifs ;
+- la page affichait « Tarifs sur demande » juste après le redémarrage, comme prévu au §4, puis le simulateur environ 30 secondes plus tard.
+
+**Constat.** Dans les journaux, l'API voit chaque appel venir de `172.18.0.1`, la passerelle du réseau Docker, et non de l'adresse du visiteur. Uvicorn (0.30.1) ignore `X-Forwarded-For` hors de `FORWARDED_ALLOW_IPS`, qui vaut `127.0.0.1` par défaut.
+
+Les limites calculées « par adresse IP » sont donc en fait communes à tout le monde :
+- vérification des bulletins (30 par minute) ;
+- réinitialisation du mot de passe (10 par 15 minutes) ;
+- notifications PayGate (120 par minute) ;
+- tarifs publics (120 par minute).
+
+La connexion, l'oubli de mot de passe, le renouvellement de session, les paiements et les annonces ne sont pas concernés : leur limite dépend du compte ou de l'adresse e-mail.
+
+À traiter à part, après lecture de la configuration nginx du serveur.
+
+**Résolu le 2026-11-16.**
+- Lecture de `nginx -T`, filtrée : le vhost `api.edulinkage.com` transmet `X-Real-IP`, `X-Forwarded-For` (`$proxy_add_x_forwarded_for`) et `X-Forwarded-Proto`. Le réseau `edusphere_default` est en `172.18.0.0/16`, passerelle `172.18.0.1`.
+- Simulation locale avec le `ProxyHeadersMiddleware` d'uvicorn 0.30.1 et `FORWARDED_ALLOW_IPS=172.18.0.1` :
+  - le visiteur est vu à sa vraie adresse, même s'il falsifie `X-Forwarded-For` ;
+  - le serveur Next.js garde sa propre adresse (`172.18.0.3`) ;
+  - le contrôle de santé interne est inchangé ;
+  - un conteneur qui appelle l'API directement n'est pas cru.
+- Production : `FORWARDED_ALLOW_IPS=172.18.0.1` ajouté au `.env` du serveur, puis `docker compose up -d --force-recreate --no-deps api`. L'API est `healthy` et la variable est lue dans le conteneur. Un appel normal et un appel avec `X-Forwarded-For: 1.2.3.4` sont tous deux journalisés depuis `82.25.116.196`, l'adresse réelle du serveur qui appelait, et non plus depuis `172.18.0.1`.
+- Incident sans conséquence : la commande de retour arrière a été collée par erreur juste après le test, puis le réglage a été remis et vérifié de nouveau.
+
+Documentation : `.env.example` et `docs/deployment/PRODUCTION_CONFIGURATION.md`, paragraphe « Adresse réelle des visiteurs ».

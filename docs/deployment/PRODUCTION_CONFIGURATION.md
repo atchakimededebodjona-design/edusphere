@@ -165,6 +165,16 @@ Ce qui est **déjà prêt** côté application (vérifié par lecture du code, p
   `allow_credentials=True` combiné à des origines explicites reste valide même après HTTPS ;
   seule la VALEUR de la variable doit changer pour un domaine réel en `https://`.
 
+**Adresse réelle des visiteurs (2026-11-16).** Les journaux de l'API montraient chaque appel venant de `172.18.0.1`, la passerelle du réseau Docker. Uvicorn n'accepte `X-Forwarded-For` que depuis `FORWARDED_ALLOW_IPS`, qui vaut `127.0.0.1` par défaut. Conséquence : les limites comptées par adresse étaient communes à tous les visiteurs. C'était le cas pour la vérification des bulletins, la réinitialisation du mot de passe, les notifications PayGate et les tarifs publics.
+
+Constats sur le serveur :
+- `nginx -T`, filtré sur les en-têtes de proxy : le vhost `api.edulinkage.com` transmet `X-Real-IP $remote_addr`, `X-Forwarded-For $proxy_add_x_forwarded_for` et `X-Forwarded-Proto $scheme` ;
+- le réseau `edusphere_default` est en `172.18.0.0/16`, passerelle `172.18.0.1`.
+
+Réglage en production : `FORWARDED_ALLOW_IPS=172.18.0.1` dans le `.env` du serveur, transmis au conteneur par `env_file`. Uvicorn retient alors la dernière adresse de `X-Forwarded-For` qui n'est pas de confiance, c'est-à-dire celle que nginx a ajoutée. Une valeur falsifiée par le client reste en tête de liste et n'est pas prise en compte.
+
+Si le réseau compose est recréé avec une autre passerelle, mettre la valeur à jour, sinon les limites redeviennent communes à tous. Ne jamais mettre `*` : uvicorn prendrait alors la première adresse de la liste, que le client peut choisir.
+
 Ce que le **dépôt** ne contient toujours pas, et qui reste donc **non audité** :
 - La configuration du reverse proxy de production : un nginx termine bien le TLS sur le domaine
   public (observé le 2026-10-18), mais sa configuration vit sur le serveur, hors de ce dépôt
