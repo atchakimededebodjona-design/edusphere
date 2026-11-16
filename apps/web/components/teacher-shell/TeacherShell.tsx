@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { useAuth } from "@/lib/auth/useAuth";
+import { useCurrentSchoolLogo } from "@/lib/schools/useSchoolLogo";
 
 // Navigation dédiée au portail enseignant. Aucun menu d'administration (École, Utilisateurs, Mise en
 // place, Frais, Paiements) : ces entrées n'existent pas dans cet espace.
@@ -26,7 +28,8 @@ function isActive(pathname: string, href: string): boolean {
 export function TeacherShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, currentSchool } = useAuth();
+  const schoolLogo = useCurrentSchoolLogo();
 
   async function handleLogout() {
     await logout();
@@ -36,8 +39,27 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-50 md:flex">
       <aside className="hidden w-60 shrink-0 flex-col bg-brand-navy px-4 py-6 text-slate-100 md:flex">
+        {/* 2026-11-16 : logo de l'école de l'enseignant (même source que le menu de l'espace
+            administration, voir lib/schools/useSchoolLogo.ts), posé sur une pastille blanche pour
+            rester lisible sur ce fond sombre. Place réservée pendant le chargement ; rien sans logo.
+            La marque EduLinkage est dans la barre du haut. */}
+        {(schoolLogo.url || schoolLogo.pending) && (
+          <div
+            className={`mb-4 flex h-24 items-center justify-center rounded-lg p-2 ${schoolLogo.url ? "bg-white" : ""}`}
+          >
+            {schoolLogo.url && (
+              // Blob authentifié : next/image ne s'applique pas.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={schoolLogo.url}
+                alt={currentSchool ? `Logo de ${currentSchool.name}` : "Logo de l'école"}
+                className="h-20 w-auto max-w-full object-contain"
+              />
+            )}
+          </div>
+        )}
         <p className="px-2 text-sm font-semibold">Espace enseignant</p>
-        <p className="px-2 pb-6 text-xs text-slate-400">EduLinkage</p>
+        <p className="px-2 pb-6 text-xs text-slate-400">{currentSchool?.name ?? ""}</p>
         <nav aria-label="Navigation enseignant" className="flex flex-col gap-1">
           {TEACHER_NAV.map((item) => (
             <Link
@@ -53,14 +75,23 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">{user?.full_name ?? ""}</p>
-            <p className="text-xs text-slate-500">Enseignant</p>
+        {/* 2026-11-16 : marque EduLinkage, qui ramène à la page d'accueil publique comme dans l'espace
+            administration (components/app-shell/TopBar.tsx). La session reste ouverte : « Mon
+            espace » y ramène ici (/dashboard renvoie un enseignant vers /teacher). */}
+        <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-3">
+          <Link href="/" className="flex items-center gap-2 rounded hover:opacity-80" title="Page d'accueil EduLinkage">
+            <BrandSymbol className="h-9 w-9" priority />
+            <span className="text-lg font-bold text-slate-900">EduLinkage</span>
+          </Link>
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="min-w-0 text-right">
+              <p className="truncate text-sm font-semibold text-slate-900">{user?.full_name ?? ""}</p>
+              <p className="text-xs text-slate-500">Enseignant</p>
+            </div>
+            <button type="button" onClick={handleLogout} className="shrink-0 text-sm text-slate-600 underline">
+              Se déconnecter
+            </button>
           </div>
-          <button type="button" onClick={handleLogout} className="text-sm text-slate-600 underline">
-            Se déconnecter
-          </button>
         </header>
 
         {/* Navigation mobile : barre horizontale défilante, mêmes entrées que la barre latérale. */}
