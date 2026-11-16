@@ -109,17 +109,26 @@ export function CashCountAndClose({
             }}
             className="flex flex-col gap-3"
           >
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {/* Nombre de colonnes selon la place réelle du bloc (souvent la colonne étroite de droite),
+                pas selon la largeur de l'écran : chaque case garde le montant sur une ligne, avec la
+                quantité dessous. Vérifié le 2026-11-16 : avant, à 4 colonnes, montants coupés et
+                champs débordant sur la case voisine. */}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2">
               {denominations.map((denomination) => (
-                <label key={denomination} className="flex items-center justify-between gap-2 rounded border border-slate-200 px-2 py-1 text-sm">
-                  <span className="font-medium text-slate-800">{formatApiAmount(denomination, currency)}</span>
+                <label
+                  key={denomination}
+                  className="flex min-w-0 flex-col gap-1 rounded border border-slate-200 px-2 py-2 text-sm"
+                >
+                  <span className="whitespace-nowrap font-medium text-slate-800">
+                    {formatApiAmount(denomination, currency)}
+                  </span>
                   <input
                     aria-label={`Quantité de ${formatApiAmount(denomination, currency)}`}
                     value={quantities[denomination] ?? ""}
                     onChange={(e) => setQuantities((prev) => ({ ...prev, [denomination]: e.target.value }))}
                     inputMode="numeric"
                     placeholder="0"
-                    className="w-16 rounded border border-slate-300 px-2 py-1 text-right"
+                    className="w-full min-w-0 rounded border border-slate-300 px-2 py-1 text-right tabular-nums"
                   />
                 </label>
               ))}

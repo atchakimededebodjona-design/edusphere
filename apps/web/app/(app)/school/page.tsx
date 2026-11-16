@@ -12,6 +12,7 @@ import {
   type School,
   type SchoolUpdate,
 } from "@/lib/schools/client";
+import { announceSchoolLogoChange } from "@/lib/schools/useSchoolLogo";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -73,9 +74,11 @@ export default function SchoolSettingsPage() {
     const file = event.target.files?.[0];
     if (!file || !currentSchoolId) return;
     try {
-      await uploadSchoolLogo(currentSchoolId, file);
+      const updated = await uploadSchoolLogo(currentSchoolId, file);
       const newUrl = await getSchoolLogoBlobUrl(currentSchoolId);
       setLogoUrl(newUrl);
+      // Le menu latéral affiche aussi ce logo : il le recharge sans attendre une nouvelle connexion.
+      announceSchoolLogoChange(currentSchoolId, updated.logo_path);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Échec de l'envoi du logo.");
     }
