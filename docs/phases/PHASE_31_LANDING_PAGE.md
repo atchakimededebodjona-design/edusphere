@@ -60,3 +60,30 @@ Vérifications :
 - Ensuite, `https://edulinkage.com/#tarifs` montre 30 000 / 57 000 / 108 000 FCFA, et les boutons WhatsApp ouvrent une conversation avec le bon numéro.
 
 **Retour arrière** : retaguer `avant-landing` en `latest` pour `edusphere-api` et `edusphere-web`, puis `docker compose up -d api web`.
+
+## 5. Journal de mise en production (2026-11-16)
+
+Déploiement depuis `/opt/edusphere`, avec les commandes du §4 enchaînées dans un seul bloc qui s'arrête à la première erreur :
+- avance rapide `465de4e..5c7f8f0` (PR #37) ;
+- images de secours `edusphere-api:avant-landing` et `edusphere-web:avant-landing` ;
+- construction de l'API et du web réussie, puis `up -d api web`.
+
+La CI de `main` tournait encore au moment du déploiement. Le code fusionné avait le même arbre (`cceec5e`) que la branche, dont les trois contrôles étaient verts.
+
+Vérifications :
+- l'API est `healthy` ;
+- `GET https://api.edulinkage.com/api/v1/public/subscription-pricing` renvoie la devise `XOF`, les cinq tranches, le palier de 250 élèves et les montants de la grille HT active (30 000 / 57 000 / 108 000 de base, le reste conforme à la grille du 2026-11-15) ;
+- depuis le conteneur web, la même adresse répond `200` : le serveur Next.js lit bien les tarifs ;
+- la page affichait « Tarifs sur demande » juste après le redémarrage, comme prévu au §4, puis le simulateur environ 30 secondes plus tard.
+
+**Constat.** Dans les journaux, l'API voit chaque appel venir de `172.18.0.1`, la passerelle du réseau Docker, et non de l'adresse du visiteur. Uvicorn (0.30.1) ignore `X-Forwarded-For` hors de `FORWARDED_ALLOW_IPS`, qui vaut `127.0.0.1` par défaut.
+
+Les limites calculées « par adresse IP » sont donc en fait communes à tout le monde :
+- vérification des bulletins (30 par minute) ;
+- réinitialisation du mot de passe (10 par 15 minutes) ;
+- notifications PayGate (120 par minute) ;
+- tarifs publics (120 par minute).
+
+La connexion, l'oubli de mot de passe, le renouvellement de session, les paiements et les annonces ne sont pas concernés : leur limite dépend du compte ou de l'adresse e-mail.
+
+À traiter à part, après lecture de la configuration nginx du serveur.
