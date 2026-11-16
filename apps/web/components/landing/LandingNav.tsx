@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { CloseIcon, MenuIcon } from "@/components/landing/icons";
+import { getStoredTokens } from "@/lib/auth/session";
 import { whatsappLink } from "@/lib/landing/contact";
 
 const NAV_LINKS = [
@@ -13,9 +14,26 @@ const NAV_LINKS = [
   { href: "#contact", label: "Contact" },
 ];
 
+// 2026-11-16 : un visiteur déjà connecté (arrivé ici par la marque de son espace) retrouve son
+// espace au lieu du formulaire de connexion. Lu après le montage : la page est générée côté serveur,
+// sans session. `/dashboard` renvoie lui-même parents, enseignants et partenaires vers leur espace,
+// et une session expirée y mène à la connexion (voir app/(app)/AuthGate.tsx).
+function useAccountLink(): { href: string; label: string } {
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    try {
+      setSignedIn(getStoredTokens() !== null);
+    } catch {
+      setSignedIn(false);
+    }
+  }, []);
+  return signedIn ? { href: "/dashboard", label: "Mon espace" } : { href: "/login", label: "Se connecter" };
+}
+
 export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const account = useAccountLink();
 
   useEffect(() => {
     function onScroll() {
@@ -54,10 +72,10 @@ export function LandingNav() {
 
         <div className="hidden items-center gap-3 md:flex">
           <Link
-            href="/login"
+            href={account.href}
             className="rounded-lg px-4 py-2 text-sm font-semibold text-brand-text transition hover:bg-slate-100"
           >
-            Se connecter
+            {account.label}
           </Link>
           <a
             href={whatsappLink()}
@@ -96,11 +114,11 @@ export function LandingNav() {
             ))}
             <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-3">
               <Link
-                href="/login"
+                href={account.href}
                 onClick={() => setMenuOpen(false)}
                 className="rounded-lg border border-slate-200 px-4 py-2.5 text-center text-sm font-semibold text-brand-text"
               >
-                Se connecter
+                {account.label}
               </Link>
               <a
                 href={whatsappLink()}
