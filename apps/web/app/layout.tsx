@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { PwaSupport } from "@/components/pwa/PwaSupport";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 
 export const metadata: Metadata = {
@@ -10,6 +11,13 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://edulinkage.com"),
   title: "EduLinkage",
   description: "Plateforme SaaS scolaire multi-tenant pour l'Afrique",
+  // Phase 32 — application installable : le manifeste vient de app/manifest.ts, l'icône iPhone de
+  // app/apple-icon.png.
+  appleWebApp: { capable: true, title: "EduLinkage", statusBarStyle: "default" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0B1224",
 };
 
 export default function RootLayout({
@@ -20,7 +28,10 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          {children}
+          <PwaSupport />
+        </AuthProvider>
       </body>
     </html>
   );

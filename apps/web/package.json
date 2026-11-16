@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/generate-sw.mjs --write",
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "test:config": "node --test config/apiUrl.test.js lib/landing/pricing.test.mjs",
+    "test:config": "node --test config/apiUrl.test.js lib/landing/pricing.test.mjs scripts/generate-sw.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

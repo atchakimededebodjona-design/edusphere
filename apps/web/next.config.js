@@ -49,6 +49,12 @@ function createNextConfig(resolvedApiUrl) {
       ].join("; ");
 
       return [
+        // Phase 32 — le service worker (généré par scripts/generate-sw.mjs) est relu à chaque
+        // vérification : une nouvelle version du site est ainsi détectée dès qu'elle est en ligne.
+        {
+          source: "/sw.js",
+          headers: [{ key: "Cache-Control", value: "no-cache" }],
+        },
         {
           source: "/:path*",
           headers: [

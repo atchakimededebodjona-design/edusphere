@@ -52,6 +52,25 @@ export function getStoredTokens(): StoredTokens | null {
   return null;
 }
 
+/**
+ * Identifiant du compte connecté, lu dans le jeton d'accès (`sub`), SANS vérification de
+ * signature. Sert uniquement à ranger par compte les données gardées pour le hors connexion (voir
+ * lib/offline/responseCache.ts) — jamais une preuve d'identité : l'API reste seule juge.
+ */
+export function getStoredUserId(): string | null {
+  const tokens = getStoredTokens();
+  if (!tokens) return null;
+  try {
+    const payload = tokens.access_token.split(".")[1];
+    if (!payload) return null;
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const sub = (JSON.parse(window.atob(base64)) as { sub?: unknown }).sub;
+    return typeof sub === "string" && sub ? sub : null;
+  } catch {
+    return null;
+  }
+}
+
 export function setStoredTokens(tokens: StoredTokens): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));

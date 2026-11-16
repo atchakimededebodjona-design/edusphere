@@ -1,4 +1,11 @@
-import { clearStoredTokens, getStoredTokens, setStoredTokens } from "@/lib/auth/session";
+import { clearStoredTokens, getStoredTokens, getStoredUserId, setStoredTokens } from "@/lib/auth/session";
+import { readCachedResponse, storeResponse } from "@/lib/offline/responseCache";
+import {
+  announceDataSource,
+  browserSaysOnline,
+  OFFLINE_NO_COPY_MESSAGE,
+  OFFLINE_NOT_SENT_MESSAGE,
+} from "@/lib/offline/status";
 
 // Risque H1 — en production, la valeur vient TOUJOURS de next.config.js (validée strictement au
 // `next build`, voir config/apiUrl.js). Le repli local n'existe qu'en développement : NODE_ENV est
@@ -102,8 +109,92 @@ function refreshTokens(): Promise<boolean> {
  * Client HTTP partagé par tous les modules authentifiés (école, académique, élèves, notes,
  * bulletins) : attache le token courant et retente une fois après un refresh silencieux sur 401,
  * pour éviter de dupliquer cette logique dans chaque client de module.
+ *
+ * Phase 32, lot 1 (hors connexion) :
+ * - LECTURE (GET) : chaque réponse réussie est copiée sur l'appareil pour le compte connecté ; si
+ *   l'API est injoignable (appareil hors ligne, pas de réponse, passerelle 502/503/504), la copie
+ *   est servie à la place et signalée à l'écran (lib/offline/status.ts). En production, un réseau
+ *   qui ne répond pas en 10 s sert aussi la copie s'il y en a une (la requête continue et met la
+ *   copie à jour).
+ * - ÉCRITURE : inchangée, sauf quand le navigateur sait l'appareil hors ligne AVANT l'envoi :
+ *   `ApiError(…, 0)` « rien n'a été envoyé ». Une coupure PENDANT l'envoi garde l'erreur réseau
+ *   d'origine (non `ApiError`) : on ne sait pas si le serveur l'a reçu (voir
+ *   lib/fees/cancelErrors.ts).
  */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method !== "GET") {
+    if (!browserSaysOnline()) throw new ApiError(OFFLINE_NOT_SENT_MESSAGE, 0);
+    return sendRequest(path, init);
+  }
+  return readWithOfflineCopy(path, init);
+}
+
+const SLOW_NETWORK_FALLBACK_MS = 10_000;
+
+// Aucune réponse de l'API : erreur réseau de fetch()/du refresh, ou passerelle sans API derrière.
+function apiUnreachable(err: unknown): boolean {
+  if (err instanceof ApiError) return err.status === 502 || err.status === 503 || err.status === 504;
+  return true;
+}
+
+async function readWithOfflineCopy(path: string, init: RequestInit): Promise<Response> {
+  const userId = getStoredUserId();
+  if (!userId) return sendRequest(path, init);
+
+  const offlineCopy = async (): Promise<Response | null> => {
+    const copy = await readCachedResponse(userId, path);
+    if (!copy) return null;
+    announceDataSource({ source: "copy", savedAt: copy.savedAt });
+    return copy.response;
+  };
+  const noCopyError = () => {
+    announceDataSource({ source: "unreachable" });
+    return new ApiError(OFFLINE_NO_COPY_MESSAGE, 0);
+  };
+
+  if (!browserSaysOnline()) {
+    const copy = await offlineCopy();
+    if (copy) return copy;
+    throw noCopyError();
+  }
+
+  const network = sendRequest(path, init).then((response) => {
+    void storeResponse(userId, path, response.clone());
+    announceDataSource({ source: "network" });
+    return response;
+  });
+
+  try {
+    // Délai réservé à la production : en développement (et donc dans les tests e2e, lancés avec
+    // `pnpm dev`), une API lente ne doit jamais faire servir une copie plus ancienne.
+    if (process.env.NODE_ENV !== "production") return await network;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const slow = new Promise<"slow">((resolve) => {
+      timer = setTimeout(() => resolve("slow"), SLOW_NETWORK_FALLBACK_MS);
+    });
+    const first = await Promise.race([network, slow]).finally(() => clearTimeout(timer));
+    if (first !== "slow") return first;
+    const copy = await offlineCopy();
+    if (copy) {
+      network.catch(() => {});
+      return copy;
+    }
+    return await network;
+  } catch (err) {
+    if (init.signal?.aborted || !apiUnreachable(err)) throw err;
+    const copy = await offlineCopy();
+    if (copy) return copy;
+    // Aucune réponse du tout (wifi sans internet, forfait épuisé…) et aucune copie : message clair
+    // plutôt que l'erreur réseau brute. Sans risque pour une lecture, qui ne modifie rien.
+    // Une passerelle 502/503/504 garde son erreur d'origine (serveur en panne, pas l'appareil).
+    if (!(err instanceof ApiError)) throw noCopyError();
+    throw err;
+  }
+}
+
+async function sendRequest(path: string, init: RequestInit): Promise<Response> {
   const doFetch = () => {
     const stored = getStoredTokens();
     const headers = new Headers(init.headers);
