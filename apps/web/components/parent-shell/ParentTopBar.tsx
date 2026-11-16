@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { useAuth } from "@/lib/auth/useAuth";
 import { notifications } from "@/lib/notifications/client";
+import { confirmLogoutWithUnsentEntries } from "@/lib/offline/outbox";
 
 // Même intervalle que components/app-shell/TopBar.tsx — un badge non-lu tolère un léger retard,
 // aucun mécanisme temps réel n'existe dans ce projet (voir PHASE_21_DISCOVERY.md).
@@ -44,6 +45,8 @@ export function ParentTopBar() {
   const unreadCount = useUnreadCount(Boolean(user));
 
   async function handleLogout() {
+    // Phase 32, lot 2 — des saisies non envoyées (appel, notes) seraient perdues : on prévient.
+    if (!(await confirmLogoutWithUnsentEntries())) return;
     await logout();
     router.push("/login");
   }

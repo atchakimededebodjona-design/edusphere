@@ -3,9 +3,11 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission, is_teacher_only
+from app.core.tenancy import apply_tenant_context
 from app.modules.academics.models import AcademicTerm, SchoolClass
 from app.modules.attendance import service
 from app.modules.attendance.models import AttendanceRecord, AttendanceSession
@@ -111,10 +113,43 @@ async def list_sessions(
     return list(result.scalars().all())
 
 
+async def _session_by_idempotency_key(db: AsyncSession, school_id: uuid.UUID, key: str) -> AttendanceSession | None:
+    result = await db.execute(
+        select(AttendanceSession).where(AttendanceSession.school_id == school_id, AttendanceSession.idempotency_key == key)
+    )
+    return result.scalar_one_or_none()
+
+
+def _same_session_or_conflict(existing: AttendanceSession, payload: AttendanceSessionCreate) -> AttendanceSession:
+    """Même clé + mêmes données => même séance (renvoi d'une saisie hors connexion) ; même clé +
+    données différentes => conflit explicite, jamais un succès silencieux (motif des mouvements de
+    caisse, cash/service.py)."""
+    if (
+        existing.class_id == payload.class_id
+        and existing.academic_term_id == payload.academic_term_id
+        and existing.session_date == payload.session_date
+    ):
+        return existing
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT, detail="Idempotency key already used for a different attendance session"
+    )
+
+
 @router.post("/attendance-sessions", response_model=AttendanceSessionOut, status_code=status.HTTP_201_CREATED)
 async def create_session(payload: AttendanceSessionCreate, db: DbSession, current_user: CurrentUser) -> AttendanceSession:
     school_class = await _get_class_or_404(db, payload.class_id)
     await _ensure_can_manage_class_attendance(db, current_user, school_class)
+    # Capturés avant tout flush : après un rollback, relire un attribut déclencherait un chargement
+    # hors contexte async (même précaution que fees/service.py::record_payment).
+    school_id = school_class.school_id
+    user_id = current_user.id
+
+    # Phase 32, lot 2 — renvoi d'une séance créée hors connexion (après le contrôle d'accès).
+    if payload.idempotency_key is not None:
+        existing = await _session_by_idempotency_key(db, school_id, payload.idempotency_key)
+        if existing is not None:
+            return _same_session_or_conflict(existing, payload)
+
     academic_term = await _get_academic_term_or_404(db, payload.academic_term_id)
 
     try:
@@ -129,10 +164,23 @@ async def create_session(payload: AttendanceSessionCreate, db: DbSession, curren
         class_id=school_class.id,
         academic_term_id=academic_term.id,
         session_date=payload.session_date,
-        taken_by=current_user.id,
+        taken_by=user_id,
+        idempotency_key=payload.idempotency_key,
     )
     db.add(session)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if payload.idempotency_key is None:
+            raise
+        # Deux envois simultanés de la même clé : l'autre a gagné. Le rollback efface le contexte
+        # tenant (SET LOCAL) ; il est repositionné avant de relire, sinon RLS masquerait le gagnant.
+        await db.rollback()
+        await apply_tenant_context(db, user_id)
+        winner = await _session_by_idempotency_key(db, school_id, payload.idempotency_key)
+        if winner is not None:
+            return _same_session_or_conflict(winner, payload)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Could not create attendance session") from exc
     await db.refresh(session)
     await db.commit()
     return session

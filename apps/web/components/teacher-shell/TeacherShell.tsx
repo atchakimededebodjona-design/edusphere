@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { useAuth } from "@/lib/auth/useAuth";
+import { confirmLogoutWithUnsentEntries } from "@/lib/offline/outbox";
 import { useCurrentSchoolLogo } from "@/lib/schools/useSchoolLogo";
 
 // Navigation dédiée au portail enseignant. Aucun menu d'administration (École, Utilisateurs, Mise en
@@ -32,6 +33,8 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
   const schoolLogo = useCurrentSchoolLogo();
 
   async function handleLogout() {
+    // Phase 32, lot 2 — des saisies non envoyées (appel, notes) seraient perdues : on prévient.
+    if (!(await confirmLogoutWithUnsentEntries())) return;
     await logout();
     router.replace("/login");
   }

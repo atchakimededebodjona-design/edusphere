@@ -1,10 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api/client";
+import { hasTeacherRole } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
 import { announceDataSource, DATA_SOURCE_EVENT, type DataSourceDetail } from "@/lib/offline/status";
+import { syncOutbox } from "@/lib/offline/sync";
+import { useOutbox } from "@/lib/offline/useOutbox";
 
 // Phase 32, lot 1 — application installable et consultable hors connexion (voir
 // docs/phases/PHASE_32_OFFLINE_PWA.md). Trois bandeaux discrets en bas d'écran :
@@ -171,17 +175,56 @@ function useOfflineState() {
   return { offline, browserOnline, oldestCopy, reconnected, dismissReconnected: () => setReconnected(false) };
 }
 
+// Phase 32, lot 2 — envoi automatique des saisies gardées sur l'appareil (appel, notes) : à
+// l'ouverture, au retour du réseau, puis toutes les minutes tant qu'il en reste.
+const OUTBOX_RETRY_MS = 60_000;
+
+function useOutboxSync(authenticated: boolean, offline: boolean, pendingCount: number) {
+  useEffect(() => {
+    if (!authenticated) return;
+    const send = () => void syncOutbox();
+    send();
+    window.addEventListener("online", send);
+    return () => window.removeEventListener("online", send);
+  }, [authenticated]);
+
+  useEffect(() => {
+    if (authenticated && !offline && pendingCount > 0) void syncOutbox();
+  }, [authenticated, offline, pendingCount]);
+
+  useEffect(() => {
+    if (!authenticated || pendingCount === 0) return;
+    const id = setInterval(() => void syncOutbox(), OUTBOX_RETRY_MS);
+    return () => clearInterval(id);
+  }, [authenticated, pendingCount]);
+}
+
 export function PwaSupport() {
-  const { status } = useAuth();
+  const { status, user, roles } = useAuth();
   const authenticated = status === "authenticated";
   const updateReady = useServiceWorker(authenticated);
   const install = useInstallPrompt();
   const [installHidden, setInstallHidden] = useState(true);
   const { offline, browserOnline, oldestCopy, reconnected, dismissReconnected } = useOfflineState();
+  const outbox = useOutbox();
+  const pendingCount = outbox.filter((entry) => entry.state === "pending").length;
+  const failed = outbox.filter((entry) => entry.state === "failed");
+  const [sending, setSending] = useState(false);
+  const teacher = hasTeacherRole(user, roles);
+  useOutboxSync(authenticated, offline, pendingCount);
 
   useEffect(() => {
     setInstallHidden(installRecentlyDismissed());
   }, []);
+
+  async function handleSendNow() {
+    setSending(true);
+    try {
+      await syncOutbox();
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function handleInstall() {
     const prompt = install.prompt;
@@ -202,7 +245,9 @@ export function PwaSupport() {
 
   const showInstall = authenticated && install.prompt !== null && !installHidden && !offline;
 
-  if (!offline && !reconnected && !updateReady && !showInstall) return null;
+  const showOutbox = authenticated && (pendingCount > 0 || failed.length > 0);
+
+  if (!offline && !reconnected && !updateReady && !showInstall && !showOutbox) return null;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-2 p-3">
@@ -217,7 +262,48 @@ export function PwaSupport() {
               ? `Informations enregistrées sur cet appareil le ${formatSavedAt(oldestCopy)}. `
               : "Les pages déjà ouvertes avec internet restent consultables. "}
             Aucune modification ne peut être envoyée pour l&apos;instant.
+            {teacher && " L'appel et les notes restent enregistrables : ils partiront automatiquement au retour d'internet."}
           </p>
+        </div>
+      )}
+      {authenticated && pendingCount > 0 && (
+        <div
+          role="status"
+          className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-lg"
+        >
+          <p>
+            {pendingCount === 1
+              ? "1 saisie (appel ou notes) est gardée sur cet appareil, en attente d'envoi."
+              : `${pendingCount} saisies (appel ou notes) sont gardées sur cet appareil, en attente d'envoi.`}
+          </p>
+          {!offline && (
+            <button
+              type="button"
+              onClick={() => void handleSendNow()}
+              disabled={sending}
+              className="shrink-0 rounded bg-sky-800 px-3 py-1.5 font-medium text-white hover:bg-sky-900 disabled:opacity-50"
+            >
+              {sending ? "Envoi..." : "Envoyer maintenant"}
+            </button>
+          )}
+        </div>
+      )}
+      {authenticated && failed.length > 0 && (
+        <div
+          role="alert"
+          className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-lg"
+        >
+          <p>
+            {failed.length === 1
+              ? "1 saisie a été refusée par le serveur."
+              : `${failed.length} saisies ont été refusées par le serveur.`}
+          </p>
+          <Link
+            href={failed.some((entry) => entry.kind === "attendance") ? "/teacher/attendance" : "/teacher/grades"}
+            className="shrink-0 font-medium underline"
+          >
+            Voir
+          </Link>
         </div>
       )}
       {!offline && reconnected && (

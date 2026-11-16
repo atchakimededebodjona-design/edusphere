@@ -31,6 +31,9 @@ class AssessmentType(Base):
 
 class Assessment(Base):
     __tablename__ = "assessments"
+    # Phase 32, lot 2 — même garantie que les séances d'appel (migration 0032) : une évaluation
+    # créée hors connexion et renvoyée plusieurs fois n'existe qu'une fois. NULL sans clé.
+    __table_args__ = (UniqueConstraint("school_id", "idempotency_key", name="uq_assessment_idempotency"),)
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     school_id: Mapped[uuid.UUID] = mapped_column(
@@ -52,6 +55,7 @@ class Assessment(Base):
     max_score: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=20)
     weight: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False, default=1)
     assessment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

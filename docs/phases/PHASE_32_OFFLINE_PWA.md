@@ -10,8 +10,8 @@
 
 | Lot | Contenu | Risque |
 |---|---|---|
-| **1** (cette branche) | Site installable. Tout ce qui a été ouvert avec internet reste **consultable** hors connexion, pour tous les espaces. Aucune écriture hors connexion. | Faible : lecture seule, l'API reste seule juge. |
-| **2** | **Enseignants** : appel et notes saisis hors connexion, envoyés automatiquement au retour du réseau. | Moyen : doublons et conflits. Côté API, il faut une clé d'idempotence à la création d'une séance d'appel. Les présences (`uq_attendance_record`) et les notes (`uq_assessment_result`) ont déjà une clé naturelle unique. |
+| **1** (en production le 2026-11-16, PR #44) | Site installable. Tout ce qui a été ouvert avec internet reste **consultable** hors connexion, pour tous les espaces. Aucune écriture hors connexion. | Faible : lecture seule, l'API reste seule juge. |
+| **2** (branche `feat/offline-teacher-lot2`, §4) | **Enseignants** : appel et notes saisis hors connexion, envoyés automatiquement au retour du réseau. | Moyen : doublons et conflits. Côté API, il faut une clé d'idempotence à la création d'une séance d'appel. Les présences (`uq_attendance_record`) et les notes (`uq_assessment_result`) ont déjà une clé naturelle unique. |
 | **3** | **Caisse** : encaissement hors connexion. | Élevé, à décider avant de construire. Les paiements ont déjà une clé d'idempotence (`uq_payment_idempotency`), mais **le numéro de reçu est attribué par le serveur** (`RCPT-…`). Hors connexion, on ne peut remettre qu'un **reçu provisoire**. Points à trancher : valeur légale du reçu provisoire (avis du comptable), session de caisse ouverte avant la coupure, plafond, contrôle par la supervision. |
 
 ## 2. Lot 1 — ce qui change
@@ -66,4 +66,57 @@
   - scénario hors connexion réussi deux fois de suite après la dernière modification.
 - **Non vérifié** :
   - Safari et iPhone : pas d'invite d'installation (ajout manuel par Partager → « Sur l'écran d'accueil ») ; stockage moins durable.
-  - Un vrai téléphone Android : à faire après le déploiement.
+  - Un vrai téléphone Android : à faire après le déploiement. (Fait le 2026-11-16 par l'exploitant : « ça marche sur téléphone ».)
+
+## 4. Lot 2 — appel et notes sans connexion
+
+- **Demande** : 2026-11-16, « ça marche sur téléphone, commence le lot 2 ».
+- **Migration** : `0032`, additive.
+
+**API (migration `0032`).**
+- **Colonnes** : `attendance_sessions.idempotency_key` et `assessments.idempotency_key` (VARCHAR(128), NULL).
+- **Unicité** : sur `(school_id, idempotency_key)` (`uq_attendance_session_idempotency`, `uq_assessment_idempotency`).
+- **Création** : `POST /attendance-sessions` et `POST /assessments` acceptent une `idempotency_key` facultative, de 8 à 128 caractères.
+  - Même clé, mêmes données : l'élément déjà créé est renvoyé.
+  - Même clé, autres données : refus 409.
+  - Sans clé : comportement inchangé.
+- **Ordre des contrôles** : la clé est cherchée **après** le contrôle d'accès, dans l'école de la classe.
+- **Envois simultanés** : `IntegrityError`, puis rollback, contexte RLS repositionné et relecture. C'est le motif des paiements (`fees/service.py::record_payment`) et des mouvements de caisse.
+- **Déjà renvoyables sans risque** : les présences et les notes, mises à jour élève par élève. Une même absence renvoyée ne redéclenche pas le courriel aux familles (`maybe_notify_absence`).
+- **Compatibilité** : l'ancienne API fonctionne avec la base migrée (colonnes facultatives). Un retour en arrière ne demande donc que les anciennes images, sans annuler la migration.
+
+**Site.**
+- **Boîte d'envoi** (`lib/offline/outbox.ts`, magasin `outbox` d'IndexedDB, base en version 2) :
+  - une saisie par compte et par cible ; réenregistrer remplace (la dernière saisie gagne) ;
+  - une séance ou une évaluation créée sur l'appareil porte sa clé d'idempotence (`offline-<uuid>`).
+- **Envoi** (`lib/offline/sync.ts`) :
+  - Chaque « Créer la session », « Enregistrer l'appel », « Créer » (évaluation) et « Enregistrer les notes » garde d'abord la saisie sur l'appareil, puis l'envoie aussitôt si possible.
+  - Avec internet, rien ne change à l'écran. Sans réponse, la saisie reste en attente, et c'est aussi le cas d'une coupure **pendant** l'envoi : la renvoyer est sans risque.
+  - Envoi automatique à l'ouverture, au retour du réseau, puis toutes les minutes. « Envoyer maintenant » est proposé dans le bandeau.
+  - Un seul envoi à la fois, y compris entre onglets (Web Locks).
+- **Refus du serveur** :
+  - **À l'enregistrement en ligne** : message immédiat, rien n'est gardé.
+  - **Lors d'un envoi différé** : la saisie est gardée « refusée », avec la raison traduite (séance verrouillée, bulletin publié, élève retiré, date hors période…). L'enseignant choisit « Réessayer » ou « Supprimer » ; jamais de suppression silencieuse.
+  - **Création réussie, enregistrement refusé** : la saisie refusée vise alors la séance (ou l'évaluation) réellement créée, qui n'apparaît qu'une fois à l'écran.
+- **Écrans** (`teacher/attendance`, `teacher/grades`) :
+  - les séances et évaluations créées sur l'appareil sont listées « en attente d'envoi » ;
+  - un appel ou des notes en attente priment sur la version du serveur à l'ouverture ;
+  - l'enregistrement reste bloqué tant que la feuille de la séance ouverte n'est pas chargée. Avant, une erreur de chargement laissait affichée la feuille précédente, qu'on pouvait enregistrer sur la mauvaise séance.
+  - Les notes sont contrôlées entre 0 et la note maximale avant l'envoi.
+- **Déconnexion** : avertissement s'il reste des saisies non envoyées (les trois barres). Si on confirme, les saisies de ce compte sont retirées de l'appareil. Les saisies d'autres comptes sur un poste partagé ne sont jamais envoyées avec une autre session.
+
+**Vérifications (2026-11-16).**
+- **API** :
+  - `tests/test_offline_idempotency.py`, 9 tests : renvoi sans doublon, clé réutilisée refusée, création sans clé inchangée, clé propre à chaque école, parcours réel d'un enseignant affecté envoyant deux fois séance et appel, clé trop courte refusée ;
+  - non exécutés en local (pas de PostgreSQL) : ruff, mypy et collecte pytest seulement. Ils tournent dans la CI.
+- **Site** : vérification des types, analyse du code, `test:config`.
+- **Parcours de bout en bout** : build de production, API simulée **avec état**, Chromium. 24 vérifications :
+  - séance, appel et notes saisis hors connexion, retrouvés après rechargement ;
+  - note au-dessus du maximum arrêtée avant l'envoi ;
+  - rien n'arrive au serveur pendant la coupure ;
+  - au retour du réseau : une séance par saisie, l'absence reçue, une évaluation et ses notes, bandeau vidé ;
+  - séance verrouillée : refus affiché avec sa raison, une seule ligne, suppression volontaire ;
+  - avertissement à la déconnexion, annulation possible, saisies retirées après confirmation ;
+  - aucune erreur de page.
+- **Coupure pendant l'envoi** (le serveur enregistre la séance mais la réponse se perd) : la séance est renvoyée avec la même clé, il n'y a aucun doublon, et l'appel est rattaché à la bonne séance.
+- **Passage de la base locale de la version 1 (lot 1) à la version 2** : copies existantes conservées, boîte d'envoi utilisable.

@@ -20,6 +20,8 @@ export type AttendanceSessionCreate = {
   class_id: string;
   academic_term_id: string;
   session_date: string;
+  /** Phase 32 — clé fournie par l'appareil : un renvoi ne crée qu'une séance. */
+  idempotency_key?: string;
 };
 
 export type AttendanceRecord = {
