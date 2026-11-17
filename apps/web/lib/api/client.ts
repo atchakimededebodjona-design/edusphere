@@ -6,6 +6,7 @@ import {
   OFFLINE_NO_COPY_MESSAGE,
   OFFLINE_NOT_SENT_MESSAGE,
 } from "@/lib/offline/status";
+import { markServerContact } from "@/lib/offline/vault";
 
 // Risque H1 — en production, la valeur vient TOUJOURS de next.config.js (validée strictement au
 // `next build`, voir config/apiUrl.js). Le repli local n'existe qu'en développement : NODE_ENV est
@@ -238,5 +239,7 @@ async function sendRequest(path: string, init: RequestInit): Promise<Response> {
     }
     throw new ApiError(await parseErrorDetail(response), response.status);
   }
+  // Connexion sans internet : le serveur a reconnu cette session (limite des 7 jours, lib/offline/vault.ts).
+  markServerContact();
   return response;
 }

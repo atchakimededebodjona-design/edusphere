@@ -1,12 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandFull, BrandSymbol } from "@/components/branding/BrandLogo";
 import { ApiError } from "@/lib/auth/client";
 import { isParentOnlyAccount, isPartnerOnlyAccount, isTeacherOnlyAccount } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
+import { forgetAccount, listOfflineAccounts, type OfflineAccount } from "@/lib/offline/vault";
+
+function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -15,6 +20,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  // Connexion sans internet — comptes verrouillés sur cet appareil (lib/offline/vault.ts).
+  const [offlineAccounts, setOfflineAccounts] = useState<OfflineAccount[]>([]);
+  const refreshOfflineAccounts = useCallback(() => {
+    void listOfflineAccounts().then(setOfflineAccounts);
+  }, []);
+  useEffect(() => refreshOfflineAccounts(), [refreshOfflineAccounts]);
+
+  async function handleForget(account: OfflineAccount) {
+    const question = `Effacer ${account.email} de cet appareil ?\n\nSes informations gardées et ses saisies non envoyées (appel, notes) seront supprimées ; il faudra internet pour se reconnecter. Les encaissements non envoyés restent sur l'appareil et partiront à sa prochaine connexion avec internet.`;
+    if (!window.confirm(question)) return;
+    await forgetAccount(account.userId);
+    refreshOfflineAccounts();
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -40,6 +58,7 @@ export default function LoginPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
       setStatus("error");
+      refreshOfflineAccounts();
     }
   }
 
@@ -121,6 +140,43 @@ export default function LoginPage() {
           >
             Mot de passe oublié ?
           </Link>
+
+          {offlineAccounts.length > 0 && (
+            <section
+              aria-labelledby="offline-accounts-title"
+              data-testid="offline-accounts"
+              className="mt-8 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700"
+            >
+              <h2 id="offline-accounts-title" className="font-semibold text-brand-text">
+                Connexion possible sans internet
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Ces comptes peuvent se reconnecter sur cet appareil avec leur mot de passe, même sans internet.
+                Leurs informations y sont gardées chiffrées.
+              </p>
+              <ul className="mt-3 flex flex-col gap-2">
+                {offlineAccounts.map((account) => (
+                  <li key={account.userId} className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900">{account.email}</p>
+                      <p className="text-xs text-slate-500">
+                        {account.blocked
+                          ? "Trop d'essais : prochaine connexion avec internet"
+                          : `Sans internet jusqu'au ${formatDay(account.usableUntil)}`}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleForget(account)}
+                      className="shrink-0 text-xs text-slate-600 underline"
+                    >
+                      Effacer de cet appareil
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       </div>
     </main>
