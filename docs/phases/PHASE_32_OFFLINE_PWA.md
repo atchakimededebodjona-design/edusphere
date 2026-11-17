@@ -11,8 +11,8 @@
 | Lot | Contenu | Risque |
 |---|---|---|
 | **1** (en production le 2026-11-16, PR #44) | Site installable. Tout ce qui a été ouvert avec internet reste **consultable** hors connexion, pour tous les espaces. Aucune écriture hors connexion. | Faible : lecture seule, l'API reste seule juge. |
-| **2** (branche `feat/offline-teacher-lot2`, §4) | **Enseignants** : appel et notes saisis hors connexion, envoyés automatiquement au retour du réseau. | Moyen : doublons et conflits. Côté API, il faut une clé d'idempotence à la création d'une séance d'appel. Les présences (`uq_attendance_record`) et les notes (`uq_assessment_result`) ont déjà une clé naturelle unique. |
-| **3** | **Caisse** : encaissement hors connexion. | Élevé, à décider avant de construire. Les paiements ont déjà une clé d'idempotence (`uq_payment_idempotency`), mais **le numéro de reçu est attribué par le serveur** (`RCPT-…`). Hors connexion, on ne peut remettre qu'un **reçu provisoire**. Points à trancher : valeur légale du reçu provisoire (avis du comptable), session de caisse ouverte avant la coupure, plafond, contrôle par la supervision. |
+| **2** (en production le 2026-11-16, PR #45, §4) | **Enseignants** : appel et notes saisis hors connexion, envoyés automatiquement au retour du réseau. | Moyen : doublons et conflits. Côté API, il faut une clé d'idempotence à la création d'une séance d'appel. Les présences (`uq_attendance_record`) et les notes (`uq_assessment_result`) ont déjà une clé naturelle unique. |
+| **3** (branche `feat/offline-cashier-lot3`, §5) | **Caisse** : encaissement en espèces hors connexion, avec reçu provisoire. | Élevé. Les paiements ont déjà une clé d'idempotence (`uq_payment_idempotency`), mais **le numéro de reçu est attribué par le serveur** (`RCPT-…`). Hors connexion, on ne peut remettre qu'un **reçu provisoire**. Décisions de l'exploitant au §5. |
 
 ## 2. Lot 1 — ce qui change
 
@@ -120,3 +120,65 @@
   - aucune erreur de page.
 - **Coupure pendant l'envoi** (le serveur enregistre la séance mais la réponse se perd) : la séance est renvoyée avec la même clé, il n'y a aucun doublon, et l'appel est rattaché à la bonne séance.
 - **Passage de la base locale de la version 1 (lot 1) à la version 2** : copies existantes conservées, boîte d'envoi utilisable.
+
+## 5. Lot 3 — caisse sans connexion
+
+- **Demande** : 2026-11-17.
+- **Décisions de l'exploitant** (2026-11-17) :
+  - **Reçu** : un reçu PROVISOIRE (`PROV-` + 10 caractères) est remis au payeur. Le reçu officiel (`RCPT-…`) arrive après l'envoi et nomme le reçu provisoire qu'il remplace. Faire valider la formule par le comptable reste conseillé.
+  - **Élèves** : la liste des élèves de l'école qui ont encore des frais à payer est gardée sur l'appareil du caissier quand sa caisse est ouverte. **Exception voulue** à la règle des lots 1 et 2 de la caisse scolaire (« jamais une liste complète des élèves ») : sans elle, rien ne pourrait être encaissé au début d'une coupure.
+  - **Contrôle** : les encaissements faits sans internet portent la mention « hors connexion » avec l'heure réelle d'encaissement, visible par la supervision.
+  - **Plafond** : aucun.
+- **Migration** : `0033`, additive.
+
+**API (migration `0033`).**
+- **Colonnes** `payments.offline_collected_at` (TIMESTAMPTZ) et `payments.provisional_receipt_number` (VARCHAR(32)), NULL pour tout paiement fait avec internet.
+  - Contraintes : renseignées ensemble ou pas du tout (`ck_payment_offline_fields_together`) ; reçu provisoire unique par école (`uq_payment_provisional_receipt_number`).
+- **`POST /payments`** accepte, pour un encaissement fait sans internet :
+  - `offline_collected_at`, avec fuseau, jamais dans le futur (10 min de tolérance) ;
+  - `provisional_receipt_number` ;
+  - `cash_session_id` : la caisse ouverte au moment de l'encaissement.
+  - Espèces uniquement, champs ensemble, sinon refus 422.
+  - **Caisse** : si cette caisse n'est plus ouverte (clôturée entre-temps, par exemple par la supervision), refus 409. Le paiement n'est jamais rattaché en silence à une autre caisse, dont le comptage serait faussé.
+  - **Renvoi** avec la même clé d'idempotence : le paiement déjà créé est rendu, même après la clôture.
+- **Reçu PDF officiel** : ligne « Encaissé sans connexion internet le … — remplace le reçu provisoire n° PROV-… », à l'heure de l'école. Le journal d'audit le mentionne aussi.
+- **`GET /cashier/offline-roster`** : élèves ayant encore des frais à payer, avec leurs frais.
+  - Même calcul que `GET /students/{id}/financial-summary`, projection minimale (matricule, nom, classe).
+  - Mêmes droits que la recherche de la caisse (`fees.read` et `payments.manage` dans l'école), et **seulement avec une caisse ouverte** par l'appelant (409 sinon).
+  - Limite : 5 000 élèves (`truncated`).
+- **Mention dans les vues** : `offline_collected_at` et `provisional_receipt_number` sont ajoutés au paiement, au journal du jour du caissier et au détail d'une caisse.
+- **Compatibilité** : l'ancienne API fonctionne avec la base migrée (colonnes facultatives). Un retour en arrière ne demande que les anciennes images, sans annuler la migration.
+
+**Site.**
+- **Liste gardée** : téléchargée à l'ouverture de la page Caisse, caisse ouverte, puis toutes les 10 minutes. Elle est copiée comme toute lecture (lot 1), rangée par compte et effacée à la déconnexion.
+- **Sans internet** :
+  - la recherche se fait dans la liste gardée ;
+  - la situation de l'élève vient de la copie la plus récente (liste ou situation déjà ouverte), **diminuée des encaissements encore en attente** sur l'appareil : deux encaissements hors connexion ne peuvent pas viser le même reste à payer.
+- **Encaissement** (caisse ouverte connue de l'appareil) : gardé dans la boîte d'envoi (`payment:<clé>`), puis envoyé aussitôt.
+  - **Serveur joignable** : l'encaissement part comme avant, sans mention.
+  - **Serveur injoignable**, y compris une coupure pendant l'envoi : écran « Encaissement gardé sur cet appareil » et reçu provisoire, imprimable seul (`printProvisionalReceipt`). L'envoi différé ajoute la mention « hors connexion » et la caisse d'origine.
+  - Le panneau suit l'état réel : en attente, envoyé (avec le reçu officiel), ou refusé.
+- **Refus à l'envoi différé** (solde changé, caisse clôturée entre-temps…) : l'encaissement reste affiché, avec la raison et la consigne « l'argent a été reçu ; régularisez, puis supprimez la ligne ». Jamais de suppression silencieuse.
+- **Garde-fous** :
+  - **déconnexion bloquée** tant qu'un encaissement n'est pas accepté par le serveur ; l'effacement de la boîte d'envoi à la déconnexion épargne de toute façon les encaissements ;
+  - **comptage et clôture de « Ma caisse » bloqués** tant qu'un encaissement attend, ou qu'un refus n'est pas régularisé.
+- **Historique du jour** : encaissements en attente en tête (reçu provisoire à réimprimer), puis mention « Hors connexion · reçu provisoire PROV-… » sur les paiements envoyés. Même mention dans « Ma caisse ».
+- **Supervision**, détail d'une caisse : tableau « Encaissements faits sans internet » (reçu officiel, reçu provisoire, heure d'encaissement, heure d'arrivée au serveur, élève, montant).
+- **Limite connue** : si le serveur a enregistré l'encaissement mais que sa réponse s'est perdue, le payeur a reçu un reçu provisoire, et le paiement, enregistré comme un encaissement ordinaire, ne le mentionne pas. Le renvoi rend ce paiement sans doublon, et le panneau de la caisse affiche le reçu officiel.
+
+**Vérifications (2026-11-17).**
+- **API** :
+  - `tests/test_offline_cash_payments.py`, 17 tests : encaissement marqué et compté dans sa caisse, renvoi après clôture sans doublon, refus si la caisse n'est plus ouverte, 9 cas de validation, reçu provisoire unique, reçu PDF officiel, liste gardée (contenu, calcul, droits, caisse ouverte exigée, isolation) ;
+  - en local : ruff, mypy, collecte pytest, et les deux tests sans base (reçu PDF, validation du paiement) exécutés et réussis. Les autres tournent dans la CI.
+- **Site** : vérification des types, analyse du code, `test:config`.
+- **Parcours de bout en bout** : build de production, API simulée avec état, Chromium. 36 vérifications :
+  - encaissement en ligne inchangé ;
+  - hors connexion : recherche dans la liste gardée, reste à payer correct, reçu provisoire numéroté, impression du reçu seul en haut de page ;
+  - second encaissement du même élève : reste diminué de l'encaissement en attente ;
+  - déconnexion bloquée, clôture de « Ma caisse » bloquée ;
+  - au retour du réseau : envoi avec la mention, historique et supervision à jour ;
+  - coupure pendant l'envoi : aucun doublon, reçu officiel affiché ;
+  - caisse clôturée entre-temps : refus affiché avec sa raison, suppression volontaire ;
+  - écran de téléphone sans défilement horizontal ;
+  - aucune erreur de page.
+- **Non-régression** : parcours des lots 1 et 2 (consultation, appel et notes, coupure, passage de la base locale, bandeaux du bas), tous réussis.

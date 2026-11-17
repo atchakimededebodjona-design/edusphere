@@ -144,6 +144,9 @@ class CashSessionPaymentOut(BaseModel):
     student_matricule: str
     student_first_name: str
     student_last_name: str
+    # Phase 32, lot 3 — encaissement fait sans internet (sinon null) : heure réelle et reçu provisoire.
+    offline_collected_at: datetime | None = None
+    provisional_receipt_number: str | None = None
 
 
 class CashSessionDetailOut(BaseModel):

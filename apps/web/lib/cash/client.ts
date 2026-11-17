@@ -77,6 +77,9 @@ export type CashSessionPayment = {
   student_matricule: string;
   student_first_name: string;
   student_last_name: string;
+  // Phase 32, lot 3 — encaissement fait sans internet (sinon null).
+  offline_collected_at?: string | null;
+  provisional_receipt_number?: string | null;
 };
 
 export type CashSessionDetail = {

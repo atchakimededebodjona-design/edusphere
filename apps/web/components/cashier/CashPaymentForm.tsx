@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { ApiError } from "@/lib/api/client";
+import { newProvisionalReceiptNumber } from "@/lib/cashier/offline";
 import { formatDateFR } from "@/lib/format/date";
 import {
   autoAllocate,
@@ -17,8 +18,25 @@ import {
   toCents,
   totalBalanceCents,
 } from "@/lib/fees/allocation";
-import { payments, type CashierStudent, type FinancialSummary, type Payment } from "@/lib/fees/client";
+import {
+  payments,
+  type CashierStudent,
+  type FinancialSummary,
+  type Payment,
+  type PaymentCreate,
+} from "@/lib/fees/client";
 import { STUDENT_FEE_STATUS_LABELS } from "@/lib/fees/labels";
+import { paymentKey, type ProvisionalReceipt } from "@/lib/offline/outbox";
+import { saveNow } from "@/lib/offline/sync";
+
+/** Phase 32, lot 3 — caisse ouverte connue : l'encaissement peut être gardé sur l'appareil si le
+ * serveur ne répond pas (reçu provisoire), puis envoyé au retour d'internet. */
+export type OfflineCollection = {
+  schoolId: string;
+  schoolName: string;
+  cashSessionId: string;
+  cashierName: string | null;
+};
 
 // Messages backend connus (fees/router.py, fees/service.py) traduits pour le comptoir ; tout autre
 // message est affiché tel quel — le backend reste l'autorité, jamais contourné ici.
@@ -41,11 +59,16 @@ export function CashPaymentForm({
   summary,
   currency,
   onRecorded,
+  offline = null,
+  onQueued,
 }: {
   student: CashierStudent;
   summary: FinancialSummary;
   currency: string;
   onRecorded: (payment: Payment) => void;
+  offline?: OfflineCollection | null;
+  /** `key` : cible de l'encaissement dans la boîte d'envoi (suivi de son envoi). */
+  onQueued?: (receipt: ProvisionalReceipt, key: string) => void;
 }) {
   const fees = useMemo(() => summary.fees.filter((fee) => fee.status !== "CANCELLED"), [summary]);
   const allocatable = useMemo(() => toAllocatableFees(fees), [fees]);
@@ -62,6 +85,8 @@ export function CashPaymentForm({
   // Une clé par opération : créée au passage en confirmation, RÉUTILISÉE telle quelle si la même
   // opération est renvoyée (erreur réseau, double clic) — le backend renvoie alors le même paiement.
   const idempotencyKey = useRef<string | null>(null);
+  // Lot 3 — numéro du reçu provisoire, lié à l'opération comme la clé d'idempotence.
+  const provisionalNumber = useRef<string | null>(null);
   const submitting = useRef(false);
 
   const check = checkAllocation(allocatable, amountInput, allocationInputs);
@@ -78,6 +103,7 @@ export function CashPaymentForm({
   function editOperation() {
     // Toute modification de la saisie = nouvelle opération (nouvelle clé au prochain passage).
     idempotencyKey.current = null;
+    provisionalNumber.current = null;
     setSubmitError(null);
   }
 
@@ -105,24 +131,72 @@ export function CashPaymentForm({
     submitting.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
+    const body: PaymentCreate & { idempotency_key: string } = {
+      student_id: student.id,
+      amount: centsToApi(check.amountCents),
+      method: "CASH",
+      paid_at: localIsoDate(),
+      payer_name: payerName.trim() || null,
+      reference: reference.trim() || null,
+      note: note.trim() || null,
+      idempotency_key: idempotencyKey.current,
+      allocations: allocationLines.map((line) => ({ student_fee_id: line.fee.id, amount: centsToApi(line.cents) })),
+    };
     try {
-      const payment = await payments.create({
-        student_id: student.id,
-        amount: centsToApi(check.amountCents),
-        method: "CASH",
-        paid_at: localIsoDate(),
-        payer_name: payerName.trim() || null,
-        reference: reference.trim() || null,
-        note: note.trim() || null,
-        idempotency_key: idempotencyKey.current,
-        allocations: allocationLines.map((line) => ({ student_fee_id: line.fee.id, amount: centsToApi(line.cents) })),
-      });
-      onRecorded(payment);
+      if (offline) await collectWithOfflineFallback(body, offline, check.amountCents);
+      else onRecorded(await payments.create(body));
     } catch (err) {
       setSubmitError(paymentErrorMessage(err));
     } finally {
       submitting.current = false;
       setIsSubmitting(false);
+    }
+  }
+
+  // Lot 3 — l'encaissement est d'abord gardé sur l'appareil, puis envoyé tout de suite : accepté, il
+  // s'affiche comme avant ; serveur injoignable, il reste en attente et le reçu provisoire est remis.
+  async function collectWithOfflineFallback(
+    body: PaymentCreate & { idempotency_key: string },
+    context: OfflineCollection,
+    amountCents: number,
+  ) {
+    provisionalNumber.current ??= newProvisionalReceiptNumber();
+    const number = provisionalNumber.current;
+    const collectedAt = new Date().toISOString();
+    const receipt: ProvisionalReceipt = {
+      number,
+      collectedAt,
+      schoolName: context.schoolName,
+      currency,
+      student: {
+        matricule: student.matricule,
+        firstName: student.first_name,
+        lastName: student.last_name,
+        className: student.current_class_name,
+      },
+      amount: body.amount,
+      allocations: allocationLines.map((line) => ({ name: line.fee.fee_schedule_name, amount: centsToApi(line.cents) })),
+      payerName: body.payer_name ?? null,
+      reference: body.reference ?? null,
+      cashierName: context.cashierName,
+    };
+    const outcome = await saveNow({
+      kind: "payment",
+      key: paymentKey(body.idempotency_key),
+      label: `Encaissement de ${formatMoney(amountCents, currency)} — ${student.last_name} ${student.first_name} (${number})`,
+      schoolId: context.schoolId,
+      studentId: student.id,
+      payment: body,
+      offline: { offline_collected_at: collectedAt, provisional_receipt_number: number, cash_session_id: context.cashSessionId },
+      receipt,
+    });
+    if (outcome.status === "sent" && outcome.payment) onRecorded(outcome.payment);
+    else if (outcome.status === "queued") onQueued?.(receipt, paymentKey(body.idempotency_key));
+    else if (outcome.status === "rejected") setSubmitError(outcome.message);
+    else {
+      setSubmitError(
+        "Encaissement NON enregistré : le serveur ne répond pas et cet appareil ne peut pas le garder (stockage indisponible). Ne remettez aucun reçu ; réessayez quand internet sera revenu.",
+      );
     }
   }
 

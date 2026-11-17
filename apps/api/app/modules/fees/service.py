@@ -223,6 +223,14 @@ async def record_payment(
     cash_session = None
     if payload.method == "CASH":
         cash_session = await cash_service.lock_open_session_for_payment(db, student.school_id, recorded_by)
+    # Phase 32, lot 3 — encaissement fait sans internet : accepté seulement dans la caisse qui était
+    # ouverte à ce moment-là, jamais rattaché en silence à une autre session (le comptage de cette
+    # autre caisse serait faussé). Refus explicite : le caissier régularise avec sa supervision.
+    if payload.cash_session_id is not None and (cash_session is None or cash_session.id != payload.cash_session_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The cash session open when this payment was collected is no longer open",
+        )
     if require_cash_session and cash_session is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="An open cash session is required to record cash payments"
@@ -286,6 +294,8 @@ async def record_payment(
         status="COMPLETED",
         receipt_number=f"RCPT-{payment_id.hex[:10].upper()}",
         cash_session_id=cash_session.id if cash_session is not None else None,
+        offline_collected_at=payload.offline_collected_at,
+        provisional_receipt_number=payload.provisional_receipt_number,
     )
     db.add(payment)
 
@@ -355,12 +365,19 @@ async def record_payment(
         action=audit_service.ACTION_PAYMENT_RECORDED,
         entity_type=audit_service.ENTITY_PAYMENT,
         entity_id=payment.id,
-        summary=f"Paiement {payment.receipt_number} ({payment.amount} {school.currency}, {payment.method}) enregistré",
+        summary=f"Paiement {payment.receipt_number} ({payment.amount} {school.currency}, {payment.method}) enregistré"
+        + (
+            f" — encaissé hors connexion, reçu provisoire {payment.provisional_receipt_number}"
+            if payment.provisional_receipt_number
+            else ""
+        ),
         metadata={
             "student_id": str(payment.student_id),
             "amount": str(payment.amount),
             "method": payment.method,
             "cash_session_id": str(payment.cash_session_id) if payment.cash_session_id else None,
+            "offline_collected_at": payment.offline_collected_at.isoformat() if payment.offline_collected_at else None,
+            "provisional_receipt_number": payment.provisional_receipt_number,
         },
     )
 
@@ -456,11 +473,21 @@ def _render_receipt_html(
         f"<tr><td>{html_escape(name)}</td><td style='text-align:right'>{amount}</td></tr>"
         for name, amount in allocation_lines
     )
+    # Phase 32, lot 3 — encaissement fait sans internet : le reçu officiel nomme le reçu provisoire
+    # remis au payeur, à l'heure locale de l'école.
+    offline_line = ""
+    if payment.offline_collected_at is not None and payment.provisional_receipt_number:
+        collected = payment.offline_collected_at.astimezone(cash_service.school_zone(school))
+        offline_line = (
+            f"<p>Encaissé sans connexion internet le {collected.strftime('%d/%m/%Y à %H:%M')} — "
+            f"remplace le reçu provisoire n° {html_escape(payment.provisional_receipt_number)}</p>"
+        )
     return f"""
     <html>
       <body style="font-family: Helvetica, Arial, sans-serif; font-size: 12pt;">
         <h2>{html_escape(school.name)}</h2>
         <p><strong>Reçu n° {html_escape(payment.receipt_number)}</strong></p>
+        {offline_line}
         <p>Élève : {html_escape(student.first_name)} {html_escape(student.last_name)} ({html_escape(student.matricule)})</p>
         <p>Date de paiement : {payment.paid_at.isoformat()}</p>
         <p>Méthode : {html_escape(payment.method)}</p>

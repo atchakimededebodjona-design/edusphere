@@ -8,9 +8,13 @@ import { useOutbox } from "@/lib/offline/useOutbox";
 // Phase 32, lot 2 — saisies faites hors connexion puis REFUSÉES par le serveur à l'envoi (séance
 // verrouillée, bulletin déjà publié, élève retiré de la classe…). Jamais supprimées en silence :
 // l'enseignant voit la raison et choisit de réessayer ou de supprimer.
+//
+// Lot 3 — encaissements refusés (solde changé, caisse clôturée entre-temps…) : l'argent a été reçu
+// mais le paiement n'est pas enregistré ; le caissier régularise avant de supprimer la ligne.
 export function OutboxFailures({ kind }: { kind: OutboxEntry["kind"] }) {
   const failed = useOutbox().filter((entry) => entry.kind === kind && entry.state === "failed");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const cash = kind === "payment";
 
   if (failed.length === 0) return null;
 
@@ -24,15 +28,30 @@ export function OutboxFailures({ kind }: { kind: OutboxEntry["kind"] }) {
   }
 
   async function remove(entry: OutboxEntry) {
-    if (!window.confirm(`Supprimer définitivement « ${entry.label} » de cet appareil ? Cette saisie ne sera jamais envoyée.`)) return;
+    const question = cash
+      ? `Supprimer « ${entry.label} » de cet appareil ?\n\nFaites-le seulement après avoir régularisé (nouvel encaissement avec la situation à jour, ou remboursement du payeur) : ce paiement ne sera jamais enregistré.`
+      : `Supprimer définitivement « ${entry.label} » de cet appareil ? Cette saisie ne sera jamais envoyée.`;
+    if (!window.confirm(question)) return;
     await removeOutboxEntry(entry);
   }
 
+  const title = cash
+    ? failed.length === 1
+      ? "1 encaissement refusé par le serveur"
+      : `${failed.length} encaissements refusés par le serveur`
+    : failed.length === 1
+      ? "1 saisie refusée par le serveur"
+      : `${failed.length} saisies refusées par le serveur`;
+
   return (
     <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-      <h2 className="mb-2 font-semibold">
-        {failed.length === 1 ? "1 saisie refusée par le serveur" : `${failed.length} saisies refusées par le serveur`}
-      </h2>
+      <h2 className="mb-2 font-semibold">{title}</h2>
+      {cash && (
+        <p className="mb-3 text-red-800">
+          L&apos;argent a été reçu mais le paiement n&apos;est pas enregistré. Réessayez, ou régularisez avec votre
+          responsable (nouvel encaissement avec la situation à jour, ou remboursement), puis supprimez la ligne.
+        </p>
+      )}
       <ul className="flex flex-col gap-3">
         {failed.map((entry) => (
           <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2">

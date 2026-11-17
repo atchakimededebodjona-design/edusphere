@@ -11,3 +11,22 @@
     scroll-behavior: smooth;
   }
 }
+
+/* Phase 32, lot 3 — impression du reçu provisoire seul (components/cashier/ProvisionalReceipt.tsx) :
+   une copie du reçu est posée dans <body> ; à l'impression, elle seule est rendue (menus, bandeaux et
+   page masqués), en haut de la première page. Jamais affichée à l'écran. */
+#provisional-receipt-print {
+  display: none;
+}
+@media print {
+  html[data-print="provisional-receipt"] body {
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  html[data-print="provisional-receipt"] body > * {
+    display: none !important;
+  }
+  html[data-print="provisional-receipt"] body > #provisional-receipt-print {
+    display: block !important;
+  }
+}
