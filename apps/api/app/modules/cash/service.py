@@ -279,6 +279,8 @@ async def session_detail(db: AsyncSession, school: School, session: CashSession)
                 "student_matricule": matricule,
                 "student_first_name": first_name,
                 "student_last_name": last_name,
+                "offline_collected_at": payment.offline_collected_at,
+                "provisional_receipt_number": payment.provisional_receipt_number,
             }
         )
         for payment, matricule, first_name, last_name in payment_rows.all()

@@ -11,6 +11,8 @@ module expose uniquement ce dont le comptoir a besoin, sans élargir ses permiss
   un enseignant ou un parent n'y ont pas accès.
 - `GET /cashier/payments` : journal de caisse du jour de l'utilisateur courant (ses propres
   encaissements uniquement, `recorded_by`), avec la devise de l'école. Exige `payments.read`.
+- `GET /cashier/offline-roster` (Phase 32, lot 3) : liste gardée sur l'appareil pour encaisser pendant
+  une coupure — exception voulue et bornée, voir l'endpoint.
 
 Isolation : l'école est chargée sous le contexte RLS de l'appelant (404 pour une autre
 organisation, même convention que le reste de l'API), puis la permission est vérifiée pour CETTE
@@ -21,18 +23,25 @@ L'encaissement lui-même reste `POST /payments` (fees/router.py) : aucune logiqu
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
 from app.modules.academics.models import AcademicYear, SchoolClass
-from app.modules.cash.service import school_today
-from app.modules.cashier.schemas import CashierDayOut, CashierPaymentOut, CashierStudentOut
-from app.modules.fees.models import Payment
+from app.modules.cash.service import get_open_session, school_today
+from app.modules.cashier.schemas import (
+    CashierDayOut,
+    CashierOfflineRosterOut,
+    CashierPaymentOut,
+    CashierRosterFeeOut,
+    CashierRosterStudentOut,
+    CashierStudentOut,
+)
+from app.modules.fees.models import FeeSchedule, Payment, PaymentAllocation, StudentFee
 from app.modules.schools.models import School
 from app.modules.students.models import Student, StudentEnrollment
 
@@ -42,6 +51,9 @@ SEARCH_MIN_LENGTH = 2
 SEARCH_DEFAULT_LIMIT = 20
 SEARCH_MAX_LIMIT = 50
 DAY_MAX_PAYMENTS = 500
+# Phase 32, lot 3 — borne de la liste gardée sur l'appareil (au-delà : `truncated`, la recherche en
+# ligne reste complète).
+ROSTER_MAX_STUDENTS = 5000
 
 
 async def _get_school_or_404(db: AsyncSession, school_id: uuid.UUID) -> School:
@@ -159,9 +171,99 @@ async def list_my_cashier_payments(
                 "status": payment.status,
                 "receipt_number": payment.receipt_number,
                 "created_at": payment.created_at,
+                "offline_collected_at": payment.offline_collected_at,
+                "provisional_receipt_number": payment.provisional_receipt_number,
             }
         )
         for payment, matricule, first_name, last_name in result.all()
     ]
     total = sum((p.amount for p in payments if p.status == "COMPLETED"), start=Decimal("0"))
     return CashierDayOut(day=target_day, currency=school.currency, total_completed=total, payments=payments)
+
+
+@router.get("/cashier/offline-roster", response_model=CashierOfflineRosterOut)
+async def get_offline_roster(
+    db: DbSession,
+    current_user: CurrentUser,
+    school_id: uuid.UUID = Query(...),
+) -> CashierOfflineRosterOut:
+    """Phase 32, lot 3 — liste gardée sur l'appareil du caissier pour encaisser pendant une coupure.
+
+    EXCEPTION VOULUE à la règle « jamais une liste complète des élèves » de ce module (décision de
+    l'école du 2026-11-17) : sans elle, rien ne peut être encaissé au début d'une coupure. Bornée :
+    - mêmes permissions que la recherche (`fees.read` ET `payments.manage` dans CETTE école) ;
+    - seulement avec une caisse OUVERTE par l'appelant dans cette école (409 sinon) : un compte qui
+      n'encaisse pas n'a pas cette liste ;
+    - projection minimale (matricule, nom, classe) et seulement les élèves qui ont encore quelque chose
+      à payer, avec leurs frais (même calcul que `GET /students/{id}/financial-summary`) ;
+    - côté appareil, rangée par compte et effacée à la déconnexion (lib/offline/responseCache.ts).
+    Chaque encaissement fait hors connexion est revérifié par `POST /payments` à son envoi.
+    """
+    school = await _get_school_or_404(db, school_id)
+    await ensure_permission(db, current_user, "fees.read", organization_id=school.organization_id, school_id=school.id)
+    await ensure_permission(db, current_user, "payments.manage", organization_id=school.organization_id, school_id=school.id)
+    session = await get_open_session(db, school.id, current_user.id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An open cash session is required to prepare offline collection",
+        )
+
+    paid = (
+        select(PaymentAllocation.student_fee_id.label("fee_id"), func.sum(PaymentAllocation.amount).label("paid"))
+        .join(Payment, Payment.id == PaymentAllocation.payment_id)
+        .where(PaymentAllocation.school_id == school.id, Payment.status == "COMPLETED")
+        .group_by(PaymentAllocation.student_fee_id)
+        .subquery("paid_by_fee")
+    )
+    fee_rows = await db.execute(
+        select(StudentFee, FeeSchedule.name, func.coalesce(paid.c.paid, 0))
+        .join(FeeSchedule, FeeSchedule.id == StudentFee.fee_schedule_id)
+        .outerjoin(paid, paid.c.fee_id == StudentFee.id)
+        .where(StudentFee.school_id == school.id, StudentFee.status != "CANCELLED")
+        .order_by(StudentFee.due_date.asc().nulls_last(), StudentFee.created_at)
+    )
+    fees_by_student: dict[uuid.UUID, list[CashierRosterFeeOut]] = {}
+    for student_fee, schedule_name, paid_amount in fee_rows.all():
+        amount_paid = Decimal(str(paid_amount))
+        fees_by_student.setdefault(student_fee.student_id, []).append(
+            CashierRosterFeeOut(
+                id=student_fee.id,
+                fee_schedule_name=schedule_name,
+                amount_due=student_fee.amount_due,
+                amount_paid=amount_paid,
+                balance=student_fee.amount_due - amount_paid,
+                due_date=student_fee.due_date,
+                status=student_fee.status,
+                created_at=student_fee.created_at,
+            )
+        )
+    owing = {student_id for student_id, fees in fees_by_student.items() if any(fee.balance > 0 for fee in fees)}
+
+    student_rows = await db.execute(
+        select(Student.id, Student.matricule, Student.first_name, Student.last_name)
+        .where(Student.school_id == school.id)
+        .order_by(Student.last_name, Student.first_name, Student.matricule)
+    )
+    selected = [row for row in student_rows.all() if row.id in owing]
+    truncated = len(selected) > ROSTER_MAX_STUDENTS
+    selected = selected[:ROSTER_MAX_STUDENTS]
+    class_names = await _current_class_names(db, [row.id for row in selected])
+    return CashierOfflineRosterOut(
+        school_id=school.id,
+        currency=school.currency,
+        generated_at=datetime.now(timezone.utc),
+        cash_session_id=session.id,
+        truncated=truncated,
+        students=[
+            CashierRosterStudentOut(
+                id=row.id,
+                matricule=row.matricule,
+                first_name=row.first_name,
+                last_name=row.last_name,
+                current_class_name=class_names.get(row.id),
+                fees=fees_by_student[row.id],
+            )
+            for row in selected
+        ],
+    )

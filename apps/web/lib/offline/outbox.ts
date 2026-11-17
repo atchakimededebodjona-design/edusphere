@@ -1,14 +1,17 @@
-// Phase 32, lot 2 — boîte d'envoi : saisies de l'enseignant (appel, notes) gardées sur l'appareil
-// jusqu'à leur envoi (voir lib/offline/sync.ts et docs/phases/PHASE_32_OFFLINE_PWA.md).
+// Phase 32, lots 2 et 3 — boîte d'envoi : saisies de l'enseignant (appel, notes) et encaissements en
+// espèces du caissier, gardés sur l'appareil jusqu'à leur envoi (voir lib/offline/sync.ts et
+// docs/phases/PHASE_32_OFFLINE_PWA.md).
 //
 // - Une entrée par compte et par CIBLE (`key`) : réenregistrer le même appel ou les mêmes notes
 //   remplace l'entrée (la dernière saisie gagne), jamais deux envois concurrents pour la même cible.
+//   Chaque encaissement est sa propre cible (`payment:<clé d'idempotence>`).
 // - Renvoyée uniquement avec la session de ce compte : l'API reste seule juge (permissions, RLS)
 //   au moment de l'envoi.
-// - Une séance ou une évaluation créée hors connexion porte une clé d'idempotence : la renvoyer
-//   plusieurs fois ne crée qu'un seul élément (API, migration 0032).
+// - Une séance, une évaluation ou un paiement créé hors connexion porte une clé d'idempotence : le
+//   renvoyer plusieurs fois ne crée qu'un seul élément (API, migrations 0009 et 0032).
 
 import type { AttendanceRecordEntry, AttendanceSessionCreate } from "@/lib/attendance/client";
+import type { PaymentCreate } from "@/lib/fees/client";
 import type { AssessmentCreate, AssessmentResultEntry } from "@/lib/grades/client";
 import { getStoredUserId } from "@/lib/auth/session";
 import { openOfflineDb, OUTBOX_STORE, requestToPromise, transactionDone } from "@/lib/offline/db";
@@ -21,7 +24,8 @@ export type OutboxChange = { sentKey?: string; targetId?: string };
 type OutboxBase = {
   /** Clé de stockage : compte + cible. */
   id: string;
-  /** Cible : `attendance:<séance>`, `attendance:new:<clé>`, `grades:<évaluation>`, `grades:new:<clé>`. */
+  /** Cible : `attendance:<séance>`, `attendance:new:<clé>`, `grades:<évaluation>`, `grades:new:<clé>`,
+   * `payment:<clé>`. */
   key: string;
   userId: string;
   createdAt: string;
@@ -29,7 +33,6 @@ type OutboxBase = {
   /** pending : à envoyer ; failed : refusée par le serveur, en attente d'une décision. */
   state: "pending" | "failed";
   error: string | null;
-  classId: string;
   /** Libellé lisible, ex. « Appel du 16/11/2026 — CM1 ». */
   label: string;
 };
@@ -39,20 +42,52 @@ export type NewAssessment = AssessmentCreate & { idempotency_key: string };
 
 export type AttendanceOutboxEntry = OutboxBase & {
   kind: "attendance";
+  classId: string;
   session: { id: string } | { create: NewSession };
   records: AttendanceRecordEntry[];
 };
 
 export type GradesOutboxEntry = OutboxBase & {
   kind: "grades";
+  classId: string;
   assessment: { id: string } | { create: NewAssessment };
   results: AssessmentResultEntry[];
 };
 
-export type OutboxEntry = AttendanceOutboxEntry | GradesOutboxEntry;
+/** Lot 3 — reçu provisoire remis au payeur : tout ce qu'il faut pour le réimprimer sans internet. */
+export type ProvisionalReceipt = {
+  /** `PROV-` + 10 caractères hexadécimaux, tiré sur l'appareil. */
+  number: string;
+  collectedAt: string;
+  schoolName: string;
+  currency: string;
+  student: { matricule: string; firstName: string; lastName: string; className: string | null };
+  /** Montant API ("15000.00"). */
+  amount: string;
+  allocations: { name: string; amount: string }[];
+  payerName: string | null;
+  reference: string | null;
+  cashierName: string | null;
+};
+
+export type PaymentOutboxEntry = OutboxBase & {
+  kind: "payment";
+  schoolId: string;
+  studentId: string;
+  /** Paiement tel qu'il part quand le serveur répond tout de suite (encaissement ordinaire). */
+  payment: PaymentCreate & { idempotency_key: string };
+  /** Ajouté aux envois DIFFÉRÉS seulement : l'encaissement a réellement été fait sans internet. */
+  offline: { offline_collected_at: string; provisional_receipt_number: string; cash_session_id: string };
+  receipt: ProvisionalReceipt;
+};
+
+export type OutboxEntry = AttendanceOutboxEntry | GradesOutboxEntry | PaymentOutboxEntry;
 
 type Managed = "id" | "userId" | "createdAt" | "updatedAt" | "state" | "error";
-export type OutboxDraft = Omit<AttendanceOutboxEntry, Managed> | Omit<GradesOutboxEntry, Managed>;
+export type OutboxDraft =
+  | Omit<AttendanceOutboxEntry, Managed>
+  | Omit<GradesOutboxEntry, Managed>
+  | Omit<PaymentOutboxEntry, Managed>;
 
 export function newIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return `offline-${crypto.randomUUID()}`;
@@ -67,6 +102,14 @@ export function attendanceKey(session: { id: string } | { create: NewSession }):
 
 export function gradesKey(assessment: { id: string } | { create: NewAssessment }): string {
   return "id" in assessment ? `grades:${assessment.id}` : `grades:new:${assessment.create.idempotency_key}`;
+}
+
+export function paymentKey(idempotencyKey: string): string {
+  return `payment:${idempotencyKey}`;
+}
+
+export function isPaymentEntry(entry: OutboxEntry): entry is PaymentOutboxEntry {
+  return entry.kind === "payment";
 }
 
 function storageId(userId: string, key: string): string {
@@ -213,6 +256,7 @@ export async function failOnCreatedTarget(entry: OutboxEntry, targetId: string, 
     if (!db) return;
     const current = await readById(db, entry.id);
     if (!current || current.updatedAt !== entry.updatedAt) return; // modifiée entre-temps : la nouvelle version prime
+    if (current.kind === "payment") return; // un paiement est créé en une fois : jamais à moitié accepté
     const moved: OutboxEntry =
       current.kind === "attendance"
         ? { ...current, key: attendanceKey({ id: targetId }), session: { id: targetId } }
@@ -230,7 +274,12 @@ export async function failOnCreatedTarget(entry: OutboxEntry, targetId: string, 
   }
 }
 
-/** Déconnexion confirmée : les saisies non envoyées de CE compte sont retirées de l'appareil. */
+/**
+ * Déconnexion confirmée : les saisies non envoyées de CE compte sont retirées de l'appareil — sauf
+ * les encaissements (lot 3), jamais effacés ainsi : l'argent a été reçu. La déconnexion est déjà
+ * bloquée tant qu'il en reste (`confirmLogoutWithUnsentEntries`) ; ceci est une seconde garde. Ils
+ * repartiront à la prochaine connexion de ce même compte.
+ */
 export async function clearOutboxForUser(userId: string): Promise<void> {
   try {
     const db = await openOfflineDb();
@@ -240,7 +289,7 @@ export async function clearOutboxForUser(userId: string): Promise<void> {
     request.onsuccess = () => {
       const cursor = request.result;
       if (!cursor) return;
-      cursor.delete();
+      if ((cursor.value as OutboxEntry).kind !== "payment") cursor.delete();
       cursor.continue();
     };
     await transactionDone(tx);
@@ -253,9 +302,24 @@ export async function clearOutboxForUser(userId: string): Promise<void> {
 /**
  * À appeler avant toute déconnexion : prévient si des saisies ne sont pas encore envoyées.
  * Renvoie false si l'utilisateur préfère rester connecté.
+ *
+ * Lot 3 — un encaissement en espèces non accepté par le serveur (en attente ou refusé) BLOQUE la
+ * déconnexion : l'argent a été reçu, sa seule trace est sur cet appareil.
  */
 export async function confirmLogoutWithUnsentEntries(): Promise<boolean> {
-  const count = (await listOutbox()).length;
+  const entries = await listOutbox();
+  const cash = entries.filter(isPaymentEntry).length;
+  if (cash > 0) {
+    window.alert(
+      `${
+        cash === 1
+          ? "1 encaissement fait sans internet n'est pas encore enregistré par le serveur"
+          : `${cash} encaissements faits sans internet ne sont pas encore enregistrés par le serveur`
+      } (en attente d'envoi ou refusé).\n\nDéconnexion impossible : l'argent a été reçu et sa seule trace est sur cet appareil. Envoyez ou régularisez d'abord ces encaissements depuis la page Caisse.`,
+    );
+    return false;
+  }
+  const count = entries.length;
   if (count === 0) return true;
   const message =
     count === 1

@@ -1,14 +1,19 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PaymentMethod = Literal["CASH", "BANK_TRANSFER", "CHEQUE", "AGENT_DEPOSIT", "OTHER"]
 StudentFeeStatus = Literal["PENDING", "PARTIALLY_PAID", "PAID", "CANCELLED"]
 PaymentStatus = Literal["COMPLETED", "CANCELLED"]
 FeeScopeType = Literal["SCHOOL", "CLASS", "LEVEL"]
+
+# Phase 32, lot 3 — reçu provisoire d'un encaissement fait sans internet (numéro tiré sur l'appareil).
+PROVISIONAL_RECEIPT_PATTERN = r"^PROV-[0-9A-F]{10}$"
+# Horloge d'un appareil légèrement en avance : tolérée, jamais une date franchement future.
+OFFLINE_CLOCK_TOLERANCE = timedelta(minutes=10)
 
 
 class FeeCategoryOut(BaseModel):
@@ -118,6 +123,32 @@ class PaymentCreate(BaseModel):
     # de nouvelle tentative) — protection contre le double-clic, voir fees/models.py::Payment.
     idempotency_key: str = Field(min_length=8, max_length=128)
     allocations: list[PaymentAllocationIn] = Field(min_length=1)
+    # Phase 32, lot 3 — encaissement fait sans internet, envoyé au retour du réseau (voir
+    # fees/service.py::record_payment) : heure réelle de l'encaissement sur l'appareil, numéro du
+    # reçu provisoire remis au payeur, et caisse ouverte à ce moment-là (le paiement n'est accepté
+    # que si CETTE caisse est encore ouverte : jamais rattaché en silence à une autre session).
+    offline_collected_at: datetime | None = None
+    provisional_receipt_number: str | None = Field(default=None, pattern=PROVISIONAL_RECEIPT_PATTERN)
+    cash_session_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _offline_fields(self) -> "PaymentCreate":
+        offline = self.offline_collected_at is not None
+        if offline != (self.provisional_receipt_number is not None):
+            raise ValueError("offline_collected_at and provisional_receipt_number must be provided together")
+        if not offline:
+            return self
+        collected_at = self.offline_collected_at
+        assert collected_at is not None
+        if self.method != "CASH":
+            raise ValueError("Only cash payments can be collected offline")
+        if self.cash_session_id is None:
+            raise ValueError("cash_session_id is required for a payment collected offline")
+        if collected_at.tzinfo is None:
+            raise ValueError("offline_collected_at must include a timezone")
+        if collected_at > datetime.now(timezone.utc) + OFFLINE_CLOCK_TOLERANCE:
+            raise ValueError("offline_collected_at cannot be in the future")
+        return self
 
 
 class PaymentOut(BaseModel):
@@ -136,6 +167,9 @@ class PaymentOut(BaseModel):
     cancelled_at: datetime | None
     cancellation_reason: str | None
     created_at: datetime
+    # Phase 32, lot 3 — renseignés seulement pour un encaissement fait sans internet.
+    offline_collected_at: datetime | None = None
+    provisional_receipt_number: str | None = None
 
 
 class PaymentCancelRequest(BaseModel):

@@ -1,26 +1,41 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ApiError } from "@/lib/api/client";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
-import { cashier, type CashierStudent } from "@/lib/fees/client";
+import { searchRoster } from "@/lib/cashier/offline";
+import { cashier, type CashierRoster, type CashierStudent } from "@/lib/fees/client";
 
 const MIN_SEARCH_LENGTH = 2;
 const DEBOUNCE_MS = 300;
 const MAX_RESULTS = 20;
 
+// Pas de réponse du serveur (appareil hors ligne, ou aucune copie de cette recherche précise).
+function serverUnreachable(err: unknown): boolean {
+  return !(err instanceof ApiError) || err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504;
+}
+
 /** Recherche d'élève du poste de caisse — `GET /cashier/students/search` (projection minimale),
- * jamais `GET /students` (le CAISSIER n'a pas `students.read`). */
+ * jamais `GET /students` (le CAISSIER n'a pas `students.read`).
+ *
+ * Phase 32, lot 3 — sans internet, la recherche se fait dans la liste gardée sur l'appareil
+ * (`roster`, téléchargée quand la caisse est ouverte). */
 export function CashierStudentSearch({
   schoolId,
   onSelect,
+  roster = null,
+  offline = false,
 }: {
   schoolId: string;
   onSelect: (student: CashierStudent) => void;
+  roster?: CashierRoster | null;
+  offline?: boolean;
 }) {
   const [term, setTerm] = useState("");
   const [results, setResults] = useState<CashierStudent[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fromRoster, setFromRoster] = useState(false);
   // Seule la réponse de la DERNIÈRE recherche lancée est affichée (frappe rapide, réponses désordonnées).
   const latestRequest = useRef(0);
 
@@ -34,6 +49,23 @@ export function CashierStudentSearch({
       return;
     }
     const requestId = ++latestRequest.current;
+    const searchLocally = (): boolean => {
+      if (!roster) return false;
+      setResults(searchRoster(roster, trimmed, MAX_RESULTS));
+      setFromRoster(true);
+      setError(null);
+      return true;
+    };
+    if (offline) {
+      setIsSearching(false);
+      if (!searchLocally()) {
+        setResults(null);
+        setError(
+          "Sans internet, la recherche se fait dans la liste des élèves gardée sur cet appareil, et elle n'y est pas : ouvrez la page Caisse avec internet, caisse ouverte, avant une coupure.",
+        );
+      }
+      return;
+    }
     setIsSearching(true);
     const timer = window.setTimeout(() => {
       cashier
@@ -41,10 +73,12 @@ export function CashierStudentSearch({
         .then((found) => {
           if (latestRequest.current !== requestId) return;
           setResults(found);
+          setFromRoster(false);
           setError(null);
         })
         .catch((err) => {
           if (latestRequest.current !== requestId) return;
+          if (serverUnreachable(err) && searchLocally()) return;
           setResults(null);
           setError(toErrorMessage(err));
         })
@@ -53,7 +87,7 @@ export function CashierStudentSearch({
         });
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [term, schoolId]);
+  }, [term, schoolId, roster, offline]);
 
   return (
     <section className="flex flex-col gap-3">
@@ -80,6 +114,12 @@ export function CashierStudentSearch({
         </p>
       )}
 
+      {results !== null && fromRoster && roster && (
+        <p data-testid="cash-search-from-roster" className="text-xs text-amber-800">
+          Recherche dans la liste gardée sur cet appareil (élèves ayant encore des frais à payer
+          {roster.truncated ? ", liste incomplète" : ""}).
+        </p>
+      )}
       {results !== null && !isSearching && results.length === 0 && (
         <p className="text-sm text-slate-500">Aucun élève trouvé.</p>
       )}

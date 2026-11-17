@@ -12,6 +12,7 @@ import {
   type CashDailyReport,
   type CashierReport,
   type CashSessionDetail,
+  type CashSessionPayment,
   type CashSessionStatus,
   type CashSessionSummary,
   type PaymentMethodReport,
@@ -27,6 +28,56 @@ type Data = {
   cashiers: CashierReport;
   methods: PaymentMethodReport;
 };
+
+function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  return `${date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })} ${date.toLocaleTimeString(
+    "fr-FR",
+    { hour: "2-digit", minute: "2-digit" },
+  )}`;
+}
+
+// Phase 32, lot 3 — encaissements de la session faits SANS INTERNET : heure réelle d'encaissement,
+// heure d'arrivée au serveur et reçu provisoire remis au payeur, pour le contrôle de la supervision.
+function OfflinePayments({ payments, currency }: { payments: CashSessionPayment[]; currency: string }) {
+  const offline = payments.filter((p) => p.provisional_receipt_number && p.offline_collected_at);
+  if (offline.length === 0) return null;
+  return (
+    <div data-testid="cash-offline-payments" className="flex flex-col gap-2 text-sm">
+      <h3 className="font-semibold text-slate-700">
+        Encaissements faits sans internet ({offline.length})
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-left text-xs">
+          <thead className="text-slate-500">
+            <tr>
+              <th className="py-1 pr-2 font-medium">Reçu officiel</th>
+              <th className="py-1 pr-2 font-medium">Reçu provisoire</th>
+              <th className="py-1 pr-2 font-medium">Encaissé le</th>
+              <th className="py-1 pr-2 font-medium">Reçu par le serveur le</th>
+              <th className="py-1 pr-2 font-medium">Élève</th>
+              <th className="py-1 text-right font-medium">Montant</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {offline.map((p) => (
+              <tr key={p.id} className={p.status === "CANCELLED" ? "text-slate-400 line-through" : ""}>
+                <td className="py-1 pr-2">{p.receipt_number}</td>
+                <td className="py-1 pr-2">{p.provisional_receipt_number}</td>
+                <td className="py-1 pr-2">{formatDateTime(p.offline_collected_at as string)}</td>
+                <td className="py-1 pr-2">{formatDateTime(p.created_at)}</td>
+                <td className="py-1 pr-2">
+                  {p.student_last_name} {p.student_first_name} ({p.student_matricule})
+                </td>
+                <td className="py-1 text-right">{formatApiAmount(p.amount, currency)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 // Caisse scolaire, lot 3 — supervision (`cash.register.review`) : toutes les caisses de l'école,
 // rapport du jour, par caissier, par méthode, export CSV. Tous les totaux viennent d'agrégations
@@ -237,6 +288,7 @@ export default function CashSupervisionPage() {
               )}
             </div>
           </div>
+          <OfflinePayments payments={detail.payments} currency={currency} />
         </section>
       )}
 

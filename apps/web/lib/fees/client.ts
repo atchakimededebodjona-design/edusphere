@@ -86,6 +86,9 @@ export type Payment = {
   cancelled_at: string | null;
   cancellation_reason: string | null;
   created_at: string;
+  // Phase 32, lot 3 — renseignés seulement pour un encaissement fait sans internet.
+  offline_collected_at?: string | null;
+  provisional_receipt_number?: string | null;
 };
 
 export type PaymentCreate = {
@@ -98,6 +101,11 @@ export type PaymentCreate = {
   note?: string | null;
   idempotency_key: string;
   allocations: { student_fee_id: string; amount: string }[];
+  // Phase 32, lot 3 — encaissement fait sans internet : heure réelle, reçu provisoire remis au payeur
+  // et caisse ouverte à ce moment-là (refus 409 si elle ne l'est plus).
+  offline_collected_at?: string;
+  provisional_receipt_number?: string;
+  cash_session_id?: string;
 };
 
 export type FeesSummary = { total_due: string; total_paid: string; balance: string; overdue_count: number };
@@ -124,6 +132,8 @@ export type CashierPayment = {
   status: PaymentStatus;
   receipt_number: string;
   created_at: string;
+  offline_collected_at?: string | null;
+  provisional_receipt_number?: string | null;
 };
 
 // Journal de caisse d'une journée : uniquement les encaissements de l'utilisateur connecté.
@@ -132,6 +142,30 @@ export type CashierDay = {
   currency: string;
   total_completed: string;
   payments: CashierPayment[];
+};
+
+// Phase 32, lot 3 — liste gardée sur l'appareil pour encaisser pendant une coupure (api:
+// cashier/router.py::get_offline_roster) : élèves ayant encore quelque chose à payer, avec leurs frais.
+export type CashierRosterFee = {
+  id: string;
+  fee_schedule_name: string;
+  amount_due: string;
+  amount_paid: string;
+  balance: string;
+  due_date: string | null;
+  status: StudentFeeStatus;
+  created_at: string;
+};
+
+export type CashierRosterStudent = CashierStudent & { fees: CashierRosterFee[] };
+
+export type CashierRoster = {
+  school_id: string;
+  currency: string;
+  generated_at: string;
+  cash_session_id: string;
+  truncated: boolean;
+  students: CashierRosterStudent[];
 };
 
 // --- Sprint 1.4 — vue opérationnelle des frais en retard (lecture seule) ---------------------
@@ -258,6 +292,10 @@ export const cashier = {
     const params = new URLSearchParams({ school_id: schoolId, day });
     return getJson<CashierDay>(`/api/v1/cashier/payments?${params.toString()}`);
   },
+  // Phase 32, lot 3 — gardée sur l'appareil comme toute lecture (lib/offline/responseCache.ts) :
+  // relue hors connexion depuis cette copie, effacée à la déconnexion.
+  offlineRoster: (schoolId: string) =>
+    getJson<CashierRoster>(`/api/v1/cashier/offline-roster?${new URLSearchParams({ school_id: schoolId })}`),
 };
 
 export const feesSummary = {

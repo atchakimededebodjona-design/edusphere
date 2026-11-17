@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CashCountAndClose } from "@/components/cash/CashCountAndClose";
 import { CashMovementsSection } from "@/components/cash/CashMovementsSection";
 import { CashSessionList } from "@/components/cash/CashSessionList";
@@ -14,6 +14,8 @@ import { cashErrorMessage } from "@/lib/cash/errors";
 import { formatApiAmount, toCents, centsToApi } from "@/lib/fees/allocation";
 import { PAYMENT_STATUS_LABELS } from "@/lib/fees/labels";
 import { formatDateFR } from "@/lib/format/date";
+import { isPaymentEntry } from "@/lib/offline/outbox";
+import { useOutbox } from "@/lib/offline/useOutbox";
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
@@ -34,6 +36,12 @@ export default function CashRegisterPage() {
   const [openError, setOpenError] = useState<string | null>(null);
   const [isOpening, setIsOpening] = useState(false);
   const [justClosed, setJustClosed] = useState<string | null>(null);
+  // Phase 32, lot 3 — encaissements faits sans internet, pas encore enregistrés par le serveur : le
+  // comptage et la clôture attendent leur envoi (sinon l'argent reçu manquerait au solde théorique).
+  const outbox = useOutbox();
+  const unsent = outbox.filter(isPaymentEntry).filter((entry) => entry.schoolId === currentSchoolId);
+  const unsentPending = unsent.filter((entry) => entry.state === "pending").length;
+  const unsentFailed = unsent.length - unsentPending;
 
   const reload = useCallback(async () => {
     if (!currentSchoolId || !user) return;
@@ -53,6 +61,13 @@ export default function CashRegisterPage() {
   useEffect(() => {
     if (canRead) void reload();
   }, [canRead, reload]);
+
+  // Un encaissement gardé vient de partir : les totaux de la caisse sont relus.
+  const previousUnsent = useRef(0);
+  useEffect(() => {
+    if (canRead && unsent.length < previousUnsent.current) void reload();
+    previousUnsent.current = unsent.length;
+  }, [canRead, unsent.length, reload]);
 
   async function openSession() {
     const cents = toCents(opening.trim() === "" ? "0" : opening);
@@ -142,6 +157,11 @@ export default function CashRegisterPage() {
                         <p className="truncate text-xs text-slate-600">
                           {p.student_last_name} {p.student_first_name} · {p.student_matricule}
                         </p>
+                        {p.provisional_receipt_number && (
+                          <p className="text-xs text-amber-800">
+                            Hors connexion · reçu provisoire {p.provisional_receipt_number}
+                          </p>
+                        )}
                       </div>
                       <span className={p.status === "CANCELLED" ? "text-slate-400 line-through" : "font-semibold"}>
                         {formatApiAmount(p.amount, currency)}
@@ -164,7 +184,25 @@ export default function CashRegisterPage() {
 
           <div className="flex min-w-0 flex-col gap-4">
             <CashTotalsCard totals={current.totals} currency={currency} />
-            {canManage && (
+            {canManage && unsent.length > 0 && (
+              <p
+                role="alert"
+                data-testid="cash-close-blocked"
+                className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+              >
+                {unsentPending > 0 &&
+                  (unsentPending === 1
+                    ? "1 encaissement fait sans internet n'est pas encore envoyé. "
+                    : `${unsentPending} encaissements faits sans internet ne sont pas encore envoyés. `)}
+                {unsentFailed > 0 &&
+                  (unsentFailed === 1
+                    ? "1 encaissement refusé est à régulariser (page Caisse). "
+                    : `${unsentFailed} encaissements refusés sont à régulariser (page Caisse). `)}
+                Le comptage et la clôture seront possibles ensuite : sinon, l&apos;argent reçu manquerait au solde
+                théorique.
+              </p>
+            )}
+            {canManage && unsent.length === 0 && (
               <CashCountAndClose
                 key={`${current.session.id}-${current.latest_count?.id ?? "none"}`}
                 sessionId={current.session.id}

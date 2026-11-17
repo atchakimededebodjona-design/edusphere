@@ -163,7 +163,12 @@ class Payment(Base):
     __table_args__ = (
         UniqueConstraint("school_id", "idempotency_key", name="uq_payment_idempotency"),
         UniqueConstraint("school_id", "receipt_number", name="uq_payment_receipt_number"),
+        UniqueConstraint("school_id", "provisional_receipt_number", name="uq_payment_provisional_receipt_number"),
         CheckConstraint("amount > 0", name="ck_payment_amount_positive"),
+        CheckConstraint(
+            "(offline_collected_at IS NULL) = (provisional_receipt_number IS NULL)",
+            name="ck_payment_offline_fields_together",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -204,6 +209,11 @@ class Payment(Base):
     cash_session_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("cash_sessions.id", ondelete="RESTRICT"), nullable=True
     )
+    # Phase 32, lot 3 (migration 0033) — encaissement fait SANS INTERNET puis envoyé au retour du
+    # réseau : heure réelle de l'encaissement sur l'appareil (`created_at` = arrivée au serveur) et
+    # numéro du reçu provisoire remis au payeur. Renseignés ensemble ou pas du tout, à la création.
+    offline_collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    provisional_receipt_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

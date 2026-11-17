@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api/client";
 import { hasTeacherRole } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
+import type { OutboxEntry } from "@/lib/offline/outbox";
 import { announceDataSource, DATA_SOURCE_EVENT, type DataSourceDetail } from "@/lib/offline/status";
 import { syncOutbox } from "@/lib/offline/sync";
 import { useOutbox } from "@/lib/offline/useOutbox";
@@ -228,6 +229,30 @@ function useReservedBottomSpace(element: HTMLElement | null) {
   }, [element]);
 }
 
+// Lot 3 — la boîte d'envoi mêle saisies (appel, notes) et encaissements : chacun nommé.
+function countLabel(entries: OutboxEntry[]): string {
+  const cash = entries.filter((entry) => entry.kind === "payment").length;
+  const other = entries.length - cash;
+  const parts: string[] = [];
+  if (cash > 0) parts.push(cash === 1 ? "1 encaissement" : `${cash} encaissements`);
+  if (other > 0) parts.push(other === 1 ? "1 saisie (appel ou notes)" : `${other} saisies (appel ou notes)`);
+  return parts.join(" et ");
+}
+
+function failedLabel(entries: OutboxEntry[]): string {
+  const cash = entries.filter((entry) => entry.kind === "payment").length;
+  const other = entries.length - cash;
+  const parts: string[] = [];
+  if (cash > 0) parts.push(cash === 1 ? "1 encaissement a été refusé" : `${cash} encaissements ont été refusés`);
+  if (other > 0) parts.push(other === 1 ? "1 saisie a été refusée" : `${other} saisies ont été refusées`);
+  return `${parts.join(" et ")} par le serveur.`;
+}
+
+function failedLink(entries: OutboxEntry[]): string {
+  if (entries.some((entry) => entry.kind === "payment")) return "/cashier";
+  return entries.some((entry) => entry.kind === "attendance") ? "/teacher/attendance" : "/teacher/grades";
+}
+
 function formatShortSavedAt(iso: string): string {
   const date = new Date(iso);
   const day = date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
@@ -236,17 +261,19 @@ function formatShortSavedAt(iso: string): string {
 }
 
 export function PwaSupport() {
-  const { status, user, roles } = useAuth();
+  const { status, user, roles, permissions } = useAuth();
   const authenticated = status === "authenticated";
   const updateReady = useServiceWorker(authenticated);
   const install = useInstallPrompt();
   const [installHidden, setInstallHidden] = useState(true);
   const { offline, browserOnline, oldestCopy, reconnected, dismissReconnected } = useOfflineState();
   const outbox = useOutbox();
-  const pendingCount = outbox.filter((entry) => entry.state === "pending").length;
+  const pending = outbox.filter((entry) => entry.state === "pending");
+  const pendingCount = pending.length;
   const failed = outbox.filter((entry) => entry.state === "failed");
   const [sending, setSending] = useState(false);
   const teacher = hasTeacherRole(user, roles);
+  const collector = permissions.includes("payments.manage");
   useOutboxSync(authenticated, offline, pendingCount);
   const [bannerArea, setBannerArea] = useState<HTMLDivElement | null>(null);
   useReservedBottomSpace(bannerArea);
@@ -316,7 +343,9 @@ export function PwaSupport() {
             <p className="text-xs">
               {teacher
                 ? "Appel et notes : gardés sur l'appareil, envoyés au retour d'internet. Le reste attendra."
-                : "Les modifications attendront le retour d'internet."}
+                : collector
+                  ? "Encaissements : gardés sur l'appareil avec reçu provisoire (caisse ouverte), envoyés au retour d'internet."
+                  : "Les modifications attendront le retour d'internet."}
             </p>
           </div>
           <button
@@ -334,11 +363,7 @@ export function PwaSupport() {
           role="status"
           className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 shadow-lg"
         >
-          <p>
-            {pendingCount === 1
-              ? "1 saisie en attente d'envoi (appel ou notes)."
-              : `${pendingCount} saisies en attente d'envoi (appel ou notes).`}
-          </p>
+          <p>{countLabel(pending)} en attente d&apos;envoi.</p>
           {!offline && (
             <button
               type="button"
@@ -356,15 +381,8 @@ export function PwaSupport() {
           role="alert"
           className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 shadow-lg"
         >
-          <p>
-            {failed.length === 1
-              ? "1 saisie a été refusée par le serveur."
-              : `${failed.length} saisies ont été refusées par le serveur.`}
-          </p>
-          <Link
-            href={failed.some((entry) => entry.kind === "attendance") ? "/teacher/attendance" : "/teacher/grades"}
-            className="shrink-0 font-medium underline"
-          >
+          <p>{failedLabel(failed)}</p>
+          <Link href={failedLink(failed)} className="shrink-0 font-medium underline">
             Voir
           </Link>
         </div>
