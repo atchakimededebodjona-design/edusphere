@@ -28,6 +28,9 @@ export type NotificationList = {
 };
 
 export type AnnouncementTargetType = "SCHOOL" | "CLASS";
+// 2026-11-17 — destinataires (api: notifications/schemas.py::AnnouncementAudience). STAFF : école
+// entière seulement.
+export type AnnouncementAudience = "ALL" | "PARENTS" | "TEACHERS" | "STAFF";
 
 export type AnnouncementCreate = {
   school_id: string;
@@ -35,6 +38,7 @@ export type AnnouncementCreate = {
   body: string;
   target_type: AnnouncementTargetType;
   class_ids?: string[];
+  audience?: AnnouncementAudience;
 };
 
 export type AnnouncementResult = {

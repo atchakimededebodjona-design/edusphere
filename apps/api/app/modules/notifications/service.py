@@ -457,6 +457,55 @@ async def resolve_class_teacher_user_ids(
     return {row[0] for row in result.all()}
 
 
+# 2026-11-17 — « personnel de l'école » d'une annonce : direction, administration, comptabilité,
+# caisse et personnel. Jamais un rôle plateforme ni partenaire (rôles hors école).
+STAFF_ROLE_CODES: tuple[str, ...] = ("SCHOOL_ADMIN", "DIRECTOR", "STAFF", "ACCOUNTANT", "CAISSIER")
+
+
+async def resolve_school_guardian_user_ids(db: AsyncSession, school_id: uuid.UUID) -> set[uuid.UUID]:
+    """Tuteurs avec compte des élèves activement inscrits dans une classe de CETTE école — même
+    règle que `resolve_class_guardian_user_ids`, appliquée à toutes les classes de l'école."""
+    result = await db.execute(
+        select(Guardian.user_id.distinct())
+        .join(StudentGuardian, StudentGuardian.guardian_id == Guardian.id)
+        .join(Student, Student.id == StudentGuardian.student_id)
+        .join(
+            StudentEnrollment,
+            (StudentEnrollment.student_id == Student.id) & (StudentEnrollment.status == "ACTIVE"),
+        )
+        .join(SchoolClass, SchoolClass.id == StudentEnrollment.class_id)
+        .where(
+            SchoolClass.school_id == school_id,
+            StudentGuardian.school_id == school_id,
+            Guardian.user_id.isnot(None),
+        )
+    )
+    return {row[0] for row in result.all()}
+
+
+async def resolve_school_role_user_ids(
+    db: AsyncSession, school_id: uuid.UUID, organization_id: uuid.UUID, role_codes: tuple[str, ...]
+) -> set[uuid.UUID]:
+    """Comptes actifs ayant l'un de `role_codes` dans CETTE école — rôle scopé à l'école, ou porté
+    au niveau organisation sans école précise (même portée stricte que
+    `resolve_school_member_user_ids`). Jamais un platform admin."""
+    result = await db.execute(
+        select(UserRole.user_id.distinct())
+        .join(Role, Role.id == UserRole.role_id)
+        .join(User, User.id == UserRole.user_id)
+        .where(
+            Role.code.in_(role_codes),
+            or_(
+                UserRole.school_id == school_id,
+                and_(UserRole.organization_id == organization_id, UserRole.school_id.is_(None)),
+            ),
+            User.is_active.is_(True),
+            User.is_platform_admin.is_(False),
+        )
+    )
+    return {row[0] for row in result.all()}
+
+
 async def create_announcement(
     db: AsyncSession,
     *,
@@ -466,21 +515,40 @@ async def create_announcement(
     body: str,
     target_type: str,
     class_ids: list[uuid.UUID] | None,
+    audience: str = "ALL",
 ) -> int:
+    """Portée (`target_type`) : école entière ou classes. Destinataires (`audience`, 2026-11-17) :
+    - ALL : comme avant — école entière = tous ses comptes ; classes = parents et enseignants ;
+    - PARENTS : tuteurs avec compte des élèves inscrits (de l'école ou des classes choisies) ;
+    - TEACHERS : enseignants de l'école, ou enseignants affectés aux classes choisies ;
+    - STAFF : personnel de l'école (`STAFF_ROLE_CODES`), école entière seulement."""
     if target_type == "CLASS":
         if not class_ids:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="class_ids is required for CLASS target")
+        if audience == "STAFF":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="The STAFF audience is only available for the whole school"
+            )
         result = await db.execute(select(SchoolClass.id).where(SchoolClass.id.in_(class_ids), SchoolClass.school_id == school_id))
         found_ids = {row[0] for row in result.all()}
         if found_ids != set(class_ids):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more classes do not belong to this school")
-        recipient_ids = await resolve_class_guardian_user_ids(
-            db, class_ids, school_id
-        ) | await resolve_class_teacher_user_ids(db, class_ids, school_id, organization_id)
+        recipient_ids: set[uuid.UUID] = set()
+        if audience in ("ALL", "PARENTS"):
+            recipient_ids |= await resolve_class_guardian_user_ids(db, class_ids, school_id)
+        if audience in ("ALL", "TEACHERS"):
+            recipient_ids |= await resolve_class_teacher_user_ids(db, class_ids, school_id, organization_id)
     else:  # SCHOOL
         if class_ids:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SCHOOL target must not include class_ids")
-        recipient_ids = await resolve_school_member_user_ids(db, school_id, organization_id)
+        if audience == "PARENTS":
+            recipient_ids = await resolve_school_guardian_user_ids(db, school_id)
+        elif audience == "TEACHERS":
+            recipient_ids = await resolve_school_role_user_ids(db, school_id, organization_id, ("TEACHER",))
+        elif audience == "STAFF":
+            recipient_ids = await resolve_school_role_user_ids(db, school_id, organization_id, STAFF_ROLE_CODES)
+        else:
+            recipient_ids = await resolve_school_member_user_ids(db, school_id, organization_id)
 
     count = await create_notifications(
         db,
