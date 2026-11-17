@@ -28,7 +28,9 @@ export type Me = {
   permissions: string[];
 };
 
-// Phase 32 — la connexion vérifie le mot de passe sur le serveur : elle demande toujours internet.
+// Phase 32 — la connexion vérifie le mot de passe sur le serveur. Sans réponse du serveur,
+// lib/auth/AuthProvider.tsx tente la connexion sans internet (lib/offline/vault.ts), avec son
+// propre message.
 const LOGIN_NEEDS_INTERNET =
   "Pas de connexion internet. La connexion demande internet ; ensuite, EduLinkage reste consultable hors connexion sur cet appareil.";
 

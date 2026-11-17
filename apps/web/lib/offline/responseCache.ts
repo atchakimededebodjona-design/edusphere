@@ -3,7 +3,9 @@
 //
 // - Rangée par compte (`userId`, lu dans le jeton) : un compte ne lit jamais la copie d'un autre.
 // - Effacée entièrement à la déconnexion, et celle des autres comptes à chaque connexion (poste
-//   partagé d'une école) — voir lib/auth/AuthProvider.tsx.
+//   partagé d'une école) — voir lib/auth/AuthProvider.tsx. Exception : un compte qui peut se
+//   reconnecter sans internet est VERROUILLÉ à la déconnexion, ses copies chiffrées et gardées
+//   (lib/offline/vault.ts).
 // - Jamais une source d'autorité : servie seulement quand l'API est injoignable, et signalée à
 //   l'écran (voir lib/offline/status.ts).
 // - Tout échec d'IndexedDB (navigation privée, stockage plein ou bloqué) est silencieux :
@@ -70,7 +72,7 @@ export async function readCachedResponse(userId: string, path: string): Promise<
     const entry = (await requestToPromise(tx.objectStore(RESPONSES_STORE).get(entryKey(userId, path)))) as
       | StoredEntry
       | undefined;
-    if (!entry || entry.userId !== userId) return null;
+    if (!entry || entry.userId !== userId || "sealed" in entry) return null;
     const headers = new Headers();
     if (entry.contentType) headers.set("Content-Type", entry.contentType);
     return { response: new Response(entry.body, { status: 200, headers }), savedAt: entry.savedAt };
@@ -79,20 +81,36 @@ export async function readCachedResponse(userId: string, path: string): Promise<
   }
 }
 
-/** Efface toutes les copies locales (déconnexion). Ne lève jamais d'erreur. */
-export async function clearAllCachedResponses(): Promise<void> {
+// Copie CHIFFRÉE d'un compte verrouillé (lib/offline/vault.ts) : illisible sans son mot de passe,
+// elle n'est effacée que par ce compte (déconnexion complète, « Effacer de cet appareil »).
+function isSealedEntry(value: unknown): boolean {
+  return typeof value === "object" && value !== null && "sealed" in value;
+}
+
+/**
+ * Déconnexion complète : efface toutes les copies du compte `userId` et les copies EN CLAIR de tout
+ * autre compte. Les copies chiffrées des autres comptes verrouillés restent. Ne lève jamais d'erreur.
+ */
+export async function clearCachedResponsesOnLogout(userId: string | null): Promise<void> {
   try {
     const db = await openOfflineDb();
     if (!db) return;
     const tx = db.transaction(RESPONSES_STORE, "readwrite");
-    tx.objectStore(RESPONSES_STORE).clear();
+    const request = tx.objectStore(RESPONSES_STORE).openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const value = cursor.value as StoredEntry;
+      if (value.userId === userId || !isSealedEntry(value)) cursor.delete();
+      cursor.continue();
+    };
     await transactionDone(tx);
   } catch {
     // ignore
   }
 }
 
-/** Efface les copies de tous les AUTRES comptes (connexion sur un poste partagé). */
+/** Efface les copies EN CLAIR de tous les AUTRES comptes (connexion sur un poste partagé). */
 export async function clearCachedResponsesExcept(userId: string): Promise<void> {
   try {
     const db = await openOfflineDb();
@@ -102,7 +120,8 @@ export async function clearCachedResponsesExcept(userId: string): Promise<void> 
     request.onsuccess = () => {
       const cursor = request.result;
       if (!cursor) return;
-      if ((cursor.value as StoredEntry).userId !== userId) cursor.delete();
+      const value = cursor.value as StoredEntry;
+      if (value.userId !== userId && !isSealedEntry(value)) cursor.delete();
       cursor.continue();
     };
     await transactionDone(tx);

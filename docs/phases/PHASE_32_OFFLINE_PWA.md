@@ -12,7 +12,8 @@
 |---|---|---|
 | **1** (en production le 2026-11-16, PR #44) | Site installable. Tout ce qui a été ouvert avec internet reste **consultable** hors connexion, pour tous les espaces. Aucune écriture hors connexion. | Faible : lecture seule, l'API reste seule juge. |
 | **2** (en production le 2026-11-16, PR #45, §4) | **Enseignants** : appel et notes saisis hors connexion, envoyés automatiquement au retour du réseau. | Moyen : doublons et conflits. Côté API, il faut une clé d'idempotence à la création d'une séance d'appel. Les présences (`uq_attendance_record`) et les notes (`uq_assessment_result`) ont déjà une clé naturelle unique. |
-| **3** (branche `feat/offline-cashier-lot3`, §5) | **Caisse** : encaissement en espèces hors connexion, avec reçu provisoire. | Élevé. Les paiements ont déjà une clé d'idempotence (`uq_payment_idempotency`), mais **le numéro de reçu est attribué par le serveur** (`RCPT-…`). Hors connexion, on ne peut remettre qu'un **reçu provisoire**. Décisions de l'exploitant au §5. |
+| **3** (en production le 2026-11-17, PR #47, §5) | **Caisse** : encaissement en espèces hors connexion, avec reçu provisoire. | Élevé. Les paiements ont déjà une clé d'idempotence (`uq_payment_idempotency`), mais **le numéro de reçu est attribué par le serveur** (`RCPT-…`). Hors connexion, on ne peut remettre qu'un **reçu provisoire**. Décisions de l'exploitant au §5. |
+| **Connexion** (branche `feat/offline-login`, §6) | **Se reconnecter sans internet** sur un appareil où le compte s'est déjà connecté avec internet. | Moyen : sécurité de l'appareil. Les données restent chiffrées par le mot de passe. Le site seul, sans migration. |
 
 ## 2. Lot 1 — ce qui change
 
@@ -182,3 +183,47 @@
   - écran de téléphone sans défilement horizontal ;
   - aucune erreur de page.
 - **Non-régression** : parcours des lots 1 et 2 (consultation, appel et notes, coupure, passage de la base locale, bandeaux du bas), tous réussis.
+
+## 6. Connexion sans internet
+
+- **Demande** : 2026-11-17, « c'est possible de faire en sorte qu'on puisse se connecter également sans la connexion ? ».
+- **Choix de l'exploitant** : connexion hors ligne pour un compte déjà connecté avec internet sur l'appareil. « Déconnexion » verrouille au lieu d'effacer ; « Effacer de cet appareil » reste possible.
+- Site seulement, **sans migration** ni changement d'API.
+
+**Fonctionnement** (`lib/offline/vault.ts`, magasin `vault` d'IndexedDB, base en version 3).
+- **À chaque connexion avec internet** : une clé de données aléatoire (AES-GCM 256) est créée, ou reprise si le compte avait déjà un coffre. Elle est gardée **chiffrée par une clé tirée du mot de passe** (PBKDF2-SHA-256, 600 000 tours, sel aléatoire de 16 octets).
+  - Le mot de passe n'est jamais gardé, ni en clair ni sous forme d'empreinte : seul le bon mot de passe déchiffre la clé.
+  - Si le compte était verrouillé, ses données sont reprises, saisies en attente comprises. Si son mot de passe a changé entre-temps, l'ancien contenu chiffré est illisible : il est effacé.
+- **« Déconnexion »** (les trois barres et les écrans d'erreur), quand le coffre est prêt : la session est **verrouillée**.
+  - Copies des lectures, saisies en attente (appel, notes) et jetons de session sont chiffrés avec la clé de données, en une seule transaction. La clé est ensuite retirée de l'appareil, et la session de l'onglet.
+  - La session n'est **pas révoquée** sur le serveur : le mot de passe la rouvrira.
+  - Aucune question à la déconnexion, puisque rien n'est perdu.
+- **Connexion quand le serveur ne répond pas** (appareil hors ligne, ou passerelle 502/503/504) : le mot de passe est vérifié sur l'appareil, en déchiffrant la clé de données. Si c'est le bon, tout est déchiffré, la session est rouverte et l'espace s'affiche comme avant la déconnexion. Les saisies en attente repartent au retour d'internet.
+- **Connexion avec internet** : inchangée. Le serveur vérifie le mot de passe, puis le coffre est repris (voir plus haut).
+- **Page de connexion** : liste « Connexion possible sans internet », avec la date limite de chaque compte et un bouton « Effacer de cet appareil » (coffre, copies et saisies en attente supprimés).
+
+**Limites et garde-fous.**
+- **7 jours** au plus depuis le dernier échange réussi avec le serveur sur cet appareil. Au-delà, la connexion demande internet.
+- **5 essais ratés** sans internet : la connexion de ce compte demande internet. Une connexion en ligne remet le compteur à zéro.
+- **Pris en compte seulement au retour d'internet** : un compte désactivé, un mot de passe changé ou une session révoquée. Les requêtes échouent alors, et la connexion en ligne est redemandée.
+- **Encaissements en attente** (lot 3) : jamais chiffrés, jamais effacés par la déconnexion ni par « Effacer de cet appareil ». Un mot de passe changé ailleurs rendrait sinon illisible la seule trace d'un argent reçu.
+- **Poste partagé** :
+  - un autre compte qui se connecte efface les copies **en clair** des autres comptes, comme avant ;
+  - les données **chiffrées** des comptes verrouillés restent, illisibles sans leur mot de passe.
+- **Session ouverte avant cette version** (aucun coffre) : la déconnexion reste complète, comme avant (session révoquée, tout effacé). Le coffre se crée à la connexion suivante.
+- **Appareil volé** : les données d'un compte verrouillé ne s'ouvrent qu'avec son mot de passe. Les 600 000 tours ralentissent fortement les essais en série, mais un mot de passe faible reste devinable. Un mot de passe solide est donc recommandé aux comptes qui utilisent la connexion sans internet.
+- **Navigateur sans chiffrement** (page hors HTTPS, stockage indisponible) : pas de coffre, et le comportement d'avant s'applique.
+
+**Vérifications (2026-11-17).**
+- **Site** : vérification des types, analyse du code, `test:config`.
+- **Parcours de bout en bout** : build de production, API simulée, Chromium. 26 vérifications :
+  - coffre prêt après une connexion en ligne, mot de passe absent du stockage ;
+  - déconnexion sans question : session retirée, copies et saisie en attente chiffrées, aucune copie en clair, aucune révocation sur le serveur ;
+  - sans internet : mauvais mot de passe refusé (essais restants), bon mot de passe accepté, appel consultable, séance en attente retrouvée puis envoyée au retour d'internet ;
+  - reconnexion en ligne : données reprises ;
+  - blocage après 5 essais, levé par une connexion en ligne ;
+  - refus au-delà de 7 jours ;
+  - « Effacer de cet appareil » ;
+  - ancienne session sans coffre : déconnexion complète comme avant ;
+  - aucune erreur de page.
+- **Non-régression** : parcours des lots 1, 2 et 3 (consultation, appel et notes, coupure, passage de la base locale de la version 1 à la version 3, bandeaux du bas, caisse), tous réussis.

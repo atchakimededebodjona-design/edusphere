@@ -15,6 +15,7 @@ import type { PaymentCreate } from "@/lib/fees/client";
 import type { AssessmentCreate, AssessmentResultEntry } from "@/lib/grades/client";
 import { getStoredUserId } from "@/lib/auth/session";
 import { openOfflineDb, OUTBOX_STORE, requestToPromise, transactionDone } from "@/lib/offline/db";
+import { canLockSession } from "@/lib/offline/vault";
 
 export const OUTBOX_CHANGED_EVENT = "edulinkage:outbox-changed";
 
@@ -180,7 +181,8 @@ export async function listOutbox(): Promise<OutboxEntry[]> {
     if (!db) return [];
     const tx = db.transaction(OUTBOX_STORE, "readonly");
     const entries = (await requestToPromise(tx.objectStore(OUTBOX_STORE).index("userId").getAll(userId))) as OutboxEntry[];
-    return entries.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    // Saisies chiffrées d'un compte verrouillé (lib/offline/vault.ts) : jamais listées ni envoyées.
+    return entries.filter((entry) => !("sealed" in entry)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   } catch {
     return [];
   }
@@ -305,8 +307,12 @@ export async function clearOutboxForUser(userId: string): Promise<void> {
  *
  * Lot 3 — un encaissement en espèces non accepté par le serveur (en attente ou refusé) BLOQUE la
  * déconnexion : l'argent a été reçu, sa seule trace est sur cet appareil.
+ *
+ * Connexion sans internet — un compte qui peut se reconnecter sans internet est verrouillé, pas
+ * effacé (lib/offline/vault.ts) : rien n'est perdu, aucune question à poser.
  */
 export async function confirmLogoutWithUnsentEntries(): Promise<boolean> {
+  if (await canLockSession()) return true;
   const entries = await listOutbox();
   const cash = entries.filter(isPaymentEntry).length;
   if (cash > 0) {

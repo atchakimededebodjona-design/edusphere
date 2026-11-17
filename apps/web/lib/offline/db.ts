@@ -1,13 +1,15 @@
 // Phase 32 — base IndexedDB unique de l'application, ouverte une seule fois :
 // - `responses` (lot 1) : copies des lectures de l'API, voir lib/offline/responseCache.ts ;
-// - `outbox` (lot 2) : saisies faites hors connexion, en attente d'envoi, voir lib/offline/outbox.ts.
+// - `outbox` (lot 2) : saisies faites hors connexion, en attente d'envoi, voir lib/offline/outbox.ts ;
+// - `vault` (connexion sans internet, version 3) : un coffre par compte, voir lib/offline/vault.ts.
 // Tout échec (navigation privée, stockage bloqué) donne `null` : l'appelant se passe alors du
 // stockage local, sans jamais lever d'erreur.
 
 const DB_NAME = "edulinkage-offline";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 export const RESPONSES_STORE = "responses";
 export const OUTBOX_STORE = "outbox";
+export const VAULT_STORE = "vault";
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
@@ -27,6 +29,10 @@ export function openOfflineDb(): Promise<IDBDatabase | null> {
         if (!db.objectStoreNames.contains(OUTBOX_STORE)) {
           const store = db.createObjectStore(OUTBOX_STORE, { keyPath: "id" });
           store.createIndex("userId", "userId");
+        }
+        if (!db.objectStoreNames.contains(VAULT_STORE)) {
+          const store = db.createObjectStore(VAULT_STORE, { keyPath: "userId" });
+          store.createIndex("email", "email");
         }
       };
       request.onsuccess = () => {

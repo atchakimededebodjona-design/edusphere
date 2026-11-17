@@ -4,9 +4,18 @@ import { createContext, useCallback, useEffect, useMemo, useState } from "react"
 import { ApiError, onSessionExpired } from "@/lib/api/client";
 import * as authClient from "@/lib/auth/client";
 import type { Me } from "@/lib/auth/client";
-import { getStoredTokens, getStoredUserId, setStoredTokens } from "@/lib/auth/session";
+import { clearStoredTokens, getStoredTokens, getStoredUserId, setStoredTokens } from "@/lib/auth/session";
 import { clearOutboxForUser } from "@/lib/offline/outbox";
-import { clearAllCachedResponses, clearCachedResponsesExcept } from "@/lib/offline/responseCache";
+import { clearCachedResponsesExcept, clearCachedResponsesOnLogout } from "@/lib/offline/responseCache";
+import {
+  enableOfflineLogin,
+  forgetAccount,
+  isStoredSessionLocked,
+  lockSession,
+  OFFLINE_LOGIN_MAX_AGE_MS,
+  unlockOffline,
+  type UnlockResult,
+} from "@/lib/offline/vault";
 import {
   distinctOrganizationIds,
   organizationIdForSchool,
@@ -79,6 +88,31 @@ async function isSchoolAccessibleInOrganization(
   }
 }
 
+// Connexion sans internet (lib/offline/vault.ts) : pourquoi elle n'a pas abouti.
+const OFFLINE_DAYS = Math.round(OFFLINE_LOGIN_MAX_AGE_MS / (24 * 60 * 60 * 1000));
+
+function offlineLoginMessage(result: Exclude<UnlockResult, { status: "unlocked" }>): string {
+  switch (result.status) {
+    case "wrong-password":
+      return `Mot de passe incorrect (vérifié sur cet appareil, sans internet). ${
+        result.remaining === 1 ? "Il reste 1 essai" : `Il reste ${result.remaining} essais`
+      } avant que la connexion ne demande internet.`;
+    case "blocked":
+      return "Trop d'essais sans internet : la prochaine connexion de ce compte demande internet.";
+    case "expired":
+      return `Pas de connexion internet. Ce compte n'a pas joint le serveur depuis plus de ${OFFLINE_DAYS} jours sur cet appareil : la connexion demande internet.`;
+    case "unknown":
+      return "Pas de connexion internet : la connexion demande internet. Sans internet, seul un compte déjà connecté avec internet sur cet appareil, puis déconnecté, peut se reconnecter.";
+    default:
+      return "Pas de connexion internet : la connexion demande internet sur cet appareil.";
+  }
+}
+
+// Le serveur n'a pas répondu (appareil hors ligne, passerelle sans API) : connexion sans internet.
+function loginUnreachable(err: unknown): boolean {
+  return err instanceof ApiError && [0, 502, 503, 504].includes(err.status);
+}
+
 function formatTenantContextError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Votre session a expiré. Reconnectez-vous pour continuer.";
@@ -136,11 +170,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (getStoredTokens()) {
-      void loadMe();
-    } else {
+    if (!getStoredTokens()) {
       setStatus("anonymous");
+      return;
     }
+    void (async () => {
+      // Verrouillage interrompu (application fermée pendant la déconnexion) : le verrou l'emporte.
+      if (await isStoredSessionLocked()) {
+        clearStoredTokens();
+        setStatus("anonymous");
+        return;
+      }
+      await loadMe();
+    })();
   }, [loadMe]);
 
   // Phase 27 Sprint 1.1 — un 401 rencontré n'importe où dans l'app peut révéler un refresh token
@@ -156,12 +198,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [resetTenantState]);
 
   const login = useCallback(async (email: string, password: string): Promise<Me> => {
-    const tokens = await authClient.login(email, password);
+    let tokens: authClient.TokenPair;
+    try {
+      tokens = await authClient.login(email, password);
+    } catch (err) {
+      if (!loginUnreachable(err)) throw err;
+      // Connexion SANS internet : le mot de passe est vérifié sur l'appareil, qui rouvre la session
+      // verrouillée de ce compte et ses données (lib/offline/vault.ts).
+      const unlocked = await unlockOffline(email, password);
+      if (unlocked.status !== "unlocked") throw new ApiError(offlineLoginMessage(unlocked), 0);
+      const offlineMe = await authClient.me();
+      setMe(offlineMe);
+      setStatus("authenticated");
+      return offlineMe;
+    }
     setStoredTokens({ access_token: tokens.access_token, refresh_token: tokens.refresh_token });
-    // Phase 32 — poste partagé : les données gardées pour le hors connexion par un AUTRE compte
-    // (session expirée sans déconnexion explicite) sont effacées avant toute lecture.
+    // Phase 32 — poste partagé : les données gardées EN CLAIR pour le hors connexion par un AUTRE
+    // compte (session expirée sans déconnexion explicite) sont effacées avant toute lecture. Les
+    // données chiffrées des comptes verrouillés restent (illisibles sans leur mot de passe).
     const userId = getStoredUserId();
-    if (userId) await clearCachedResponsesExcept(userId);
+    if (userId) {
+      await clearCachedResponsesExcept(userId);
+      // Prépare la prochaine connexion sans internet de ce compte, et reprend ses données s'il
+      // était verrouillé (saisies en attente comprises).
+      await enableOfflineLogin(userId, email, password);
+    }
     // Appel direct (pas `loadMe`, qui avale toute erreur en "anonymous") : un échec de `me()`
     // juste après une connexion réussie est une vraie erreur à remonter à l'appelant (écran de
     // connexion), pas un simple retour à l'état déconnecté.
@@ -177,12 +238,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // voir resolveSchoolsForOrganization ci-dessous).
   const logout = useCallback(async () => {
     const userId = getStoredUserId();
-    await authClient.logout();
-    // Phase 32 — déconnexion explicite : plus aucune donnée de l'école ne reste sur l'appareil.
-    // Les saisies non envoyées de ce compte aussi : la perte a été confirmée par l'utilisateur
-    // (lib/offline/outbox.ts::confirmLogoutWithUnsentEntries, appelée par chaque barre).
-    await clearAllCachedResponses();
-    if (userId) await clearOutboxForUser(userId);
+    // Connexion sans internet : un compte déjà préparé est VERROUILLÉ (données et session
+    // chiffrées, reconnexion possible sans internet), pas effacé. La session n'est pas révoquée sur
+    // le serveur : le mot de passe la rouvrira.
+    if (!(await lockSession())) {
+      await authClient.logout();
+      // Phase 32 — déconnexion explicite : plus aucune donnée de l'école ne reste sur l'appareil.
+      // Les saisies non envoyées de ce compte aussi : la perte a été confirmée par l'utilisateur
+      // (lib/offline/outbox.ts::confirmLogoutWithUnsentEntries, appelée par chaque barre).
+      await clearCachedResponsesOnLogout(userId);
+      if (userId) {
+        await clearOutboxForUser(userId);
+        await forgetAccount(userId);
+      }
+    }
     setMe(null);
     setStatus("anonymous");
     resetTenantState();
