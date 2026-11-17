@@ -81,6 +81,47 @@ async def reset_login_attempts(email: str) -> None:
         logger.warning("Rate limiting Redis indisponible — compteur non réinitialisé.")
 
 
+# --- Échecs de connexion par adresse IP (2026-11-17, revue de sécurité) -------------------------
+#
+# Le compteur par email ci-dessus n'arrête pas un robot qui essaie UN mot de passe courant sur des
+# centaines de comptes depuis la même adresse (« password spraying ») : chaque email ne voit qu'un
+# échec. Ce second compteur, par adresse IP réelle (FORWARDED_ALLOW_IPS), ne compte que les ÉCHECS et
+# reste large (`login_ip_rate_limit_max_failures`, 50 par défaut sur 15 minutes) : une école entière
+# derrière une même adresse n'y arrive pas en usage normal. Jamais remis à zéro par une connexion
+# réussie (un robot pourrait sinon l'effacer avec un seul compte valide). Fail-open comme le reste.
+
+
+def _login_ip_key(ip: str) -> str:
+    return f"login_ip_failures:{ip}"
+
+
+async def ensure_login_ip_not_rate_limited(ip: str | None) -> None:
+    key = _login_ip_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.login_ip_rate_limit_max_failures:
+            ttl = await client.ttl(key)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts. Please try again later.",
+                headers={"Retry-After": str(max(ttl, 1))},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification par adresse ignorée.")
+
+
+async def register_failed_login_ip_attempt(ip: str | None) -> None:
+    key = _login_ip_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.login_ip_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — échec par adresse non comptabilisé.")
+
+
 # --- Mot de passe oublié (Phase 10.1) -------------------------------------------------------
 #
 # Même principe que le login ci-dessus (compteur Redis par email, fail-open si Redis est

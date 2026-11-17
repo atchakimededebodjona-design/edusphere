@@ -6,9 +6,11 @@ from sqlalchemy import select
 from app.core.permissions import CurrentUser, DbSession, get_all_permission_codes
 from app.core.rate_limit import (
     ensure_forgot_password_not_rate_limited,
+    ensure_login_ip_not_rate_limited,
     ensure_login_not_rate_limited,
     ensure_reset_password_not_rate_limited,
     register_failed_login_attempt,
+    register_failed_login_ip_attempt,
     register_forgot_password_attempt,
     register_reset_password_attempt,
     reset_login_attempts,
@@ -40,6 +42,9 @@ def _client_ip(request: Request) -> str | None:
 
 @router.post("/login", response_model=TokenPair)
 async def login(payload: LoginRequest, request: Request, db: DbSession) -> TokenPair:
+    ip = _client_ip(request)
+    # 2026-11-17 — échecs par adresse IP en plus des échecs par email (voir app/core/rate_limit.py).
+    await ensure_login_ip_not_rate_limited(ip)
     await ensure_login_not_rate_limited(payload.email)
     try:
         tokens = await service.login(
@@ -47,7 +52,7 @@ async def login(payload: LoginRequest, request: Request, db: DbSession) -> Token
             email=payload.email,
             password=payload.password,
             device_id=payload.device_id,
-            ip=_client_ip(request),
+            ip=ip,
             user_agent=request.headers.get("user-agent"),
         )
     except HTTPException as exc:
@@ -56,6 +61,7 @@ async def login(payload: LoginRequest, request: Request, db: DbSession) -> Token
             # identique dans les deux cas), donc le rate limiting ne révèle jamais d'information
             # sur l'existence d'un compte.
             await register_failed_login_attempt(payload.email)
+            await register_failed_login_ip_attempt(ip)
         raise
     await reset_login_attempts(payload.email)
     return tokens

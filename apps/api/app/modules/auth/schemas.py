@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr
+
+from app.core.passwords import NewPassword
 
 
 class UserOut(BaseModel):
@@ -43,7 +45,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: NewPassword
 
 
 class RoleAssignmentOut(BaseModel):

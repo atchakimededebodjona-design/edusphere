@@ -4,6 +4,13 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, resetPassword } from "@/lib/auth/client";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULE_HINT,
+  passwordLengthProblem,
+  translatePasswordRefusal,
+} from "@/lib/auth/passwordRule";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -22,13 +29,19 @@ function ResetPasswordForm() {
       setStatus("error");
       return;
     }
+    const lengthProblem = passwordLengthProblem(password);
+    if (lengthProblem) {
+      setError(lengthProblem);
+      setStatus("error");
+      return;
+    }
     setStatus("loading");
     setError(null);
     try {
       await resetPassword(token, password);
       setStatus("done");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+      setError(err instanceof ApiError ? translatePasswordRefusal(err.message) : "Une erreur est survenue.");
       setStatus("error");
     }
   }
@@ -62,11 +75,13 @@ function ResetPasswordForm() {
     <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
       <input
         type="password"
-        placeholder="Nouveau mot de passe (8 caractères min.)"
+        placeholder={`Nouveau mot de passe (${PASSWORD_RULE_HINT})`}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
-        minLength={8}
+        minLength={PASSWORD_MIN_LENGTH}
+        maxLength={PASSWORD_MAX_LENGTH}
+        autoComplete="new-password"
         className="rounded border border-slate-300 px-3 py-2"
       />
       <input
@@ -75,9 +90,15 @@ function ResetPasswordForm() {
         value={confirm}
         onChange={(e) => setConfirm(e.target.value)}
         required
-        minLength={8}
+        minLength={PASSWORD_MIN_LENGTH}
+        maxLength={PASSWORD_MAX_LENGTH}
+        autoComplete="new-password"
         className="rounded border border-slate-300 px-3 py-2"
       />
+      <p className="text-xs text-slate-500">
+        Au moins {PASSWORD_MIN_LENGTH} caractères. Une courte phrase facile à retenir convient bien ; évitez les mots de passe
+        courants.
+      </p>
       <button
         type="submit"
         disabled={status === "loading"}

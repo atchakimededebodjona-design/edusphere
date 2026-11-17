@@ -39,7 +39,7 @@ async def _clear_shared_ip_rate_limits() -> None:
 
     try:
         redis_client = _get_rate_limit_client()
-        for pattern in ("reset_password_attempts:*", "report_card_verify_attempts:*"):
+        for pattern in ("reset_password_attempts:*", "report_card_verify_attempts:*", "login_ip_failures:*"):
             async for key in redis_client.scan_iter(match=pattern):
                 await redis_client.delete(key)
     except RedisError:

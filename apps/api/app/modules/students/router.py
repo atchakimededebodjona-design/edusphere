@@ -1,6 +1,7 @@
 import logging
 import mimetypes
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import or_, select
@@ -623,8 +624,17 @@ async def download_student_document(
     return Response(
         content=content,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{document.original_filename}"'},
+        headers={"Content-Disposition": attachment_disposition(document.original_filename)},
     )
+
+
+def attachment_disposition(filename: str) -> str:
+    """2026-11-17 (revue de sécurité) — en-tête de téléchargement d'un fichier dont le nom vient de
+    l'utilisateur (nom d'origine du document envoyé). Avant : nom recopié tel quel entre guillemets ;
+    un guillemet ou un retour à la ligne dans le nom cassait l'en-tête. Désormais : un nom ASCII
+    nettoyé (`filename`) et le nom exact encodé (`filename*`, RFC 6266), lu par les navigateurs."""
+    ascii_name = "".join(char if 32 <= ord(char) < 127 and char not in '"\\' else "_" for char in filename) or "document"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 @router.delete("/students/{student_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
