@@ -5,7 +5,12 @@ import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import { schoolClasses, type SchoolClass } from "@/lib/academics/client";
 import { useAuth } from "@/lib/auth/useAuth";
-import { announcements, type AnnouncementHistoryEntry, type AnnouncementTargetType } from "@/lib/notifications/client";
+import {
+  announcements,
+  type AnnouncementAudience,
+  type AnnouncementHistoryEntry,
+  type AnnouncementTargetType,
+} from "@/lib/notifications/client";
 
 const TYPE_LABELS: Record<string, string> = {
   ANNOUNCEMENT: "Annonce",
@@ -13,13 +18,35 @@ const TYPE_LABELS: Record<string, string> = {
   PAYMENT_RECORDED: "Paiement",
 };
 
+// 2026-11-17 — QUI reçoit l'annonce (en plus de la portée école entière / classes).
+const AUDIENCE_LABELS: Record<AnnouncementAudience, string> = {
+  ALL: "Tout le monde",
+  PARENTS: "Les parents",
+  TEACHERS: "Les enseignants",
+  STAFF: "Le personnel de l'école",
+};
+
+function audienceHint(audience: AnnouncementAudience, targetType: AnnouncementTargetType): string {
+  if (targetType === "CLASS") {
+    if (audience === "PARENTS") return "Les parents (avec un compte EduLinkage) des élèves des classes choisies.";
+    if (audience === "TEACHERS") return "Les enseignants affectés aux classes choisies.";
+    return "Les parents des élèves et les enseignants des classes choisies.";
+  }
+  if (audience === "PARENTS") return "Les parents (avec un compte EduLinkage) de tous les élèves inscrits.";
+  if (audience === "TEACHERS") return "Tous les enseignants de l'école.";
+  if (audience === "STAFF") return "Direction, administration, comptabilité et caisse.";
+  return "Tous les comptes de l'école : parents, enseignants et personnel.";
+}
+
 export default function AnnouncementsPage() {
   const { currentSchoolId } = useAuth();
   const [classes, setClasses] = useState<SchoolClass[] | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [targetType, setTargetType] = useState<AnnouncementTargetType>("SCHOOL");
+  const [audience, setAudience] = useState<AnnouncementAudience>("ALL");
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "saving" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<number | null>(null);
@@ -91,8 +118,10 @@ export default function AnnouncementsPage() {
         body,
         target_type: targetType,
         class_ids: targetType === "CLASS" ? selectedClassIds : undefined,
+        audience,
       });
       setResult(response.recipient_count);
+      setSentTo(AUDIENCE_LABELS[audience].toLowerCase());
       setTitle("");
       setBody("");
       setSelectedClassIds([]);
@@ -135,16 +164,40 @@ export default function AnnouncementsPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm text-slate-700">
-          Cible
+          Destinataires
+          <select
+            value={audience}
+            onChange={(e) => {
+              const next = e.target.value as AnnouncementAudience;
+              setAudience(next);
+              // Le personnel n'est pas rattaché à une classe : annonce à toute l'école.
+              if (next === "STAFF") setTargetType("SCHOOL");
+            }}
+            className="rounded border border-slate-300 px-3 py-2 text-sm"
+          >
+            {(Object.keys(AUDIENCE_LABELS) as AnnouncementAudience[]).map((value) => (
+              <option key={value} value={value}>
+                {AUDIENCE_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-slate-700">
+          Portée
           <select
             value={targetType}
             onChange={(e) => setTargetType(e.target.value as AnnouncementTargetType)}
             className="rounded border border-slate-300 px-3 py-2 text-sm"
           >
             <option value="SCHOOL">Toute l&apos;école</option>
-            <option value="CLASS">Une ou plusieurs classes</option>
+            <option value="CLASS" disabled={audience === "STAFF"}>
+              Une ou plusieurs classes
+            </option>
           </select>
         </label>
+        <p data-testid="announcement-audience-hint" className="text-xs text-slate-500">
+          Recevront cette annonce : {audienceHint(audience, targetType)}
+        </p>
         {targetType === "CLASS" && (
           <div className="flex flex-col gap-1 text-sm text-slate-700">
             Classes
@@ -166,7 +219,17 @@ export default function AnnouncementsPage() {
         >
           {status === "saving" ? "Publication..." : "Publier"}
         </button>
-        {result !== null && <p className="text-sm text-green-700">Annonce publiée — {result} destinataire(s) notifié(s).</p>}
+        {result !== null && result > 0 && (
+          <p className="text-sm text-green-700">
+            Annonce publiée ({sentTo}) — {result} destinataire(s) notifié(s).
+          </p>
+        )}
+        {result === 0 && (
+          <p className="text-sm text-amber-800">
+            Annonce publiée, mais personne ne l&apos;a reçue : aucun compte EduLinkage ne correspond à ce choix (par exemple,
+            des parents qui n&apos;ont pas encore de compte).
+          </p>
+        )}
         {error && <p className="text-sm text-red-700">{error}</p>}
       </form>
 

@@ -76,6 +76,7 @@ async def create_announcement(payload: AnnouncementCreate, db: DbSession, curren
         body=payload.body,
         target_type=payload.target_type,
         class_ids=payload.class_ids,
+        audience=payload.audience,
     )
     return AnnouncementResult(recipient_count=count)
 

@@ -43,6 +43,10 @@ class UnreadCountOut(BaseModel):
 
 
 AnnouncementTargetType = Literal["SCHOOL", "CLASS"]
+# 2026-11-17 — QUI reçoit l'annonce, en plus de la portée (école entière ou classes) :
+# ALL = comportement d'avant (tous les comptes de la portée) ; PARENTS ; TEACHERS ; STAFF = personnel
+# de l'école (direction, administration, comptabilité, caisse), pour l'école entière seulement.
+AnnouncementAudience = Literal["ALL", "PARENTS", "TEACHERS", "STAFF"]
 
 
 class AnnouncementCreate(BaseModel):
@@ -51,6 +55,7 @@ class AnnouncementCreate(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
     target_type: AnnouncementTargetType
     class_ids: list[uuid.UUID] | None = None
+    audience: AnnouncementAudience = "ALL"
 
 
 class AnnouncementResult(BaseModel):
