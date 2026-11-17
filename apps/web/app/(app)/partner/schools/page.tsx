@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { toErrorMessage, useAsyncData } from "@/lib/api/useAsyncData";
+import { PASSWORD_RULE_HINT, passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
 import { enrollPartnerSchool, listPartnerSchools } from "@/lib/partners/client";
 import { ExistingOrganizationEnroll } from "./ExistingOrganizationEnroll";
 
@@ -39,7 +40,8 @@ function validate(form: FormState): string | null {
   if (!/^[A-Za-z]{2}$/.test(form.orgCountry)) return "Code pays sur 2 lettres (ex. TG).";
   if (form.adminFullName.trim().length < 2) return "Nom de l'administrateur requis.";
   if (!EMAIL_PATTERN.test(form.adminEmail.trim())) return "Email de l'administrateur invalide.";
-  if (form.adminPassword.length < 8) return "Le mot de passe doit comporter au moins 8 caractères.";
+  const passwordProblem = passwordLengthProblem(form.adminPassword);
+  if (passwordProblem) return passwordProblem;
   return null;
 }
 
@@ -93,7 +95,7 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
       setForm(initialState);
       onEnrolled();
     } catch (err) {
-      setError(toErrorMessage(err));
+      setError(translatePasswordRefusal(toErrorMessage(err)));
     } finally {
       setSubmitting(false);
     }
@@ -114,7 +116,7 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
           className={input}
           type="password"
           autoComplete="new-password"
-          placeholder="Mot de passe initial (8 caractères min.)"
+          placeholder={`Mot de passe initial (${PASSWORD_RULE_HINT})`}
           value={form.adminPassword}
           onChange={set("adminPassword")}
         />

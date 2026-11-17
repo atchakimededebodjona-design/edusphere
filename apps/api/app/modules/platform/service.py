@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.email import send_email_best_effort
+from app.core.passwords import password_problem
 from app.core.security import generate_opaque_token, hash_opaque_token, hash_password
 from app.core.tenancy import set_platform_wide_context
 from app.modules.auth.models import PasswordResetToken
@@ -216,11 +217,10 @@ async def resolve_or_create_school_admin(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Administrator full name is required to create a new account",
             )
-        if not 8 <= len(password) <= 128:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="A password of 8 to 128 characters is required to create a new administrator account",
-            )
+        # 2026-11-17 — règle unique d'un nouveau mot de passe (app/core/passwords.py).
+        problem = password_problem(password)
+        if problem:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=problem)
         user = User(
             id=uuid.uuid4(),
             email=email,

@@ -40,9 +40,20 @@ def render_template(html_content: str, context: dict) -> str:
     return template.render(**context)
 
 
+def _only_embedded_resources(uri: str, rel: str) -> str:
+    """2026-11-17 (revue de sécurité) — xhtml2pdf charge par défaut toute ressource citée par le
+    HTML : fichier du serveur (`file:///…`, chemin absolu) ou adresse réseau (`http://…`). Le modèle
+    de bulletin est écrit par l'école : un administrateur malveillant pouvait ainsi faire lire des
+    fichiers locaux ou envoyer des requêtes depuis le serveur vers le réseau interne. Seules les
+    ressources INTÉGRÉES (`data:`, logo et QR code du bulletin) sont désormais chargées ; tout le
+    reste est ignoré."""
+    del rel
+    return uri if uri.strip().lower().startswith("data:") else ""
+
+
 def html_to_pdf(html: str) -> bytes:
     buffer = io.BytesIO()
-    result = pisa.CreatePDF(src=html, dest=buffer)
+    result = pisa.CreatePDF(src=html, dest=buffer, link_callback=_only_embedded_resources)
     if result.err:
         raise RuntimeError("Failed to render report card PDF from template")
     return buffer.getvalue()

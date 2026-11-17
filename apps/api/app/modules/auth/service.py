@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -256,4 +256,18 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> Non
 
     user.hashed_password = hash_password(new_password)
     reset_token.used_at = now
+    # 2026-11-17 (revue de sécurité) — un nouveau mot de passe ferme TOUTES les sessions ouvertes du
+    # compte : quelqu'un qui aurait volé une session (téléphone perdu, poste partagé) en est exclu,
+    # au lieu de rester connecté jusqu'à 30 jours. Les autres jetons de réinitialisation encore
+    # valides sont aussi rendus inutilisables.
+    await db.execute(
+        update(UserSession)
+        .where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    await db.execute(
+        update(PasswordResetToken)
+        .where(PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None))
+        .values(used_at=now)
+    )
     await db.commit()

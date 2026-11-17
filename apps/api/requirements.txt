@@ -1,14 +1,31 @@
-fastapi==0.111.0
+# 2026-11-17 (revue de sécurité) — FastAPI 0.111 / Starlette 0.37 remplacés : nombreuses failles
+# corrigées depuis (dénis de service des formulaires, validation de l'en-tête Host et du chemin…).
+# - Starlette fixé à 1.10.0 : les failles publiées en 2026 ne sont corrigées qu'à partir de 1.3.1.
+# - FastAPI 0.136.3 : dernière version qui garde les routes « à plat » dans `app.routes`. À partir de
+#   0.137, les routeurs inclus y sont imbriqués, et les tests de sécurité qui passent en revue CHAQUE
+#   route (tests/test_pr17_hardening.py, tests/test_platform_owner.py) n'en verraient plus aucune.
+# - FastAPI n'installe plus d'office httpx, email-validator ni python-multipart : déclarés
+#   ci-dessous, car l'API s'en sert (client PayGate, champs EmailStr, envois de fichiers).
+# Vérifié avec `pip-audit -r requirements.txt` : aucune faille connue au 2026-11-17.
+fastapi==0.136.3
+starlette==1.10.0
 uvicorn[standard]==0.30.1
-pydantic==2.7.4
+pydantic==2.14.3
 pydantic-settings==2.3.4
+python-multipart==0.0.34
+email-validator==2.4.0
+httpx==0.27.0
 sqlalchemy==2.0.31
 asyncpg==0.29.0
 alembic==1.13.2
 redis==5.0.7
 bcrypt==4.1.3
-pyjwt==2.8.0
+# 2026-11-17 — 2.8.0 avait 19 failles connues (dont `crit` non vérifié, confusion de clés HMAC).
+pyjwt==2.15.1
 openpyxl==3.1.5
+# openpyxl utilise defusedxml quand il est installé : un classeur Excel piégé (bombe XML, entités
+# externes) importé par une école ne peut plus bloquer ni faire lire des fichiers à l'API.
+defusedxml==0.7.1
 xhtml2pdf==0.2.17
 qrcode[pil]==8.2
 jinja2==3.1.6

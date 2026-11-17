@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ApiError } from "@/lib/api/client";
+import { PASSWORD_MIN_LENGTH, passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
 import {
   createPlatformOrganization,
   type PlatformOrganizationCreate,
@@ -76,8 +77,8 @@ export function validateForm(form: FormState): FormErrors {
 
   if (!required(form.adminFullName)) errors.adminFullName = "Le nom complet est obligatoire (2 caractères min.).";
   if (!EMAIL_PATTERN.test(form.adminEmail)) errors.adminEmail = "Adresse email valide requise.";
-  if (form.adminPassword.length < 8) errors.adminPassword = "Le mot de passe doit contenir au moins 8 caractères.";
-  if (form.adminPassword.length > 128) errors.adminPassword = "Le mot de passe ne doit pas dépasser 128 caractères.";
+  const passwordProblem = passwordLengthProblem(form.adminPassword);
+  if (passwordProblem) errors.adminPassword = passwordProblem;
   if (form.adminPasswordConfirm !== form.adminPassword) {
     errors.adminPasswordConfirm = "La confirmation ne correspond pas au mot de passe.";
   }
@@ -124,7 +125,7 @@ export function errorMessage(err: unknown): string {
     case 409:
       return "Ce slug d'organisation ou cet email administrateur est déjà utilisé.";
     case 422:
-      return `Certaines informations sont invalides : ${err.message}`;
+      return `Certaines informations sont invalides : ${translatePasswordRefusal(err.message)}`;
     default:
       return err.status >= 500
         ? "Une erreur serveur est survenue. Réessayez dans quelques instants."
@@ -301,7 +302,7 @@ export function OrganizationRegistrationForm() {
               value={form.adminPassword}
               onChange={update("adminPassword")}
               autoComplete="new-password"
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               required
             />
           </Field>

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.core.passwords import NewPassword
 from app.modules.auth.schemas import UserOut
 from app.modules.organizations.schemas import OrganizationOut
 from app.modules.schools.schemas import SchoolOut
@@ -73,7 +74,7 @@ class PlatformAdminInput(BaseModel):
     full_name: str = Field(min_length=2, max_length=255)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=32)
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
 
 
 class PlatformOrganizationCreate(BaseModel):

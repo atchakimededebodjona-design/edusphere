@@ -268,7 +268,7 @@ async def test_reset_password_legitimate_flow_unaffected_by_rate_limit(client: A
     forgot = await client.post("/api/v1/auth/forgot-password", json={"email": data["user"]["email"]})
     dev_token = forgot.json()["dev_token"]
 
-    reset = await client.post("/api/v1/auth/reset-password", json={"token": dev_token, "new_password": "NewPass1234"})
+    reset = await client.post("/api/v1/auth/reset-password", json={"token": dev_token, "new_password": "NewPass12345"})
     assert reset.status_code == 204
 
 

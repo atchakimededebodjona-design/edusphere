@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # légitimes) — voir app/core/rate_limit.py.
     login_rate_limit_max_attempts: int = 5
     login_rate_limit_window_seconds: int = 300
+    # 2026-11-17 — échecs de connexion par adresse IP réelle (voir app/core/rate_limit.py).
+    login_ip_rate_limit_max_failures: int = 50
+    login_ip_rate_limit_window_seconds: int = 900
 
     # Rate limiting mot de passe oublié (Phase 10.1 — depuis la Phase 9, cet endpoint déclenche
     # un vrai envoi d'email : sans limite c'est un vecteur d'email bombing). Seuil plus bas et

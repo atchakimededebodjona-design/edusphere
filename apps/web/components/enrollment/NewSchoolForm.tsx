@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ApiError } from "@/lib/api/client";
+import { passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
 import type { SchoolAddPayload, SchoolAdded } from "@/lib/platform/client";
 
 // PR #19 — formulaire PARTAGÉ « nouvel établissement + son administrateur », utilisé par les deux
@@ -48,7 +49,7 @@ export function addSchoolErrorMessage(err: unknown): string {
     case 422:
       return err.message.includes("required to create a new")
         ? "Aucun compte administrateur existant n'a été trouvé pour cet email : décochez « administrateur existant » et renseignez son nom et un mot de passe initial."
-        : `Certaines informations sont invalides : ${err.message}`;
+        : `Certaines informations sont invalides : ${translatePasswordRefusal(err.message)}`;
     default:
       return err.status >= 500 ? "Une erreur serveur est survenue. Réessayez dans quelques instants." : err.message;
   }
@@ -122,8 +123,8 @@ export function NewSchoolForm({
     if (!EMAIL_PATTERN.test(form.adminEmail.trim())) return "Adresse email valide requise.";
     if (existingAdmin) return null;
     if (form.adminFullName.trim().length < 2) return "Le nom de l'administrateur est obligatoire (2 caractères min.).";
-    if (form.adminPassword.length < 8) return "Le mot de passe doit contenir au moins 8 caractères.";
-    if (form.adminPassword.length > 128) return "Le mot de passe ne doit pas dépasser 128 caractères.";
+    const passwordProblem = passwordLengthProblem(form.adminPassword);
+    if (passwordProblem) return passwordProblem;
     if (form.adminPasswordConfirm !== form.adminPassword) return "La confirmation ne correspond pas au mot de passe.";
     return null;
   }

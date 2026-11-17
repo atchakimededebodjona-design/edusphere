@@ -11,38 +11,56 @@
 // - `next dev`, `next start`, `next lint` : comportement inchangé (repli local, jamais d'échec) —
 //   `next lint` charge la configuration dans la même phase que `next build` (CI sans variable).
 // Jamais un domaine inventé (voir docs/phases/PHASE_28A_PARENT_WEB_PORTAL.md).
-const { PHASE_PRODUCTION_BUILD } = require("next/constants");
+const { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } = require("next/constants");
 const { resolveApiUrl } = require("./config/apiUrl");
 
 function isStrictBuild(phase) {
   return phase === PHASE_PRODUCTION_BUILD && !process.argv.includes("lint");
 }
 
-function createNextConfig(resolvedApiUrl) {
+function createNextConfig(resolvedApiUrl, phase) {
   /** @type {import('next').NextConfig} */
   const nextConfig = {
     reactStrictMode: true,
+
+    // 2026-11-17 (revue de sécurité) — ne plus annoncer « X-Powered-By: Next.js » : inutile au site,
+    // utile à un attaquant qui cherche les failles d'une version précise.
+    poweredByHeader: false,
+
+    // 2026-11-17 (revue de sécurité) — l'optimiseur d'images (/_next/image) n'est plus utilisé : le
+    // site n'affiche que ses propres logos, déjà à la bonne taille. Les failles graves connues de cet
+    // optimiseur (exécution de code à distance via des images piégées, corrigées seulement à partir de
+    // Next.js 15.5) ne concernent plus le site. Les images sont servies telles quelles.
+    images: {
+      unoptimized: true,
+    },
 
     env: {
       NEXT_PUBLIC_API_URL: resolvedApiUrl,
     },
 
-    // Phase 26.2 — CSP en mode Report-Only uniquement. L'app n'utilise ni police externe, ni
-    // script tiers, ni iframe, ni style inline (vérifié par grep sur next/font, <script src=,
-    // style={{ avant ce changement) — mais aucun build de production réel n'a pu être observé
-    // dans un navigateur pendant cette phase (pas d'accès VPS pour redéployer). Report-Only ne
-    // bloque jamais aucune ressource : elle sert uniquement à observer, via la console du
-    // navigateur, si cette politique casserait quelque chose avant de l'activer en mode bloquant
-    // (Phase 26.3, après revue des violations réelles).
+    // Phase 26.2 — CSP d'abord en Report-Only (observation seulement).
+    // 2026-11-17 (revue de sécurité) — CSP désormais BLOQUANTE. Elle ferme ce qui permettrait à un
+    // script injecté d'envoyer la session ailleurs ou d'habiller une autre page : appels réseau
+    // limités au site et à l'API (connect-src), images au site (img-src), formulaires au site
+    // (form-action), aucun plugin (object-src), aucune mise en cadre (frame-ancestors), aucun
+    // changement de <base>. Scripts et styles « inline » restent permis : Next.js 14 en insère dans
+    // chaque page (données de rendu), et une politique par nonce imposerait un rendu dynamique de
+    // toutes les pages, incompatible avec les pages gardées hors connexion (Phase 32). En
+    // développement seulement, 'unsafe-eval' (rechargement à chaud de Next.js).
     async headers() {
       const apiOrigin = resolvedApiUrl;
+      const devEval = phase === PHASE_DEVELOPMENT_SERVER ? " 'unsafe-eval'" : "";
       const csp = [
         "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self'",
-        "img-src 'self' data:",
+        `script-src 'self' 'unsafe-inline'${devEval}`,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
         "font-src 'self'",
         `connect-src 'self' ${apiOrigin}`,
+        "worker-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
@@ -59,7 +77,7 @@ function createNextConfig(resolvedApiUrl) {
           source: "/:path*",
           headers: [
             {
-              key: "Content-Security-Policy-Report-Only",
+              key: "Content-Security-Policy",
               value: csp,
             },
             // Phase 26.2 (suite) — headers de sécurité de base, déjà présents côté API (voir
@@ -95,5 +113,5 @@ function createNextConfig(resolvedApiUrl) {
 module.exports = (phase) => {
   const { url, warnings } = resolveApiUrl({ env: process.env, strict: isStrictBuild(phase) });
   for (const warning of warnings) console.warn(`[next.config.js] ${warning}`);
-  return createNextConfig(url);
+  return createNextConfig(url, phase);
 };
