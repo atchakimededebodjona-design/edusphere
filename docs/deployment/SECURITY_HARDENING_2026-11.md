@@ -10,9 +10,15 @@ décrit les **corrections apportées** ; il ne recense pas de faiblesse ouverte 
   L'optimiseur d'images (`/_next/image`) est **désactivé** (`images.unoptimized`) : le site n'affiche
   que ses propres logos, et les failles graves de cet optimiseur ne sont corrigées qu'à partir de
   Next.js 15.5.
-- **API** : FastAPI 0.111 / Starlette 0.37 → **FastAPI 0.163.1 / Starlette 1.10**, pydantic 2.14
-  (dénis de service corrigés, dont CVE-2024-47874). httpx, email-validator et python-multipart, que
-  l'ancienne FastAPI installait d'office, sont déclarés explicitement.
+- **API** : FastAPI 0.111 / Starlette 0.37 → **FastAPI 0.136.3 / Starlette 1.10.0**, pydantic 2.14.
+  PyJWT 2.8.0 → **2.15.1** (19 failles connues, dont l'en-tête `crit` non vérifié). `pip-audit` ne
+  trouve aucune faille connue au 2026-11-17.
+  - Starlette 1.10 : les failles de 2026 (validation de l'en-tête Host et du chemin, limites des
+    formulaires) ne sont corrigées qu'à partir de 1.3.1.
+  - FastAPI 0.136.3 : dernière version qui garde les routes « à plat » dans `app.routes`. À partir de
+    0.137, les tests de sécurité qui passent en revue chaque route n'en verraient plus aucune.
+  - httpx, email-validator et python-multipart, que l'ancienne FastAPI installait d'office, sont
+    déclarés explicitement.
 - **defusedxml** : utilisé automatiquement par openpyxl pour lire les classeurs Excel importés
   (bombes XML, entités externes).
 
@@ -48,11 +54,11 @@ décrit les **corrections apportées** ; il ne recense pas de faiblesse ouverte 
 
 ## Vérifications (2026-11-17)
 - **API** :
-  - ruff, mypy, collecte des 1 166 tests ;
-  - les tests qui tournent sans base, exécutés et réussis : règle des mots de passe, PDF sans
-    ressource externe, en-tête de téléchargement, reçu officiel ;
-  - un test de fumée de la nouvelle FastAPI (santé, en-têtes de sécurité, 401, 422, CORS, 404) ;
-  - le reste de la suite, dont `tests/test_security_review.py`, tourne dans la CI.
+  - ruff, mypy, `pip-audit` ;
+  - suite complète des tests sur PostgreSQL 16 et Redis en local ;
+  - un test de fumée de la nouvelle FastAPI (santé, en-têtes de sécurité, 401, 422, CORS, 404).
+- **Premier essai avec FastAPI 0.163** : 4 tests de sécurité échouaient en CI, car ils passent en revue
+  toutes les routes et `app.routes` est imbriqué à partir de 0.137. D'où le choix de 0.136.3.
 - **Site** : vérification des types, analyse du code, `test:config`, build de production.
 - **CSP bloquante dans Chromium** : pages publiques, administrateur, enseignant et caissier. Aucune
   violation, aucune image cassée, aucune erreur JavaScript.
