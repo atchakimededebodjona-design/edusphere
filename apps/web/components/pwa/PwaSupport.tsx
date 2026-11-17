@@ -199,6 +199,42 @@ function useOutboxSync(authenticated: boolean, offline: boolean, pendingCount: n
   }, [authenticated, pendingCount]);
 }
 
+// 2026-11-17 — les bandeaux sont posés par-dessus la page : sans espace réservé, ce qu'ils couvrent
+// en bas de page (ex. « Enregistrer l'appel ») restait inatteignable. La page reçoit en bas un
+// espace égal à leur hauteur réelle, recalculé à chaque changement, retiré quand ils disparaissent.
+function useReservedBottomSpace(element: HTMLElement | null) {
+  useEffect(() => {
+    if (!element) return;
+    const apply = () => {
+      document.body.style.paddingBottom = `${element.offsetHeight}px`;
+      // L'espace ajouté prend le fond de l'espace affiché (gris clair des espaces connectés), pas le
+      // blanc par défaut de la page.
+      // (Les premiers enfants de <body> sont des scripts de Next.js, sans fond : on prend le premier
+      // élément qui en a un.)
+      const background = Array.from(document.body.children)
+        .filter((child) => child !== element && !element.contains(child))
+        .map((child) => getComputedStyle(child).backgroundColor)
+        .find((color) => color && color !== "rgba(0, 0, 0, 0)" && color !== "transparent");
+      document.body.style.backgroundColor = background ?? "";
+    };
+    apply();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      document.body.style.paddingBottom = "";
+      document.body.style.backgroundColor = "";
+    };
+  }, [element]);
+}
+
+function formatShortSavedAt(iso: string): string {
+  const date = new Date(iso);
+  const day = date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  const time = date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return `${day} à ${time}`;
+}
+
 export function PwaSupport() {
   const { status, user, roles } = useAuth();
   const authenticated = status === "authenticated";
@@ -212,6 +248,13 @@ export function PwaSupport() {
   const [sending, setSending] = useState(false);
   const teacher = hasTeacherRole(user, roles);
   useOutboxSync(authenticated, offline, pendingCount);
+  const [bannerArea, setBannerArea] = useState<HTMLDivElement | null>(null);
+  useReservedBottomSpace(bannerArea);
+  // Bandeau « Hors connexion » masqué par l'utilisateur : il revient à la prochaine coupure.
+  const [offlineHidden, setOfflineHidden] = useState(false);
+  useEffect(() => {
+    if (!offline) setOfflineHidden(false);
+  }, [offline]);
 
   useEffect(() => {
     setInstallHidden(installRecentlyDismissed());
@@ -247,41 +290,61 @@ export function PwaSupport() {
 
   const showOutbox = authenticated && (pendingCount > 0 || failed.length > 0);
 
-  if (!offline && !reconnected && !updateReady && !showInstall && !showOutbox) return null;
+  const showOffline = offline && !offlineHidden;
+
+  if (!showOffline && !reconnected && !updateReady && !showInstall && !showOutbox) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-2 p-3">
-      {offline && (
+    <div
+      ref={setBannerArea}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-1.5 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+    >
+      {showOffline && (
         <div
           role="status"
-          className="pointer-events-auto w-full max-w-xl rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-lg"
+          className="pointer-events-auto flex w-full max-w-xl items-start justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 shadow-lg"
         >
-          <p className="font-semibold">{browserOnline ? "Connexion au serveur impossible" : "Hors connexion"}</p>
-          <p>
-            {oldestCopy
-              ? `Informations enregistrées sur cet appareil le ${formatSavedAt(oldestCopy)}. `
-              : "Les pages déjà ouvertes avec internet restent consultables. "}
-            Aucune modification ne peut être envoyée pour l&apos;instant.
-            {teacher && " L'appel et les notes restent enregistrables : ils partiront automatiquement au retour d'internet."}
-          </p>
+          <div className="min-w-0">
+            <p className="font-semibold">
+              {browserOnline ? "Connexion au serveur impossible" : "Hors connexion"}
+              {oldestCopy && (
+                <span className="font-normal" title={`Informations enregistrées sur cet appareil le ${formatSavedAt(oldestCopy)}`}>
+                  {` · infos du ${formatShortSavedAt(oldestCopy)}`}
+                </span>
+              )}
+            </p>
+            <p className="text-xs">
+              {teacher
+                ? "Appel et notes : gardés sur l'appareil, envoyés au retour d'internet. Le reste attendra."
+                : "Les modifications attendront le retour d'internet."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOfflineHidden(true)}
+            aria-label="Masquer ce bandeau"
+            className="-mr-1 shrink-0 rounded px-2 text-lg leading-none text-amber-800 hover:bg-amber-100"
+          >
+            ×
+          </button>
         </div>
       )}
       {authenticated && pendingCount > 0 && (
         <div
           role="status"
-          className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-lg"
+          className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 shadow-lg"
         >
           <p>
             {pendingCount === 1
-              ? "1 saisie (appel ou notes) est gardée sur cet appareil, en attente d'envoi."
-              : `${pendingCount} saisies (appel ou notes) sont gardées sur cet appareil, en attente d'envoi.`}
+              ? "1 saisie en attente d'envoi (appel ou notes)."
+              : `${pendingCount} saisies en attente d'envoi (appel ou notes).`}
           </p>
           {!offline && (
             <button
               type="button"
               onClick={() => void handleSendNow()}
               disabled={sending}
-              className="shrink-0 rounded bg-sky-800 px-3 py-1.5 font-medium text-white hover:bg-sky-900 disabled:opacity-50"
+              className="shrink-0 rounded bg-sky-800 px-3 py-1 font-medium text-white hover:bg-sky-900 disabled:opacity-50"
             >
               {sending ? "Envoi..." : "Envoyer maintenant"}
             </button>
@@ -291,7 +354,7 @@ export function PwaSupport() {
       {authenticated && failed.length > 0 && (
         <div
           role="alert"
-          className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-lg"
+          className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 shadow-lg"
         >
           <p>
             {failed.length === 1
@@ -309,7 +372,7 @@ export function PwaSupport() {
       {!offline && reconnected && (
         <div
           role="status"
-          className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 shadow-lg"
+          className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 shadow-lg"
         >
           <p>Connexion rétablie : les informations affichées peuvent être anciennes.</p>
           <div className="flex shrink-0 gap-2">
@@ -329,7 +392,7 @@ export function PwaSupport() {
       {updateReady && (
         <div
           role="status"
-          className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 shadow-lg"
+          className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-lg"
         >
           <p>Une nouvelle version d&apos;EduLinkage est prête.</p>
           <button
@@ -342,7 +405,7 @@ export function PwaSupport() {
         </div>
       )}
       {showInstall && (
-        <div className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 shadow-lg">
+        <div className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-lg">
           <p>Installez EduLinkage sur cet appareil pour l&apos;ouvrir comme une application, même sans connexion.</p>
           <div className="flex shrink-0 gap-2">
             <button
