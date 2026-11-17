@@ -6,6 +6,7 @@ import * as authClient from "@/lib/auth/client";
 import type { Me } from "@/lib/auth/client";
 import { clearStoredTokens, getStoredTokens, getStoredUserId, setStoredTokens } from "@/lib/auth/session";
 import { clearOutboxForUser } from "@/lib/offline/outbox";
+import { forgetPushDevice } from "@/lib/push/client";
 import { clearCachedResponsesExcept, clearCachedResponsesOnLogout } from "@/lib/offline/responseCache";
 import {
   enableOfflineLogin,
@@ -238,6 +239,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // voir resolveSchoolsForOrganization ci-dessous).
   const logout = useCallback(async () => {
     const userId = getStoredUserId();
+    // 2026-11-17 — notifications téléphone : cet appareil ne reçoit plus celles de ce compte (poste
+    // partagé). Avant tout le reste : la session sert encore à prévenir le serveur.
+    await forgetPushDevice();
     // Connexion sans internet : un compte déjà préparé est VERROUILLÉ (données et session
     // chiffrées, reconnexion possible sans internet), pas effacé. La session n'est pas révoquée sur
     // le serveur : le mot de passe la rouvrira.

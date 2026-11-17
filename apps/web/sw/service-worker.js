@@ -183,3 +183,59 @@ async function trim(cacheName, max) {
   const keys = await cache.keys();
   for (const request of keys.slice(0, Math.max(0, keys.length - max))) await cache.delete(request);
 }
+
+// --- Notifications téléphone (Web Push, 2026-11-17) ------------------------------------------------------
+// Le serveur envoie une notification chiffrée pour chaque nouvelle annonce ; elle s'affiche même
+// quand EduLinkage est fermé. Contenu : { title, body, url, tag } (api: notifications/push.py).
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+  const title = payload.title || "EduLinkage";
+  const options = {
+    body: payload.body || "Vous avez une nouvelle annonce.",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    tag: payload.tag || "edulinkage",
+    renotify: true,
+    data: { url: safeLocalUrl(payload.url) },
+  };
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(title, options);
+      // Pastille sur l'icône de l'application, quand le navigateur le permet.
+      try {
+        if (self.navigator && self.navigator.setAppBadge) await self.navigator.setAppBadge();
+      } catch {
+        // non pris en charge
+      }
+    })(),
+  );
+});
+
+// Toucher la notification : ouvre (ou ramène au premier plan) EduLinkage sur les annonces.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(safeLocalUrl(event.notification.data && event.notification.data.url), self.location.origin).href;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of windows) {
+        if (new URL(client.url).origin === self.location.origin && "focus" in client) {
+          await client.focus();
+          if ("navigate" in client) await client.navigate(target).catch(() => undefined);
+          return;
+        }
+      }
+      await self.clients.openWindow(target);
+    })(),
+  );
+});
+
+// Seulement une page de CE site (jamais une adresse extérieure, même si le contenu reçu en contenait une).
+function safeLocalUrl(url) {
+  return typeof url === "string" && url.startsWith("/") && !url.startsWith("//") ? url : "/open-notifications";
+}

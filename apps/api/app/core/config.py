@@ -221,6 +221,20 @@ class Settings(BaseSettings):
     # vérification publique (/verify/{code}), pas directement vers l'endpoint API JSON.
     public_web_base_url: str = "http://localhost:3000"
 
+    # 2026-11-17 — notifications téléphone (Web Push) des annonces. Paire de clés VAPID propre au
+    # serveur, générée une fois (`python -m app.jobs.generate_push_keys`), dans le .env seulement :
+    # la clé PRIVÉE ne doit jamais être publiée. Sans les deux clés, aucune notification téléphone
+    # n'est envoyée (l'application continue de fonctionner sans).
+    web_push_vapid_public_key: str = ""
+    web_push_vapid_private_key: str = ""
+    # Contact transmis aux services de notification (exigé par le protocole) : adresse « mailto: »
+    # ou site HTTPS. Vide : l'adresse publique du site (`public_web_base_url`).
+    web_push_subject: str = ""
+
+    @property
+    def web_push_enabled(self) -> bool:
+        return bool(self.web_push_vapid_public_key.strip() and self.web_push_vapid_private_key.strip())
+
 
 class ProductionConfigError(RuntimeError):
     """Levée au démarrage si `environment=production` avec un secret par défaut de

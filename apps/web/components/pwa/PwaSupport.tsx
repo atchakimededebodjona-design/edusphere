@@ -10,6 +10,7 @@ import type { OutboxEntry } from "@/lib/offline/outbox";
 import { announceDataSource, DATA_SOURCE_EVENT, type DataSourceDetail } from "@/lib/offline/status";
 import { syncOutbox } from "@/lib/offline/sync";
 import { useOutbox } from "@/lib/offline/useOutbox";
+import { enablePush, pushState, syncPush, type PushState } from "@/lib/push/client";
 
 // Phase 32, lot 1 — application installable et consultable hors connexion (voir
 // docs/phases/PHASE_32_OFFLINE_PWA.md). Trois bandeaux discrets en bas d'écran :
@@ -104,6 +105,83 @@ function installRecentlyDismissed(): boolean {
   } catch {
     return false;
   }
+}
+
+// 2026-11-17 — notifications téléphone des annonces (lib/push/client.ts). Proposées une fois par
+// appareil (jamais demandées d'office) ; « Plus tard » les repropose 7 jours après.
+const PUSH_DISMISSED_KEY = "edulinkage.push-dismissed-at";
+const PUSH_REMIND_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+function pushRecentlyDismissed(): boolean {
+  try {
+    const at = Number(window.localStorage.getItem(PUSH_DISMISSED_KEY) ?? "0");
+    return Date.now() - at < PUSH_REMIND_AFTER_MS;
+  } catch {
+    return false;
+  }
+}
+
+function usePushOffer(authenticated: boolean) {
+  const [state, setState] = useState<PushState | null>(null);
+  const [hidden, setHidden] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setHidden(pushRecentlyDismissed());
+  }, []);
+
+  useEffect(() => {
+    if (!authenticated) {
+      setState(null);
+      return;
+    }
+    let cancelled = false;
+    void pushState().then((current) => {
+      if (cancelled) return;
+      setState(current);
+      // Déjà accepté sur cet appareil : l'abonnement est renvoyé au serveur, sans rien demander.
+      if (current === "granted") void syncPush();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated]);
+
+  useEffect(() => {
+    if (!message) return;
+    const id = window.setTimeout(() => setMessage(null), 8000);
+    return () => window.clearTimeout(id);
+  }, [message]);
+
+  async function enable() {
+    setBusy(true);
+    try {
+      const result = await enablePush();
+      if (result === "granted") {
+        setState("granted");
+        setMessage("Notifications activées : les nouvelles annonces s'afficheront sur cet appareil.");
+      } else if (result === "denied") {
+        setState("denied");
+        setMessage("Notifications refusées. Pour les recevoir, autorisez-les dans les réglages du navigateur pour EduLinkage.");
+      } else {
+        setMessage("Activation impossible pour le moment. Réessayez plus tard.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function later() {
+    try {
+      window.localStorage.setItem(PUSH_DISMISSED_KEY, String(Date.now()));
+    } catch {
+      // ignore
+    }
+    setHidden(true);
+  }
+
+  return { offer: authenticated && state === "default" && !hidden, message, busy, enable, later };
 }
 
 function useOfflineState() {
@@ -275,6 +353,7 @@ export function PwaSupport() {
   const teacher = hasTeacherRole(user, roles);
   const collector = permissions.includes("payments.manage");
   useOutboxSync(authenticated, offline, pendingCount);
+  const pushOffer = usePushOffer(authenticated);
   const [bannerArea, setBannerArea] = useState<HTMLDivElement | null>(null);
   useReservedBottomSpace(bannerArea);
   // Bandeau « Hors connexion » masqué par l'utilisateur : il revient à la prochaine coupure.
@@ -319,7 +398,11 @@ export function PwaSupport() {
 
   const showOffline = offline && !offlineHidden;
 
-  if (!showOffline && !reconnected && !updateReady && !showInstall && !showOutbox) return null;
+  const showPushOffer = pushOffer.offer && !offline;
+
+  if (!showOffline && !reconnected && !updateReady && !showInstall && !showOutbox && !showPushOffer && !pushOffer.message) {
+    return null;
+  }
 
   return (
     <div
@@ -437,6 +520,32 @@ export function PwaSupport() {
               Plus tard
             </button>
           </div>
+        </div>
+      )}
+      {showPushOffer && (
+        <div
+          data-testid="push-offer"
+          className="pointer-events-auto flex w-full max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-lg"
+        >
+          <p>🔔 Recevez les annonces de l&apos;école sur cet appareil, même quand EduLinkage est fermé.</p>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => void pushOffer.enable()}
+              disabled={pushOffer.busy}
+              className="rounded bg-sky-800 px-3 py-1.5 font-medium text-white hover:bg-sky-900 disabled:opacity-50"
+            >
+              {pushOffer.busy ? "Activation..." : "Activer"}
+            </button>
+            <button type="button" onClick={pushOffer.later} className="px-2 py-1.5 text-slate-600 underline">
+              Plus tard
+            </button>
+          </div>
+        </div>
+      )}
+      {pushOffer.message && (
+        <div role="status" className="pointer-events-auto w-full max-w-xl rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-lg">
+          {pushOffer.message}
         </div>
       )}
     </div>

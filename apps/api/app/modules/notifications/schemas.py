@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 NotificationType = Literal[
     "ANNOUNCEMENT",
@@ -77,3 +77,41 @@ class AnnouncementHistoryEntry(BaseModel):
 class AnnouncementHistoryOut(BaseModel):
     items: list[AnnouncementHistoryEntry]
     next_before: datetime | None
+
+
+# --- Notifications téléphone (Web Push, 2026-11-17) ----------------------------------------------
+_BASE64URL_PATTERN = r"^[A-Za-z0-9_-]+={0,2}$"
+
+
+class PushConfigOut(BaseModel):
+    """`enabled` : le serveur a sa paire de clés ; `public_key` : clé publique VAPID (publique par
+    nature, transmise au navigateur pour s'abonner)."""
+
+    enabled: bool
+    public_key: str | None
+
+
+class PushDeviceKeys(BaseModel):
+    p256dh: str = Field(min_length=16, max_length=255, pattern=_BASE64URL_PATTERN)
+    auth: str = Field(min_length=8, max_length=255, pattern=_BASE64URL_PATTERN)
+
+
+class PushDeviceIn(BaseModel):
+    """Abonnement renvoyé par `PushManager.subscribe()` du navigateur. L'adresse d'envoi n'est
+    acceptée que chez un service de notification connu, en HTTPS (voir notifications/push.py)."""
+
+    endpoint: str = Field(min_length=12, max_length=2048)
+    keys: PushDeviceKeys
+
+    @field_validator("endpoint")
+    @classmethod
+    def _known_push_service(cls, value: str) -> str:
+        from app.modules.notifications.push import is_allowed_push_endpoint
+
+        if not is_allowed_push_endpoint(value):
+            raise ValueError("Unsupported push service endpoint")
+        return value
+
+
+class PushDeviceForget(BaseModel):
+    endpoint: str = Field(min_length=12, max_length=2048)

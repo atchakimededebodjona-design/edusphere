@@ -26,6 +26,8 @@ openpyxl==3.1.5
 # openpyxl utilise defusedxml quand il est installé : un classeur Excel piégé (bombe XML, entités
 # externes) importé par une école ne peut plus bloquer ni faire lire des fichiers à l'API.
 defusedxml==0.7.1
+# 2026-11-17 — notifications téléphone des annonces (Web Push, chiffrement et signature VAPID).
+pywebpush==2.5.0
 xhtml2pdf==0.2.17
 qrcode[pil]==8.2
 jinja2==3.1.6

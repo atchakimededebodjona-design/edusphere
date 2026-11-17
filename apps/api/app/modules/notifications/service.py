@@ -516,8 +516,11 @@ async def create_announcement(
     target_type: str,
     class_ids: list[uuid.UUID] | None,
     audience: str = "ALL",
-) -> int:
-    """Portée (`target_type`) : école entière ou classes. Destinataires (`audience`, 2026-11-17) :
+) -> set[uuid.UUID]:
+    """Renvoie les comptes notifiés (2026-11-17 : l'appelant leur envoie aussi la notification
+    téléphone, voir notifications/push.py).
+
+    Portée (`target_type`) : école entière ou classes. Destinataires (`audience`, 2026-11-17) :
     - ALL : comme avant — école entière = tous ses comptes ; classes = parents et enseignants ;
     - PARENTS : tuteurs avec compte des élèves inscrits (de l'école ou des classes choisies) ;
     - TEACHERS : enseignants de l'école, ou enseignants affectés aux classes choisies ;
@@ -550,7 +553,7 @@ async def create_announcement(
         else:
             recipient_ids = await resolve_school_member_user_ids(db, school_id, organization_id)
 
-    count = await create_notifications(
+    await create_notifications(
         db,
         organization_id=organization_id,
         school_id=school_id,
@@ -560,7 +563,7 @@ async def create_announcement(
         body=body,
     )
     await db.commit()
-    return count
+    return recipient_ids
 
 
 async def list_school_announcements(
