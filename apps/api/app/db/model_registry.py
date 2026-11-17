@@ -23,7 +23,7 @@ from app.modules.fees.models import (  # noqa: F401
     PaymentAllocation,
     StudentFee,
 )
-from app.modules.notifications.models import Notification  # noqa: F401
+from app.modules.notifications.models import Notification, PushDevice  # noqa: F401
 from app.modules.grades.models import (  # noqa: F401
     Assessment,
     AssessmentResult,

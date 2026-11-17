@@ -1,5 +1,6 @@
 import { Nav } from "@/components/app-shell/Nav";
 import { TopBar } from "@/components/app-shell/TopBar";
+import { NewAnnouncementBanner } from "@/components/notifications/NewAnnouncementBanner";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -10,7 +11,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           strictement identique à l'existant (menu latéral, p-8). */}
       <div className="flex flex-1 flex-col md:flex-row">
         <Nav />
-        <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
+        <main className="min-w-0 flex-1 p-4 md:p-8">
+          <NewAnnouncementBanner inboxHref="/notifications" />
+          {children}
+        </main>
       </div>
     </div>
   );

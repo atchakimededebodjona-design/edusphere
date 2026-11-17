@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
+import { NewAnnouncementBanner } from "@/components/notifications/NewAnnouncementBanner";
 import { useAuth } from "@/lib/auth/useAuth";
+import { useUnreadNotifications } from "@/lib/notifications/useUnreadNotifications";
 import { confirmLogoutWithUnsentEntries } from "@/lib/offline/outbox";
 import { useCurrentSchoolLogo } from "@/lib/schools/useSchoolLogo";
 
@@ -31,6 +33,7 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, logout, currentSchool } = useAuth();
   const schoolLogo = useCurrentSchoolLogo();
+  const unread = useUnreadNotifications(Boolean(user));
 
   async function handleLogout() {
     // Phase 32, lot 2 — des saisies non envoyées (appel, notes) seraient perdues : on prévient.
@@ -87,6 +90,15 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
             <span className="text-lg font-bold text-slate-900">EduLinkage</span>
           </Link>
           <div className="flex min-w-0 items-center gap-4">
+            {/* 2026-11-17 : cloche et compteur, comme dans les espaces administration et parent. */}
+            <Link href="/teacher/notifications" className="relative shrink-0 text-slate-600 hover:text-slate-900" aria-label="Notifications">
+              <span aria-hidden="true">🔔</span>
+              {unread.count > 0 && (
+                <span data-testid="teacher-unread-count" className="absolute -right-2 -top-2 rounded-full bg-red-600 px-1.5 text-xs font-semibold text-white">
+                  {unread.count > 99 ? "99+" : unread.count}
+                </span>
+              )}
+            </Link>
             <div className="min-w-0 text-right">
               <p className="truncate text-sm font-semibold text-slate-900">{user?.full_name ?? ""}</p>
               <p className="text-xs text-slate-500">Enseignant</p>
@@ -110,7 +122,10 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        <main className="flex-1 p-4 md:p-8">{children}</main>
+        <main className="flex-1 p-4 md:p-8">
+          <NewAnnouncementBanner inboxHref="/teacher/announcements" />
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
+from app.core.config import settings
 from app.core.permissions import CurrentUser, DbSession, ensure_permission
 from app.core.rate_limit import ensure_announcements_not_rate_limited, register_announcements_attempt
-from app.modules.notifications import service
+from app.modules.notifications import push, service
 from app.modules.notifications.schemas import (
     AnnouncementCreate,
     AnnouncementHistoryEntry,
@@ -13,6 +14,9 @@ from app.modules.notifications.schemas import (
     AnnouncementResult,
     NotificationListOut,
     NotificationOut,
+    PushConfigOut,
+    PushDeviceForget,
+    PushDeviceIn,
     UnreadCountOut,
 )
 from app.modules.schools.models import School
@@ -60,15 +64,18 @@ async def mark_notification_read(notification_id: uuid.UUID, db: DbSession, curr
 
 # --- Annonces (SCHOOL_ADMIN/DIRECTOR uniquement) ------------------------------------------------
 @router.post("/announcements", response_model=AnnouncementResult, status_code=status.HTTP_201_CREATED)
-async def create_announcement(payload: AnnouncementCreate, db: DbSession, current_user: CurrentUser) -> AnnouncementResult:
+async def create_announcement(
+    payload: AnnouncementCreate, db: DbSession, current_user: CurrentUser, background_tasks: BackgroundTasks
+) -> AnnouncementResult:
     await ensure_announcements_not_rate_limited(current_user.id)
     school = await _get_school_or_404(db, payload.school_id)
     await ensure_permission(
         db, current_user, "announcements.manage", organization_id=school.organization_id, school_id=school.id
     )
     await register_announcements_attempt(current_user.id)
+    school_name = school.name
 
-    count = await service.create_announcement(
+    recipients = await service.create_announcement(
         db,
         school_id=school.id,
         organization_id=school.organization_id,
@@ -78,7 +85,34 @@ async def create_announcement(payload: AnnouncementCreate, db: DbSession, curren
         class_ids=payload.class_ids,
         audience=payload.audience,
     )
-    return AnnouncementResult(recipient_count=count)
+    # 2026-11-17 — notification téléphone, envoyée APRÈS la réponse (tâche de fond) : une annonce à
+    # toute l'école n'attend jamais les services de notification.
+    if recipients:
+        background_tasks.add_task(
+            push.send_push_to_users, recipients, push.announcement_payload(school_name, payload.title, payload.body)
+        )
+    return AnnouncementResult(recipient_count=len(recipients))
+
+
+# --- Notifications téléphone (Web Push, 2026-11-17) — propres au compte connecté -----------------
+@router.get("/push/config", response_model=PushConfigOut)
+async def get_push_config(_current_user: CurrentUser) -> PushConfigOut:
+    enabled = settings.web_push_enabled
+    return PushConfigOut(enabled=enabled, public_key=settings.web_push_vapid_public_key.strip() if enabled else None)
+
+
+@router.post("/push/devices", status_code=status.HTTP_204_NO_CONTENT)
+async def register_push_device(payload: PushDeviceIn, request: Request, db: DbSession, current_user: CurrentUser) -> None:
+    if not settings.web_push_enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Push notifications are not configured")
+    await push.register_device(
+        db, current_user.id, payload.endpoint, payload.keys.p256dh, payload.keys.auth, request.headers.get("user-agent")
+    )
+
+
+@router.post("/push/devices/remove", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_push_device(payload: PushDeviceForget, db: DbSession, current_user: CurrentUser) -> None:
+    await push.forget_device(db, current_user.id, payload.endpoint)
 
 
 @router.get("/announcements", response_model=AnnouncementHistoryOut)

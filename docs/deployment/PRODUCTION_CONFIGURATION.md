@@ -84,6 +84,16 @@ apparaît.
 Dans le profil PayGate : « Callback URL » = `https://api.edulinkage.com/api/v1/payment-providers/paygate/callback`.
 Détail et mise en service : `docs/phases/PHASE_29_LOT_B_IMPLEMENTATION.md`.
 
+## Notifications téléphone des annonces (Web Push, 2026-11-17)
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `WEB_PUSH_VAPID_PUBLIC_KEY` | vide | Clé publique VAPID du serveur, transmise aux navigateurs (`GET /api/v1/push/config`). |
+| `WEB_PUSH_VAPID_PRIVATE_KEY` | vide | **SECRET** : signe chaque notification. Générée une seule fois **directement dans le `.env` du serveur**, sans l'afficher : `docker compose run --rm --no-deps -T api python -m app.jobs.generate_push_keys >> .env` (la commande n'écrit rien si les clés existent déjà). Jamais dans le dépôt, les journaux ni une conversation. En cas de fuite : retirer les deux lignes, relancer la commande, redémarrer l'API (les appareils se réinscrivent seuls à leur prochaine ouverture). |
+| `WEB_PUSH_SUBJECT` | vide | Contact exigé par le protocole (`mailto:…` ou `https://…`). Vide : `PUBLIC_WEB_BASE_URL`. |
+
+Sans les deux clés, aucune notification téléphone n'est envoyée et la proposition « Recevez les annonces… » ne s'affiche pas ; le reste de l'application fonctionne. Détail : `docs/phases/ANNOUNCEMENT_ALERTS.md`.
+
 ## Variables strictement pour le développement local
 
 `STORAGE_PROVIDER=local`/`STORAGE_LOCAL_PATH`, `EMAIL_PROVIDER=local`/`EMAIL_LOCAL_PATH` — ces
