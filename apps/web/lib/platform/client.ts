@@ -108,6 +108,8 @@ export type PlatformAccount = {
   is_active: boolean;
   created_at: string;
   role_codes: string[];
+  /** Compte supprimé par la plateforme (données personnelles effacées) — migration 0035. */
+  deleted_at: string | null;
 };
 
 export type PlatformPartner = {
@@ -155,9 +157,34 @@ export async function listPlatformSchools(page = 1, pageSize = 20): Promise<Page
   return response.json();
 }
 
-export async function listPlatformAccounts(page = 1, pageSize = 20): Promise<Page<PlatformAccount>> {
-  const response = await apiFetch(`/api/v1/platform/accounts${pageQuery(page, pageSize)}`);
+export async function listPlatformAccounts(page = 1, pageSize = 20, query = ""): Promise<Page<PlatformAccount>> {
+  const search = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : "";
+  const response = await apiFetch(`/api/v1/platform/accounts${pageQuery(page, pageSize)}${search}`);
   return response.json();
+}
+
+// Retrait des comptes (2026-11-18) : `platform.accounts.manage`. Jamais son propre compte ni un compte
+// plateforme ; un compte partenaire se désactive mais ne se supprime pas (contrôles réels côté API).
+async function accountAction(id: string, action: string, body?: unknown): Promise<PlatformAccount> {
+  const response = await apiFetch(`/api/v1/platform/accounts/${encodeURIComponent(id)}/${action}`, {
+    method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return response.json();
+}
+
+export function deactivatePlatformAccount(id: string): Promise<PlatformAccount> {
+  return accountAction(id, "deactivate");
+}
+
+export function reactivatePlatformAccount(id: string): Promise<PlatformAccount> {
+  return accountAction(id, "reactivate");
+}
+
+/** Définitif : nom, email, téléphone et mot de passe effacés ; l'historique reste (« Compte supprimé »). */
+export function deletePlatformAccount(id: string, confirmEmail: string): Promise<PlatformAccount> {
+  return accountAction(id, "delete", { confirm_email: confirmEmail });
 }
 
 export async function listPlatformPartners(page = 1, pageSize = 20): Promise<Page<PlatformPartner>> {

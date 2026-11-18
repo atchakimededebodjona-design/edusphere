@@ -133,6 +133,14 @@ class PlatformAccountOut(BaseModel):
     is_active: bool
     created_at: datetime
     role_codes: list[str]
+    # Migration 0035 — compte supprimé (données personnelles effacées) : date de la suppression.
+    deleted_at: datetime | None = None
+
+
+class PlatformAccountDelete(BaseModel):
+    """Suppression définitive : l'adresse email du compte, saisie à nouveau, sert de confirmation."""
+
+    confirm_email: str = Field(min_length=1, max_length=255)
 
 
 class PlatformPartnerOut(BaseModel):

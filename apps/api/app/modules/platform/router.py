@@ -4,11 +4,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.permissions import DbSession, require_permission, require_platform_admin
+from app.core.tenancy import set_platform_wide_context
 from app.modules.auth.schemas import UserOut
 from app.modules.organizations.schemas import OrganizationOut
 from app.modules.partners.models import ACQUISITION_SOURCE_PLATFORM_OWNER, Partner
-from app.modules.platform import service
+from app.modules.platform import accounts, service
 from app.modules.platform.schemas import (
+    PlatformAccountDelete,
     PlatformAccountOut,
     PlatformAccountsPage,
     PlatformDashboardOut,
@@ -168,27 +170,63 @@ async def list_platform_schools(db: DbSession, page: Page = 1, page_size: PageSi
     )
 
 
+def _account_out(user: User, role_codes: list[str]) -> PlatformAccountOut:
+    return PlatformAccountOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_active=user.is_active,
+        created_at=user.created_at,
+        role_codes=role_codes,
+        deleted_at=user.deleted_at,
+    )
+
+
 @router.get(
     "/platform/accounts",
     response_model=PlatformAccountsPage,
     dependencies=[Depends(require_permission("platform.accounts.read"))],
 )
-async def list_platform_accounts(db: DbSession, page: Page = 1, page_size: PageSize = 20) -> PlatformAccountsPage:
-    rows, total = await service.list_accounts(db, page, page_size)
+async def list_platform_accounts(
+    db: DbSession, page: Page = 1, page_size: PageSize = 20, q: Annotated[str | None, Query(max_length=100)] = None
+) -> PlatformAccountsPage:
+    users, total = await accounts.search_accounts(db, page, page_size, q)
+    codes = await service.role_codes_by_user(db, [user.id for user in users])
     return PlatformAccountsPage(
-        items=[
-            PlatformAccountOut(
-                id=user.id,
-                email=user.email,
-                full_name=user.full_name,
-                is_active=user.is_active,
-                created_at=user.created_at,
-                role_codes=role_codes,
-            )
-            for user, role_codes in rows
-        ],
+        items=[_account_out(user, codes.get(user.id, [])) for user in users],
         **_page_meta(page, page_size, total),
     )
+
+
+# --- Retrait des comptes (2026-11-18, migration 0035) — voir platform/accounts.py ----------------
+AccountManager = Annotated[User, Depends(require_permission("platform.accounts.manage"))]
+
+
+async def _account_after(db: DbSession, user: User) -> PlatformAccountOut:
+    # Le contexte RLS plateforme ne survit pas au commit de l'action : reposé avant de relire les rôles.
+    await set_platform_wide_context(db)
+    codes = await service.role_codes_by_user(db, [user.id])
+    return _account_out(user, codes.get(user.id, []))
+
+
+@router.post("/platform/accounts/{user_id}/deactivate", response_model=PlatformAccountOut)
+async def deactivate_platform_account(user_id: uuid.UUID, db: DbSession, actor: AccountManager) -> PlatformAccountOut:
+    user = await accounts.set_account_active(db, actor.id, user_id, active=False)
+    return await _account_after(db, user)
+
+
+@router.post("/platform/accounts/{user_id}/reactivate", response_model=PlatformAccountOut)
+async def reactivate_platform_account(user_id: uuid.UUID, db: DbSession, actor: AccountManager) -> PlatformAccountOut:
+    user = await accounts.set_account_active(db, actor.id, user_id, active=True)
+    return await _account_after(db, user)
+
+
+@router.post("/platform/accounts/{user_id}/delete", response_model=PlatformAccountOut)
+async def delete_platform_account(
+    user_id: uuid.UUID, payload: PlatformAccountDelete, db: DbSession, actor: AccountManager
+) -> PlatformAccountOut:
+    user = await accounts.delete_account(db, actor.id, user_id, payload.confirm_email)
+    return await _account_after(db, user)
 
 
 def _partner_out(partner: Partner, enrollment_count: int) -> PlatformPartnerOut:
