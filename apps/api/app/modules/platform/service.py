@@ -573,16 +573,6 @@ async def role_codes_by_user(db: AsyncSession, user_ids: list[uuid.UUID]) -> dic
     return {user_id: sorted(values) for user_id, values in codes.items()}
 
 
-async def list_accounts(db: AsyncSession, page: int, page_size: int) -> tuple[list[tuple[User, list[str]]], int]:
-    await set_platform_wide_context(db)
-    result = await db.execute(
-        select(User).order_by(User.created_at.desc(), User.id).offset((page - 1) * page_size).limit(page_size)
-    )
-    users = list(result.scalars().all())
-    codes = await role_codes_by_user(db, [user.id for user in users])
-    return [(user, codes.get(user.id, [])) for user in users], await _count(db, User)
-
-
 async def list_partners(db: AsyncSession, page: int, page_size: int) -> tuple[list[tuple[Partner, int]], int]:
     await set_platform_wide_context(db)
     enrollment_counts = (

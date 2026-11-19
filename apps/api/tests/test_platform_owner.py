@@ -70,7 +70,11 @@ async def test_platform_lists_expose_metadata_of_all_tenants(client: AsyncClient
     by_id = {a["id"]: a for a in accounts["items"]}
     assert by_id[data["user"]["id"]]["role_codes"] == ["SCHOOL_ADMIN"]
     assert by_id[partner["user_id"]]["role_codes"] == ["PARTNER_ADMIN"]
-    assert set(by_id[data["user"]["id"]].keys()) == {"id", "email", "full_name", "is_active", "created_at", "role_codes"}
+    # Métadonnées seulement (jamais téléphone ni mot de passe). 2026-11-18 (migration 0035) : `deleted_at`,
+    # date de suppression d'un compte par la plateforme.
+    assert set(by_id[data["user"]["id"]].keys()) == {
+        "id", "email", "full_name", "is_active", "created_at", "role_codes", "deleted_at"
+    }
 
     partners = (await client.get(f"/api/v1/platform/partners{params}", headers=owner["headers"])).json()
     assert partner["partner"]["id"] in {p["id"] for p in partners["items"]}

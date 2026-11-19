@@ -341,3 +341,14 @@ COMMISSION_DESCRIPTIONS: dict[str, tuple[str, str]] = {
 PLATFORM_SUBSCRIPTIONS_READ_PREVIOUS_DESCRIPTION = (
     "Consulter les abonnements SaaS des organisations (réservé PR #18, aucun endpoint dans cette PR)"
 )
+
+# --- Retrait des comptes par la plateforme (migration 0035, demande du 2026-11-18) ----------------
+# Désactiver / réactiver un compte, ou le supprimer (données personnelles effacées, historique gardé).
+# Jamais sur un compte plateforme ni sur son propre compte (contrôlé côté service).
+ACCOUNTS_PLATFORM_PERMISSIONS: dict[str, str] = {
+    "platform.accounts.manage": "Désactiver, réactiver ou supprimer un compte utilisateur (hors comptes plateforme)",
+}
+ACCOUNTS_PLATFORM_ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "SUPER_ADMIN": list(ACCOUNTS_PLATFORM_PERMISSIONS.keys()),
+    "PLATFORM_OWNER": list(ACCOUNTS_PLATFORM_PERMISSIONS.keys()),
+}

@@ -14,6 +14,7 @@ from app.core.tenancy import apply_tenant_context, set_platform_wide_context
 from app.db.session import AsyncSessionLocal
 from app.modules.rbac.models import Role, UserRole
 from app.modules.rbac.seed import (
+    ACCOUNTS_PLATFORM_PERMISSIONS,
     COMMISSION_PLATFORM_PERMISSIONS,
     PR17_PARTNER_PERMISSIONS,
     PR17_PLATFORM_PERMISSIONS,
@@ -359,9 +360,13 @@ async def test_school_admin_sees_own_enrollment_row_only(client: AsyncClient) ->
 
 
 # Phase 29, lot A : PLATFORM_OWNER reçoit aussi `platform.subscriptions.manage` (toujours un code
-# `platform.*`, jamais du domaine scolaire — vérifié ci-dessous).
+# `platform.*`, jamais du domaine scolaire — vérifié ci-dessous). 2026-11-18 (migration 0035) :
+# `platform.accounts.manage` (désactiver, réactiver, supprimer un compte).
 PLATFORM_OWNER_PERMISSIONS = (
-    set(PR17_PLATFORM_PERMISSIONS) | set(SUBSCRIPTION_PLATFORM_PERMISSIONS) | set(COMMISSION_PLATFORM_PERMISSIONS)
+    set(PR17_PLATFORM_PERMISSIONS)
+    | set(SUBSCRIPTION_PLATFORM_PERMISSIONS)
+    | set(COMMISSION_PLATFORM_PERMISSIONS)
+    | set(ACCOUNTS_PLATFORM_PERMISSIONS)
 )
 
 
