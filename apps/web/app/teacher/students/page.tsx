@@ -4,11 +4,14 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PhotoThumb } from "@/components/photos/PhotoThumb";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { studentPhotoPath } from "@/lib/photos/client";
 import { describeTeacherError, teacherApi, type TeacherStudent } from "@/lib/teacher/client";
 
 // Élèves des seules classes affectées. Recherche et filtre de classe sont appliqués par le backend.
 // Lecture seule : aucune création, modification ni suppression depuis le portail enseignant.
+// 2026-11-19 : photo d'identité de chaque élève (mise par l'administration), chargée à l'affichage.
 function TeacherStudentsPageContent() {
   const searchParams = useSearchParams();
   const initialClass = searchParams.get("class_id") ?? "";
@@ -64,7 +67,10 @@ function TeacherStudentsPageContent() {
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-slate-600">
               <tr>
-                <th className="px-3 py-2">Matricule</th>
+                <th className="px-3 py-2">
+                  <span className="sr-only">Photo</span>
+                </th>
+                <th className="hidden px-3 py-2 sm:table-cell">Matricule</th>
                 <th className="px-3 py-2">Nom</th>
                 <th className="px-3 py-2">Classe</th>
                 <th className="px-3 py-2" />
@@ -73,9 +79,20 @@ function TeacherStudentsPageContent() {
             <tbody className="divide-y divide-slate-100">
               {students.map((s) => (
                 <tr key={`${s.id}-${s.class_id}`}>
-                  <td className="px-3 py-2">{s.matricule}</td>
+                  <td className="px-3 py-2">
+                    <PhotoThumb
+                      path={s.has_photo ? studentPhotoPath(s.id) : null}
+                      name={`${s.first_name} ${s.last_name}`}
+                      size="sm"
+                      lazy
+                      testId={`student-photo-${s.id}`}
+                    />
+                  </td>
+                  <td className="hidden px-3 py-2 sm:table-cell">{s.matricule}</td>
                   <td className="px-3 py-2">
                     {s.last_name} {s.first_name}
+                    {/* Téléphone : le matricule passe sous le nom (colonne masquée). */}
+                    <span className="block text-xs text-slate-500 sm:hidden">{s.matricule}</span>
                   </td>
                   <td className="px-3 py-2">{s.class_name}</td>
                   <td className="px-3 py-2 text-right">

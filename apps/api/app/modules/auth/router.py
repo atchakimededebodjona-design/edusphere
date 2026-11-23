@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import select
 
 from app.core.permissions import CurrentUser, DbSession, get_all_permission_codes
@@ -26,8 +26,10 @@ from app.modules.auth.schemas import (
     RoleAssignmentOut,
     SessionOut,
     TokenPair,
+    UserOut,
 )
 from app.modules.rbac.models import Role, UserRole
+from app.modules.users import photo
 
 router = APIRouter()
 
@@ -125,3 +127,20 @@ async def sessions(current_user: CurrentUser, db: DbSession) -> list[SessionOut]
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(session_id: uuid.UUID, current_user: CurrentUser, db: DbSession) -> None:
     await service.revoke_session(db, current_user.id, session_id)
+
+
+# --- Sa propre photo d'identité (2026-11-19, migration 0036) — voir users/photo.py --------------
+@router.post("/me/photo", response_model=UserOut)
+async def upload_my_photo(db: DbSession, current_user: CurrentUser, file: UploadFile = File(...)) -> UserOut:
+    content = await file.read()
+    return UserOut.model_validate(await photo.replace_user_photo(db, current_user, content, file.filename))
+
+
+@router.get("/me/photo")
+async def get_my_photo(current_user: CurrentUser) -> Response:
+    return await photo.user_photo_response(current_user)
+
+
+@router.delete("/me/photo", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_photo(db: DbSession, current_user: CurrentUser) -> None:
+    await photo.remove_user_photo(db, current_user)

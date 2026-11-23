@@ -29,6 +29,8 @@ class TeacherMeOut(BaseModel):
     is_active: bool
     roles: list[str]
     schools: list[TeacherSchoolOut]
+    # 2026-11-19 — photo d'identité (fichier : GET /auth/me/photo).
+    has_photo: bool = False
 
 
 class TeacherSubjectOut(BaseModel):
@@ -56,6 +58,8 @@ class TeacherStudentOut(BaseModel):
     status: str
     class_id: uuid.UUID
     class_name: str
+    # 2026-11-19 — photo de l'élève présente (fichier : GET /students/{id}/photo, périmètre enseignant).
+    has_photo: bool = False
 
 
 class TeacherClassRefOut(BaseModel):
@@ -73,6 +77,7 @@ class TeacherStudentDetailOut(BaseModel):
     last_name: str
     status: str
     classes: list[TeacherClassRefOut]
+    has_photo: bool = False
 
 
 class TeacherAssessmentOut(BaseModel):

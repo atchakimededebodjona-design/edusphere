@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { PhotoThumb } from "@/components/photos/PhotoThumb";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { studentPhotoPath } from "@/lib/photos/client";
 import { describeTeacherError, teacherApi, type TeacherStudentDetail } from "@/lib/teacher/client";
 
 // Fiche élève en lecture seule. Un élève hors des classes affectées répond 404 côté backend.
+// 2026-11-19 : photo d'identité, mise par l'administration (l'enseignant la voit seulement).
 export default function TeacherStudentDetailPage() {
   const params = useParams<{ id: string }>();
   const studentId = params.id;
@@ -28,9 +31,17 @@ export default function TeacherStudentDetailPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-slate-900">
-        {data.last_name} {data.first_name}
-      </h1>
+      <div className="flex items-center gap-4">
+        <PhotoThumb
+          path={data.has_photo ? studentPhotoPath(data.id) : null}
+          name={`${data.first_name} ${data.last_name}`}
+          size="lg"
+          testId="student-detail-photo"
+        />
+        <h1 className="text-2xl font-bold text-slate-900">
+          {data.last_name} {data.first_name}
+        </h1>
+      </div>
       <dl className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-2">
         <dt className="text-slate-500">Matricule</dt>
         <dd>{data.matricule}</dd>

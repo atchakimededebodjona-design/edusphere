@@ -15,6 +15,8 @@ export type TeacherMe = {
   is_active: boolean;
   roles: string[];
   schools: TeacherSchool[];
+  /** 2026-11-19 — photo d'identité (GET /api/v1/auth/me/photo). */
+  has_photo?: boolean;
 };
 
 export type TeacherSubject = {
@@ -42,6 +44,8 @@ export type TeacherStudent = {
   status: string;
   class_id: string;
   class_name: string;
+  /** 2026-11-19 — photo de l'élève (GET /api/v1/students/{id}/photo). */
+  has_photo?: boolean;
 };
 
 export type TeacherStudentDetail = {
@@ -51,6 +55,7 @@ export type TeacherStudentDetail = {
   last_name: string;
   status: string;
   classes: { class_id: string; class_name: string }[];
+  has_photo?: boolean;
 };
 
 export type TeacherAttendanceSession = {

@@ -17,6 +17,8 @@ class UserOut(BaseModel):
     is_active: bool
     is_platform_admin: bool
     created_at: datetime
+    # 2026-11-19 — photo d'identité présente (fichier : GET /users/{id}/photo?school_id=…).
+    has_photo: bool = False
 
 
 class RoleAssignmentOut(BaseModel):

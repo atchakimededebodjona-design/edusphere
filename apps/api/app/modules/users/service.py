@@ -433,3 +433,30 @@ async def list_users_for_school(db: AsyncSession, school: School) -> list[tuple[
         )
 
     return [(user, roles_by_user.get(user.id, [])) for user in users]
+
+
+async def load_school_member(
+    db: AsyncSession, school: School, target_user_id: uuid.UUID, current_user_id: uuid.UUID, *, modify: bool
+) -> User:
+    """Photo d'un compte par l'administration (2026-11-19) : le compte doit faire partie du personnel
+    de CETTE école, au sens de `list_users_for_school` (rôle dans l'école, ou rôle organisation sans
+    école) — sinon 404, sans révéler s'il existe ailleurs. Pour modifier (`modify=True`), mêmes règles
+    d'autorité que `update_user_in_school` : l'acteur doit couvrir TOUS les rôles du compte (sinon
+    409). Son propre compte reste modifiable : une photo n'ouvre aucun droit."""
+    membership = await db.execute(
+        select(UserRole.id).where(
+            UserRole.user_id == target_user_id,
+            or_(
+                UserRole.school_id == school.id,
+                and_(UserRole.organization_id == school.organization_id, UserRole.school_id.is_(None)),
+            ),
+        )
+    )
+    user = await db.get(User, target_user_id)
+    if user is None or membership.first() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in this school")
+    if modify and target_user_id != current_user_id:
+        footprint = await load_account_footprint(db, target_user_id, current_user_id)
+        if not _scope_covers(await _actor_manage_scope(db, current_user_id), footprint):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=MODIFY_REFUSED_DETAIL)
+    return user
