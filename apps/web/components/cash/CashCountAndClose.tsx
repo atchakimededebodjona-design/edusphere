@@ -94,7 +94,7 @@ export function CashCountAndClose({
 
   return (
     <>
-      <section aria-labelledby="cash-count-title" className="flex flex-col gap-3 rounded border border-slate-200 bg-white p-4">
+      <section aria-labelledby="cash-count-title" className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4">
         <h2 id="cash-count-title" className="text-sm font-semibold uppercase tracking-wide text-slate-600">
           Comptage par coupure
         </h2>
@@ -117,7 +117,7 @@ export function CashCountAndClose({
               {denominations.map((denomination) => (
                 <label
                   key={denomination}
-                  className="flex min-w-0 flex-col gap-1 rounded border border-slate-200 px-2 py-2 text-sm"
+                  className="flex min-w-0 flex-col gap-1 rounded-lg border border-slate-200 px-2 py-2 text-sm"
                 >
                   <span className="whitespace-nowrap font-medium text-slate-800">
                     {formatApiAmount(denomination, currency)}
@@ -128,7 +128,7 @@ export function CashCountAndClose({
                     onChange={(e) => setQuantities((prev) => ({ ...prev, [denomination]: e.target.value }))}
                     inputMode="numeric"
                     placeholder="0"
-                    className="w-full min-w-0 rounded border border-slate-300 px-2 py-1 text-right tabular-nums"
+                    className="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 px-2 text-right tabular-nums sm:min-h-9 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
                   />
                 </label>
               ))}
@@ -139,25 +139,25 @@ export function CashCountAndClose({
                 <span data-testid="cash-count-preview" className="font-semibold text-slate-900">
                   {previewCents === null ? "quantité invalide" : formatMoney(previewCents, currency)}
                 </span>
-                <span className="ml-1 text-xs text-slate-500">(total officiel calculé par le serveur)</span>
+                <span className="ml-1 text-xs text-slate-600">(total officiel calculé par le serveur)</span>
               </p>
               <button
                 type="submit"
                 disabled={invalid || isCounting}
-                className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:opacity-40"
               >
                 {isCounting ? "Enregistrement..." : latestCount ? "Enregistrer un nouveau comptage" : "Enregistrer le comptage"}
               </button>
             </div>
             {countError && (
-              <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {countError}
               </p>
             )}
           </form>
         )}
         {latestCount && (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-600">
             Dernier comptage le {formatDateTime(latestCount.counted_at)} :{" "}
             <span data-testid="cash-counted-amount" className="font-semibold text-slate-900">
               {formatApiAmount(latestCount.total_amount, currency)}
@@ -166,7 +166,7 @@ export function CashCountAndClose({
         )}
       </section>
 
-      <section aria-labelledby="cash-close-title" className="flex flex-col gap-3 rounded border border-slate-300 bg-white p-4">
+      <section aria-labelledby="cash-close-title" className="flex flex-col gap-3 rounded-xl border border-slate-300 bg-white p-4">
         <h2 id="cash-close-title" className="text-sm font-semibold uppercase tracking-wide text-slate-600">
           Écart et clôture
         </h2>
@@ -176,15 +176,15 @@ export function CashCountAndClose({
           <>
             <dl className="grid grid-cols-3 gap-2 text-sm">
               <div>
-                <dt className="text-slate-500">Théorique</dt>
+                <dt className="text-slate-600">Théorique</dt>
                 <dd className="font-semibold">{formatApiAmount(expectedAmount, currency)}</dd>
               </div>
               <div>
-                <dt className="text-slate-500">Physique</dt>
+                <dt className="text-slate-600">Physique</dt>
                 <dd className="font-semibold">{formatApiAmount(latestCount.total_amount, currency)}</dd>
               </div>
               <div>
-                <dt className="text-slate-500">Écart</dt>
+                <dt className="text-slate-600">Écart</dt>
                 <dd
                   data-testid="cash-variance"
                   className={`text-lg font-bold ${varianceCents === 0 ? "text-emerald-800" : "text-red-700"}`}
@@ -201,7 +201,7 @@ export function CashCountAndClose({
                   <select
                     value={reason}
                     onChange={(e) => setReason(e.target.value as CashVarianceReason | "")}
-                    className="rounded border border-slate-300 px-2 py-2 text-sm"
+                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
                   >
                     <option value="">Choisir…</option>
                     {varianceReasons.map((code) => (
@@ -218,13 +218,13 @@ export function CashCountAndClose({
                     onChange={(e) => setNote(e.target.value)}
                     maxLength={2000}
                     rows={2}
-                    className="rounded border border-slate-300 px-2 py-2 text-sm"
+                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
                   />
                 </label>
               </div>
             )}
             {closeError && (
-              <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {closeError}
               </p>
             )}
@@ -232,11 +232,11 @@ export function CashCountAndClose({
               type="button"
               onClick={() => void submitClose()}
               disabled={!canClose}
-              className="rounded bg-red-800 px-4 py-3 text-sm font-semibold text-white hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-red-800 px-4 py-3 text-sm font-semibold text-white hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isClosing ? "Clôture..." : "Clôturer la caisse"}
             </button>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-600">
               Après clôture, plus aucun encaissement, mouvement ni comptage ne peut être ajouté à cette session.
             </p>
           </>

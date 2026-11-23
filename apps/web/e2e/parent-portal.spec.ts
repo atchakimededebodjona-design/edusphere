@@ -228,18 +228,20 @@ test("portail parent : connexion, tableau de bord, présence, notes, bulletin et
 
   // Onglet Notes (moyenne de matière ET moyenne générale valent toutes deux 15.00 ici — une
   // seule matière notée — d'où le premier élément plutôt qu'un texte supposé unique).
-  await page.getByRole("button", { name: "Notes" }).click();
+  // Refonte, phase 2 : de vrais onglets (rôle « tab »).
+  await page.getByRole("tab", { name: "Notes" }).click();
   await expect(page.getByText("15.00").first()).toBeVisible();
 
   // Onglet Bulletins.
-  await page.getByRole("button", { name: "Bulletins" }).click();
+  await page.getByRole("tab", { name: "Bulletins" }).click();
   await expect(page.getByText(/Moyenne générale/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Télécharger le PDF" })).toBeVisible();
 
   // Onglet Frais (le montant dû apparaît à la fois dans le résumé et dans la ligne du tableau).
-  await page.getByRole("button", { name: "Frais" }).click();
-  await expect(page.getByText("10000").first()).toBeVisible(); // total dû
-  await expect(page.getByText("5000").first()).toBeVisible(); // total payé / montant du paiement
+  // Montants avec séparateur de milliers depuis la refonte (phase 2).
+  await page.getByRole("tab", { name: "Frais" }).click();
+  await expect(page.getByText("10 000").first()).toBeVisible(); // total dû
+  await expect(page.getByText("5 000").first()).toBeVisible(); // total payé / montant du paiement
   await expect(page.getByRole("button", { name: "Reçu" })).toBeVisible();
 });
 

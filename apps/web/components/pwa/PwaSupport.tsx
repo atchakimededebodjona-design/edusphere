@@ -286,6 +286,9 @@ function useReservedBottomSpace(element: HTMLElement | null) {
     if (!element) return;
     const apply = () => {
       document.body.style.paddingBottom = `${element.offsetHeight}px`;
+      // Refonte, phase 2 (2026-11-23) : hauteur publiée aussi pour les barres d'action collées en bas
+      // (components/ui/ActionBar.tsx), qui se posent au-dessus des bandeaux au lieu d'être couvertes.
+      document.documentElement.style.setProperty("--bottom-banners-height", `${element.offsetHeight}px`);
       // L'espace ajouté prend le fond de l'espace affiché (gris clair des espaces connectés), pas le
       // blanc par défaut de la page.
       // (Les premiers enfants de <body> sont des scripts de Next.js, sans fond : on prend le premier
@@ -302,6 +305,7 @@ function useReservedBottomSpace(element: HTMLElement | null) {
     return () => {
       observer?.disconnect();
       document.body.style.paddingBottom = "";
+      document.documentElement.style.removeProperty("--bottom-banners-height");
       document.body.style.backgroundColor = "";
     };
   }, [element]);

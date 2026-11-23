@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "@/components/ui/Icon";
 
@@ -25,33 +26,84 @@ export function PageHeader({
   );
 }
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-slate-200 bg-white p-4 sm:p-5 ${className}`}>{children}</div>;
+/** Carte blanche. `padded={false}` (phase 2) pour une liste dont chaque ligne porte sa propre marge. */
+export function Card({ children, className = "", padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
+  return (
+    <div className={`rounded-xl border border-slate-200 bg-white ${padded ? "p-4 sm:p-5" : "overflow-hidden"} ${className}`}>{children}</div>
+  );
 }
 
+const STAT_ICON_TONES = {
+  info: "bg-primary-50 text-primary-700",
+  success: "bg-emerald-50 text-emerald-700",
+  warning: "bg-amber-50 text-amber-800",
+  danger: "bg-red-50 text-red-700",
+} as const;
+
+/** Indicateur chiffré. Avec `href` (phase 2), toute la carte mène à l'écran de détail. */
 export function StatCard({
   label,
   value,
   hint,
   icon,
+  tone = "info",
+  href,
+  testId,
 }: {
   label: string;
   value: ReactNode;
   hint?: ReactNode;
   icon?: IconName;
+  tone?: keyof typeof STAT_ICON_TONES;
+  href?: string;
+  testId?: string;
 }) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4">
-      {icon && (
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
-          <Icon name={icon} />
-        </span>
+  // Icône (et flèche) en tête, puis libellé et chiffre sur toute la largeur de la carte : ni les montants
+  // (« 100 000 FCFA ») ni les longs libellés ne se coupent mal, même sur deux colonnes de téléphone.
+  const body = (
+    <>
+      {(icon || href) && (
+        <div className="flex items-start justify-between gap-3">
+          {icon ? (
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${STAT_ICON_TONES[tone]}`}>
+              <Icon name={icon} />
+            </span>
+          ) : (
+            <span />
+          )}
+          {href && <Icon name="chevronRight" className="h-4 w-4 shrink-0 text-slate-500" />}
+        </div>
       )}
       <div className="min-w-0">
         <p className="text-sm text-slate-600">{label}</p>
-        <p className="font-display text-2xl font-bold tabular-nums text-slate-900">{value}</p>
+        <p data-testid={testId} className="font-display text-2xl font-bold tabular-nums text-slate-900">
+          {value}
+        </p>
         {hint && <p className="text-xs text-slate-600">{hint}</p>}
       </div>
+    </>
+  );
+  const frame = "flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4";
+  return href ? (
+    <Link
+      href={href}
+      className={`${frame} transition-colors hover:border-primary-300 hover:bg-primary-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600`}
+    >
+      {body}
+    </Link>
+  ) : (
+    <div className={frame}>{body}</div>
+  );
+}
+
+/** Titre de section dans une page (h2), avec une action facultative à droite. */
+export function SectionTitle({ id, title, action }: { id?: string; title: string; action?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id={id} className="text-lg font-bold text-slate-900">
+        {title}
+      </h2>
+      {action}
     </div>
   );
 }

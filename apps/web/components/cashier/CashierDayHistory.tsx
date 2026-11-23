@@ -72,14 +72,14 @@ export function CashierDayHistory({
           )}
           <ul
             aria-label="Encaissements gardés sur cet appareil"
-            className="divide-y divide-sky-100 rounded border border-sky-300 bg-sky-50"
+            className="divide-y divide-sky-100 rounded-lg border border-sky-300 bg-sky-50"
           >
             {unsent.map((entry) => (
               <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
                 <div className="min-w-0">
                   <p className="font-medium text-slate-900">
                     {entry.receipt.number}
-                    <span className="ml-2 text-xs font-normal text-slate-500">{formatTime(entry.receipt.collectedAt)}</span>
+                    <span className="ml-2 text-xs font-normal text-slate-600">{formatTime(entry.receipt.collectedAt)}</span>
                   </p>
                   <p className="truncate text-xs text-slate-600">
                     {entry.receipt.student.lastName} {entry.receipt.student.firstName} · {entry.receipt.student.matricule}
@@ -87,7 +87,7 @@ export function CashierDayHistory({
                 </div>
                 <div className="flex items-center gap-3">
                   <span
-                    className={`rounded px-2 py-0.5 text-xs ${
+                    className={`rounded-full px-2.5 py-0.5 font-semibold text-xs ${
                       entry.state === "failed" ? "bg-red-100 text-red-800" : "bg-sky-100 text-sky-900"
                     }`}
                   >
@@ -95,7 +95,7 @@ export function CashierDayHistory({
                   </span>
                   <span className="font-semibold text-slate-900">{formatApiAmount(entry.payment.amount, currency)}</span>
                   {onShowProvisional && (
-                    <button type="button" onClick={() => onShowProvisional(entry)} className="text-xs text-slate-700 underline">
+                    <button type="button" onClick={() => onShowProvisional(entry)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 underline underline-offset-2 hover:bg-primary-50">
                       Reçu provisoire
                     </button>
                   )}
@@ -108,24 +108,24 @@ export function CashierDayHistory({
 
       {error && <ErrorRetry message={error} onRetry={onRetry} />}
       {receiptError && (
-        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {receiptError}
         </p>
       )}
-      {!day && !error && <p className="text-sm text-slate-500">Chargement...</p>}
+      {!day && !error && <p className="text-sm text-slate-600">Chargement...</p>}
 
       {day && day.payments.length === 0 && unsent.length === 0 && (
-        <p className="text-sm text-slate-500">Aucun encaissement enregistré aujourd&apos;hui.</p>
+        <p className="text-sm text-slate-600">Aucun encaissement enregistré aujourd&apos;hui.</p>
       )}
 
       {day && day.payments.length > 0 && (
-        <ul aria-label="Encaissements du jour" className="divide-y divide-slate-100 rounded border border-slate-200 bg-white">
+        <ul aria-label="Encaissements du jour" className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
           {day.payments.map((p) => (
             <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
               <div className="min-w-0">
                 <p className="font-medium text-slate-900">
                   {p.receipt_number}
-                  <span className="ml-2 text-xs font-normal text-slate-500">{formatTime(p.created_at)}</span>
+                  <span className="ml-2 text-xs font-normal text-slate-600">{formatTime(p.created_at)}</span>
                 </p>
                 <p className="truncate text-xs text-slate-600">
                   {p.student_last_name} {p.student_first_name} · {p.student_matricule}
@@ -139,16 +139,16 @@ export function CashierDayHistory({
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-600">{PAYMENT_METHOD_LABELS[p.method]}</span>
                 <span
-                  className={`rounded px-2 py-0.5 text-xs ${
+                  className={`rounded-full px-2.5 py-0.5 font-semibold text-xs ${
                     p.status === "CANCELLED" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"
                   }`}
                 >
                   {PAYMENT_STATUS_LABELS[p.status]}
                 </span>
-                <span className={`font-semibold ${p.status === "CANCELLED" ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                <span className={`font-semibold ${p.status === "CANCELLED" ? "text-slate-500 line-through" : "text-slate-900"}`}>
                   {formatApiAmount(p.amount, day.currency)}
                 </span>
-                <button type="button" onClick={() => void handleReceipt(p.id)} className="text-xs text-slate-700 underline">
+                <button type="button" onClick={() => void handleReceipt(p.id)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 underline underline-offset-2 hover:bg-primary-50">
                   Reçu
                 </button>
               </div>

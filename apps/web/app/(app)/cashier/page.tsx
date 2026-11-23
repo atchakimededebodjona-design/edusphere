@@ -250,7 +250,7 @@ export default function CashierPage() {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Caisse scolaire</h1>
-        <p role="alert" className="rounded border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        <p role="alert" className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
           Cet espace est réservé aux comptes autorisés à enregistrer des paiements.
         </p>
       </div>
@@ -258,7 +258,7 @@ export default function CashierPage() {
   }
 
   if (!currentSchoolId) {
-    return <p className="text-sm text-slate-500">Chargement...</p>;
+    return <p className="text-sm text-slate-600">Chargement...</p>;
   }
 
   const currency = day?.currency ?? roster?.currency ?? currentSchool?.currency ?? "";
@@ -269,10 +269,10 @@ export default function CashierPage() {
       {registerOpen === false && (
         <p
           data-testid="cash-register-closed-banner"
-          className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
         >
           <span>Aucune caisse ouverte : ouvrez votre caisse avant d&apos;encaisser des espèces.</span>
-          <Link href="/cashier/cash-register" className="rounded bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white">
+          <Link href="/cashier/cash-register" className="inline-flex min-h-10 items-center rounded-lg bg-amber-800 px-4 text-sm font-semibold text-white hover:bg-amber-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600">
             Ouvrir ma caisse
           </Link>
         </p>
@@ -280,7 +280,7 @@ export default function CashierPage() {
       {!reachable && (
         <p
           data-testid="cash-offline-notice"
-          className="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
         >
           {offlineCollection && roster
             ? `Sans internet : les encaissements sont gardés sur cet appareil avec un reçu provisoire, et partiront au retour d'internet. Liste des élèves du ${formatDateTime(roster.generated_at)}.`
@@ -295,7 +295,7 @@ export default function CashierPage() {
           {provisional ? (
             <section
               aria-labelledby="cash-provisional-title"
-              className={`flex flex-col gap-4 rounded border p-4 ${
+              className={`flex flex-col gap-4 rounded-lg border p-4 ${
                 provisionalState === "failed"
                   ? "border-red-300 bg-red-50"
                   : provisionalState === "sent"
@@ -334,7 +334,7 @@ export default function CashierPage() {
                 </p>
               )}
               {receiptError && provisionalState === "sent" && (
-                <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {receiptError}
                 </p>
               )}
@@ -343,14 +343,14 @@ export default function CashierPage() {
                 <button
                   type="button"
                   onClick={printProvisionalReceipt}
-                  className="rounded border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
                 >
                   Imprimer le reçu provisoire
                 </button>
                 <button
                   type="button"
                   onClick={resetDesk}
-                  className="rounded bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
                 >
                   Nouvel encaissement
                 </button>
@@ -359,7 +359,7 @@ export default function CashierPage() {
           ) : recorded ? (
             <section
               aria-labelledby="cash-success-title"
-              className="flex flex-col gap-4 rounded border border-emerald-300 bg-emerald-50 p-4"
+              className="flex flex-col gap-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4"
             >
               <h2 id="cash-success-title" className="text-xl font-bold text-emerald-900">
                 Encaissement enregistré
@@ -385,7 +385,7 @@ export default function CashierPage() {
                 </dd>
               </dl>
               {receiptError && (
-                <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {receiptError}
                 </p>
               )}
@@ -393,14 +393,14 @@ export default function CashierPage() {
                 <button
                   type="button"
                   onClick={() => void handleReceipt(recorded.payment.id)}
-                  className="rounded border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
                 >
                   Voir le reçu
                 </button>
                 <button
                   type="button"
                   onClick={resetDesk}
-                  className="rounded bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
                 >
                   Nouvel encaissement
                 </button>
@@ -410,7 +410,7 @@ export default function CashierPage() {
             <>
               <section
                 aria-label="Élève sélectionné"
-                className="flex flex-wrap items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4"
               >
                 <div>
                   <p data-testid="cash-selected-student" className="text-lg font-semibold text-slate-900">
@@ -423,13 +423,13 @@ export default function CashierPage() {
                 <button
                   type="button"
                   onClick={resetDesk}
-                  className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
                 >
                   Changer d&apos;élève
                 </button>
               </section>
               {summaryError && <ErrorRetry message={summaryError} onRetry={() => void loadSummary(student.id)} />}
-              {!summary && !summaryError && <p className="text-sm text-slate-500">Chargement de la situation...</p>}
+              {!summary && !summaryError && <p className="text-sm text-slate-600">Chargement de la situation...</p>}
               {summary && (
                 <CashPaymentForm
                   key={student.id}

@@ -96,14 +96,14 @@ export default function CashRegisterPage() {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Ma caisse</h1>
-        <p role="alert" className="rounded border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        <p role="alert" className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
           Cet espace est réservé aux comptes disposant d&apos;une caisse.
         </p>
       </div>
     );
   }
   if (loadError) return <ErrorRetry message={loadError} onRetry={() => void reload()} />;
-  if (!context || history === null) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (!context || history === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   const current = context.current;
   const currency = context.currency;
@@ -123,7 +123,7 @@ export default function CashRegisterPage() {
           <div className="flex min-w-0 flex-col gap-4">
             <section
               aria-label="État de ma caisse"
-              className="flex flex-wrap items-center justify-between gap-3 rounded border border-emerald-300 bg-emerald-50 p-4"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50 p-4"
             >
               <div>
                 <p data-testid="cash-session-status" className="text-lg font-bold text-emerald-900">
@@ -134,17 +134,17 @@ export default function CashRegisterPage() {
                   {formatApiAmount(current.session.opening_amount, currency)}
                 </p>
               </div>
-              <Link href="/cashier" className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">
+              <Link href="/cashier" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600">
                 Encaisser un élève
               </Link>
             </section>
 
-            <section aria-labelledby="cash-payments-title" className="rounded border border-slate-200 bg-white p-4">
+            <section aria-labelledby="cash-payments-title" className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 id="cash-payments-title" className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">
                 Encaissements de la session
               </h2>
               {current.payments.length === 0 ? (
-                <p className="text-sm text-slate-500">Aucun encaissement dans cette session.</p>
+                <p className="text-sm text-slate-600">Aucun encaissement dans cette session.</p>
               ) : (
                 <ul aria-label="Encaissements de la session" className="divide-y divide-slate-100 text-sm">
                   {current.payments.map((p) => (
@@ -152,7 +152,7 @@ export default function CashRegisterPage() {
                       <div className="min-w-0">
                         <p className="font-medium text-slate-900">
                           {p.receipt_number}
-                          <span className="ml-2 text-xs font-normal text-slate-500">{formatTime(p.created_at)}</span>
+                          <span className="ml-2 text-xs font-normal text-slate-600">{formatTime(p.created_at)}</span>
                         </p>
                         <p className="truncate text-xs text-slate-600">
                           {p.student_last_name} {p.student_first_name} · {p.student_matricule}
@@ -163,7 +163,7 @@ export default function CashRegisterPage() {
                           </p>
                         )}
                       </div>
-                      <span className={p.status === "CANCELLED" ? "text-slate-400 line-through" : "font-semibold"}>
+                      <span className={p.status === "CANCELLED" ? "text-slate-500 line-through" : "font-semibold"}>
                         {formatApiAmount(p.amount, currency)}
                         {p.status === "CANCELLED" && <span className="ml-1 text-xs no-underline">({PAYMENT_STATUS_LABELS[p.status]})</span>}
                       </span>
@@ -188,7 +188,7 @@ export default function CashRegisterPage() {
               <p
                 role="alert"
                 data-testid="cash-close-blocked"
-                className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
               >
                 {unsentPending > 0 &&
                   (unsentPending === 1
@@ -217,11 +217,11 @@ export default function CashRegisterPage() {
           </div>
         </div>
       ) : (
-        <section aria-label="État de ma caisse" className="flex flex-col gap-3 rounded border border-slate-200 bg-white p-4">
+        <section aria-label="État de ma caisse" className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4">
           {closedSession && (
             <p
               data-testid="cash-closed-banner"
-              className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+              className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800"
             >
               Caisse clôturée : théorique {formatApiAmount(closedSession.expected_amount ?? "0", currency)}, physique{" "}
               {formatApiAmount(closedSession.counted_amount ?? "0", currency)}, écart{" "}
@@ -247,13 +247,13 @@ export default function CashRegisterPage() {
                   onChange={(e) => setOpening(e.target.value)}
                   inputMode="decimal"
                   placeholder="0"
-                  className="rounded border border-slate-300 px-3 py-2 text-lg font-semibold"
+                  className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg font-semibold tabular-nums focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
                 />
               </label>
               <button
                 type="submit"
                 disabled={isOpening || toCents(opening.trim() === "" ? "0" : opening) === null}
-                className="rounded bg-emerald-700 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-40"
+                className="rounded-lg bg-emerald-700 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-40"
               >
                 {isOpening ? "Ouverture..." : "Ouvrir ma caisse"}
               </button>
@@ -262,7 +262,7 @@ export default function CashRegisterPage() {
             <p className="text-sm text-slate-600">Vous n&apos;êtes pas autorisé à ouvrir une caisse.</p>
           )}
           {openError && (
-            <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {openError}
             </p>
           )}

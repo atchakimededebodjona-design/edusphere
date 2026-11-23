@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { EmptyState, Skeleton, StatCard } from "@/components/ui/Surface";
 import { ApiError } from "@/lib/api/client";
 import { parentChildren, type ParentAttendanceSummary } from "@/lib/parent/client";
 
@@ -9,6 +10,17 @@ function formatRate(rate: number | null): string {
   return rate === null ? "Aucune donnée" : `${rate}%`;
 }
 
+export function TabSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-busy="true" aria-label="Chargement">
+      {[0, 1, 2].map((index) => (
+        <Skeleton key={index} className="h-20 w-full rounded-xl" />
+      ))}
+    </div>
+  );
+}
+
+// Refonte, phase 2 (2026-11-23) : mêmes chiffres, en cartes lisibles d'un coup d'œil.
 export function ChildAttendance({ studentId }: { studentId: string }) {
   const [summary, setSummary] = useState<ParentAttendanceSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,30 +39,31 @@ export function ChildAttendance({ studentId }: { studentId: string }) {
   }, [load]);
 
   if (error) return <ErrorRetry message={error} onRetry={load} />;
-  if (summary === null) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (summary === null) return <TabSkeleton />;
+
+  if (summary.total_sessions === 0) {
+    return (
+      <EmptyState
+        icon="clipboard"
+        title="Pas encore d'appel"
+        description="Aucune session de présence enregistrée pour le moment."
+      />
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Metric label="Taux de présence" value={formatRate(summary.attendance_rate)} />
-        <Metric label="Sessions totales" value={String(summary.total_sessions)} />
-        <Metric label="Présences" value={String(summary.present_count)} />
-        <Metric label="Absences" value={String(summary.absent_count)} />
-        <Metric label="Retards" value={String(summary.late_count)} />
-        <Metric label="Absences justifiées" value={String(summary.justified_absence_count)} />
-      </div>
-      {summary.total_sessions === 0 && (
-        <p className="text-sm text-slate-400">Aucune session de présence enregistrée pour le moment.</p>
-      )}
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-slate-200 bg-white p-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-lg font-bold text-slate-900">{value}</p>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <StatCard icon="chart" label="Taux de présence" value={formatRate(summary.attendance_rate)} />
+      <StatCard icon="clipboard" label="Sessions totales" value={String(summary.total_sessions)} />
+      <StatCard icon="checkSquare" tone="success" label="Présences" value={String(summary.present_count)} />
+      <StatCard
+        icon="user"
+        tone={summary.absent_count > 0 ? "danger" : "success"}
+        label="Absences"
+        value={String(summary.absent_count)}
+      />
+      <StatCard icon="clock" tone={summary.late_count > 0 ? "warning" : "success"} label="Retards" value={String(summary.late_count)} />
+      <StatCard icon="fileText" label="Absences justifiées" value={String(summary.justified_absence_count)} />
     </div>
   );
 }

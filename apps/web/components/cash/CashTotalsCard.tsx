@@ -11,7 +11,7 @@ export function CashTotalsCard({ totals, currency }: { totals: CashTotals; curre
     ["Sorties (dépenses, versements banque…)", "−", totals.movements_out_total],
   ];
   return (
-    <section aria-labelledby="cash-totals-title" className="rounded border border-slate-200 bg-white p-4">
+    <section aria-labelledby="cash-totals-title" className="rounded-xl border border-slate-200 bg-white p-4">
       <h2 id="cash-totals-title" className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">
         Solde théorique
       </h2>
@@ -19,7 +19,7 @@ export function CashTotalsCard({ totals, currency }: { totals: CashTotals; curre
         {rows.map(([label, sign, value]) => (
           <div key={label} className="flex justify-between gap-3">
             <dt className="text-slate-600">
-              {sign && <span className="mr-1 font-mono text-slate-400">{sign}</span>}
+              {sign && <span className="mr-1 font-mono text-slate-500">{sign}</span>}
               {label}
             </dt>
             <dd className="font-medium text-slate-900">{formatApiAmount(value, currency)}</dd>

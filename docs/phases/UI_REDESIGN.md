@@ -16,8 +16,8 @@
 | Phase | Contenu | État |
 |---|---|---|
 | 0 | Fondations : jetons, polices, icônes, composants de base | Livrée avec la phase 1 |
-| 1 | Enveloppes et navigation, accueil selon le rôle (caisse) | Livrée |
-| 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | À faire après validation sur téléphone |
+| 1 | Enveloppes et navigation, accueil selon le rôle (caisse) | Livrée, validée sur téléphone le 2026-11-23 |
+| 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | Livrée (voir plus bas) |
 | 3 | Écrans de gestion : élèves, frais, paiements, bulletins, annonces, utilisateurs… | À faire |
 | 4 | Plateforme, partenaire, assistant, réinscriptions, pages publiques | À faire |
 | 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | À faire |
@@ -80,7 +80,7 @@
 
 Ils demandent Docker pour créer leurs comptes et la CI ne les lance pas ; ils n'ont pas été exécutés.
 
-## Vérifications (2026-11-23)
+## Vérifications des phases 0 et 1 (2026-11-23)
 
 - **Site** : vérification des types, analyse du code, `test:config` (25 tests).
 - **Enveloppes** : build de production, **vraie API** sur PostgreSQL, Chromium. 105 vérifications sur 7 profils (direction, comptable, caissier, enseignant, parent, plateforme, partenaire) :
@@ -96,3 +96,101 @@ Ils demandent Docker pour créer leurs comptes et la CI ne les lance pas ; ils n
   - alertes d'annonce et notification affichée par le service worker ;
   - photos d'identité, retrait des comptes, destinataires des annonces ;
   - CSP des pages enseignant, administration et caisse.
+
+## Phase 2 — écrans du quotidien
+
+**Règle inchangée** : même logique, mêmes appels à l'API, même fonctionnement hors connexion. Seule la présentation change, plus deux petits comportements d'affichage, décrits plus bas : l'arrivée sur la saisie ouverte et le défilement des onglets.
+
+**Nouvelles briques** (`components/ui/`) :
+- `ActionBar` : barre d'action collée en bas pendant le défilement (« Enregistrer l'appel », « Enregistrer les notes »). Elle se pose au-dessus de la barre du bas et des bandeaux.
+  - La hauteur des bandeaux est publiée dans `--bottom-banners-height` (`PwaSupport.tsx`).
+- `Segmented` : choix exclusif en boutons au pouce (Présent / Absent / Retard). Ce sont de vrais boutons radio : flèches du clavier et lecteurs d'écran fonctionnent.
+- `Tabs`, `TabPanel` : onglets accessibles (rôle `tab`, flèches, Début et Fin), qui défilent sur téléphone.
+- `StatCard` : peut mener à l'écran de détail (`href`), avec une teinte d'icône. Libellé et chiffre occupent toute la largeur de la carte.
+- `SectionTitle`, `Card padded={false}` pour les listes, `useReveal` pour amener à l'écran une zone qu'on vient d'ouvrir.
+- `ErrorRetry` aligné sur les alertes communes.
+
+**Tableaux de bord** :
+- **École**, blocs affichés selon les droits du compte, chacun lu sur une route existante :
+  - « Aujourd'hui » (supervision de caisse) : encaissé du jour et caisses ouvertes, via `GET /cash/reports/daily` ;
+  - « Finances » (lecture des frais) : total attendu, déjà encaissé, reste à payer et frais en retard, via `GET /fees/summary` ;
+  - « Scolarité » : les 4 indicateurs historiques ;
+  - « Accès rapides » : 6 écrans du quotidien, selon le menu du compte.
+  - Une carte ne mène à un écran que si le menu du compte le propose.
+- **Plateforme** et **partenaire** : mêmes compteurs, en cartes qui mènent aux listes.
+- **Enseignant** : deux grandes actions (« Faire l'appel », « Saisir les notes »), les chiffres, puis les dernières évaluations (dates en français) et notifications.
+- **Parent** : une carte par enfant (initiales, matricule), qui mène à sa fiche.
+
+**Caisse et Ma caisse** (`components/cashier`, `components/cash`, pages `cashier`) :
+- passe de présentation : boutons principaux en bleu, champs de 44 px, coins arrondis, statuts en pastilles, texte secondaire lisible (contraste AA) ;
+- **corrigé** :
+  - sur téléphone, la barre « Encaisser » passait sous la barre du bas de la phase 1 : elle se pose maintenant au-dessus ;
+  - les champs « Mode de paiement » et « Montant reçu » débordaient de leur cadre (défaut antérieur).
+- Reçu provisoire (`ProvisionalReceipt.tsx`) et règles d'impression : **non modifiés**.
+
+**Appel** (`teacher/attendance`) :
+- champs avec libellés ;
+- séances en boutons, avec une date au format français ;
+- statut en `Segmented`, compteurs présents, absents et retards ;
+- « Enregistrer l'appel » dans une `ActionBar` ;
+- la feuille d'appel ouverte vient à l'écran.
+
+**Notes** (`teacher/grades`) :
+- champs avec libellés, dont « Nom de l'évaluation » et « Date de l'évaluation » ;
+- évaluations en cartes ;
+- saisie avec grands champs (pavé décimal) et compteur « x / y élèves notés ou absents » ;
+- « Enregistrer les notes » dans une `ActionBar` ;
+- la saisie ouverte vient à l'écran.
+
+**Lecteurs d'écran** : les libellés par élève portent le nom complet (« Statut de NOM Prénom », « Note de NOM Prénom »). Deux élèves de même nom ne se confondent plus.
+
+**Fiche enfant** (`parent/children/[id]`) :
+- en-tête avec initiales ;
+- vrais onglets ;
+- présences en cartes ;
+- moyenne générale en tête ;
+- frais et paiements en lignes lisibles sur téléphone au lieu de tableaux ;
+- statuts (« Partiellement payé », « Enregistré ») et dates en français ;
+- montants avec séparateur de milliers.
+
+**Limite connue, côté API** : les moyennes par matière de l'espace parent ne portent ni le nom de la matière ni celui de la période (`GET /parent/children/{id}/grades`). L'écran ne peut donc pas les nommer. Il faudrait ajouter ces deux noms à la réponse, ce qui est une petite mission serveur à part.
+
+**Antérieur, noté pour la phase 5** : `AuthProvider` lit `GET /organizations/{id}` (et `GET /schools/{id}` pour la caisse et le parent) sans en avoir le droit. Le refus 403 est absorbé, sans effet visible. Ce fichier est protégé et n'a pas été modifié.
+
+**Tests e2e du dépôt alignés** :
+- `teacher-portal` : statut par le groupe radio, séance en date française ;
+- `parent-portal` : onglets (rôle `tab`), montants « 10 000 » et « 5 000 ».
+
+## Vérifications de la phase 2 (2026-11-23)
+
+- **Site** :
+  - vérification des types et analyse du code : aucune erreur ;
+  - `test:config` : 25 tests ;
+  - build de production réussi.
+- **Écrans du quotidien** : build de production, **vraie API** sur PostgreSQL, Chromium, données réalistes : frais en retard, un paiement, une caisse ouverte. 95 vérifications réussies :
+  - **direction** (ordinateur et téléphone) : encaissé du jour, reste à payer, frais en retard, scolarité, accès rapides, aucune erreur de droits ;
+  - **comptable** : finances sans indicateurs scolaires ;
+  - **caissier** : encaissement complet sur téléphone, avec « Encaisser » au-dessus de la barre du bas, reçu, journal du jour et Ma caisse ;
+  - **appel** :
+    - création, statut en boutons, compteurs, justification et motif ;
+    - enregistrement, puis relecture après rechargement ;
+    - flèches du clavier ;
+    - barre d'action au-dessus de la barre du bas et du bandeau hors connexion ;
+  - **notes** : création, note hors barème refusée, saisie, compteur, enregistrement ; la saisie ouverte vient à l'écran ;
+  - **parent** (ordinateur et téléphone) : carte de l'enfant, onglets accessibles au clavier, frais en français ;
+  - **plateforme** et **partenaire** ;
+  - **partout** :
+    - pas de défilement horizontal ;
+    - aucun champ ni bouton hors de l'écran ;
+    - aucune erreur JavaScript ou CSP ;
+    - aucun refus 403 nouveau.
+- **Non-régression** :
+  - enveloppes de la phase 1 : 105 vérifications ;
+  - appel et notes hors connexion : 24 ;
+  - coupure pendant l'envoi : 5 ;
+  - bandeaux du bas : 8 ;
+  - connexion sans internet : 26 ;
+  - base locale : 3 ;
+  - caisse hors connexion et reçu provisoire : 36 ;
+  - consultation hors connexion : 13 ;
+  - proposition de notifications : 9.
