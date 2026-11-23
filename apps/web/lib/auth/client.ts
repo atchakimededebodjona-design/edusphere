@@ -23,6 +23,8 @@ export type Me = {
     phone: string | null;
     is_active: boolean;
     is_platform_admin: boolean;
+    /** 2026-11-19 — photo d'identité présente (GET /api/v1/auth/me/photo). */
+    has_photo?: boolean;
   };
   roles: RoleAssignment[];
   permissions: string[];

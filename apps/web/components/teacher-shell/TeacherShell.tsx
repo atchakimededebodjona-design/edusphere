@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { NewAnnouncementBanner } from "@/components/notifications/NewAnnouncementBanner";
+import { PhotoThumb } from "@/components/photos/PhotoThumb";
 import { useAuth } from "@/lib/auth/useAuth";
 import { useUnreadNotifications } from "@/lib/notifications/useUnreadNotifications";
 import { confirmLogoutWithUnsentEntries } from "@/lib/offline/outbox";
+import { useMyPhoto } from "@/lib/photos/useMyPhoto";
 import { useCurrentSchoolLogo } from "@/lib/schools/useSchoolLogo";
 
 // Navigation dédiée au portail enseignant. Aucun menu d'administration (École, Utilisateurs, Mise en
@@ -34,6 +36,7 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
   const { user, logout, currentSchool } = useAuth();
   const schoolLogo = useCurrentSchoolLogo();
   const unread = useUnreadNotifications(Boolean(user));
+  const myPhoto = useMyPhoto();
 
   async function handleLogout() {
     // Phase 32, lot 2 — des saisies non envoyées (appel, notes) seraient perdues : on prévient.
@@ -99,10 +102,14 @@ export function TeacherShell({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </Link>
-            <div className="min-w-0 text-right">
-              <p className="truncate text-sm font-semibold text-slate-900">{user?.full_name ?? ""}</p>
-              <p className="text-xs text-slate-500">Enseignant</p>
-            </div>
+            {/* 2026-11-19 : photo d'identité (ou initiales), qui mène à « Mon profil » où elle se change. */}
+            <Link href="/teacher/profile" className="flex min-w-0 items-center gap-2 hover:opacity-80" title="Mon profil">
+              <PhotoThumb path={myPhoto.path} version={myPhoto.version} name={user?.full_name ?? ""} size="sm" testId="teacher-header-photo" />
+              <span className="min-w-0 text-right">
+                <span className="block truncate text-sm font-semibold text-slate-900">{user?.full_name ?? ""}</span>
+                <span className="block text-xs text-slate-500">Enseignant</span>
+              </span>
+            </Link>
             <button type="button" onClick={handleLogout} className="shrink-0 text-sm text-slate-600 underline">
               Se déconnecter
             </button>

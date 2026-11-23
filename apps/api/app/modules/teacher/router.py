@@ -98,6 +98,7 @@ async def teacher_me(db: DbSession, current_user: CurrentUser) -> TeacherMeOut:
         is_active=current_user.is_active,
         roles=["TEACHER"],
         schools=await _schools_out(db, scope.school_ids),
+        has_photo=current_user.has_photo,
     )
 
 
@@ -209,7 +210,7 @@ async def list_class_students(
     return [
         TeacherStudentOut(
             id=s.id, matricule=s.matricule, first_name=s.first_name, last_name=s.last_name,
-            status=s.status, class_id=cid, class_name=cname,
+            status=s.status, class_id=cid, class_name=cname, has_photo=s.photo_path is not None,
         )
         for s, cid, cname in rows
     ]
@@ -229,7 +230,7 @@ async def list_my_students(
     return [
         TeacherStudentOut(
             id=s.id, matricule=s.matricule, first_name=s.first_name, last_name=s.last_name,
-            status=s.status, class_id=cid, class_name=cname,
+            status=s.status, class_id=cid, class_name=cname, has_photo=s.photo_path is not None,
         )
         for s, cid, cname in rows
     ]
@@ -250,6 +251,7 @@ async def get_my_student(student_id: uuid.UUID, db: DbSession, current_user: Cur
         last_name=student.last_name,
         status=student.status,
         classes=[TeacherClassRefOut(class_id=cid, class_name=cname) for cid, cname in classes],
+        has_photo=student.photo_path is not None,
     )
 
 

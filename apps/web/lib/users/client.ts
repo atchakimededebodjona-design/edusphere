@@ -28,6 +28,8 @@ export type User = {
   /** Lecture seule : décidé côté serveur, jamais envoyé dans les payloads de création/modification. */
   is_platform_admin: boolean;
   created_at: string;
+  /** 2026-11-19 — photo d'identité présente (GET /api/v1/users/{id}/photo?school_id=…). */
+  has_photo?: boolean;
 };
 
 export type RoleAssignment = {

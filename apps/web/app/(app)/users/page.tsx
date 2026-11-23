@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { PassportPhotoPicker } from "@/components/photos/PassportPhotoPicker";
+import { PhotoThumb } from "@/components/photos/PhotoThumb";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/useAuth";
+import { staffPhoto } from "@/lib/photos/client";
 import { ASSIGNABLE_ROLES, users, type RoleCode, type UserCreateResponse, type UserWithRoles } from "@/lib/users/client";
 
 const ROLE_LABELS: Record<string, string> = Object.fromEntries(ASSIGNABLE_ROLES.map((r) => [r.value, r.label]));
@@ -28,6 +31,10 @@ export default function UsersPage() {
   const [rowSaving, setRowSaving] = useState<Record<string, boolean>>({});
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [pendingToggleUserId, setPendingToggleUserId] = useState<string | null>(null);
+  // 2026-11-19 — photo d'identité d'un membre du personnel (panneau sous sa ligne).
+  const [photoPanelUserId, setPhotoPanelUserId] = useState<string | null>(null);
+  const [photoVersions, setPhotoVersions] = useState<Record<string, number>>({});
+  const [confirmingPhotoRemoval, setConfirmingPhotoRemoval] = useState(false);
 
   function reload() {
     if (!currentSchoolId) return;
@@ -72,6 +79,23 @@ export default function UsersPage() {
     }
   }
 
+  function photoChanged(userId: string) {
+    setPhotoVersions((prev) => ({ ...prev, [userId]: Date.now() }));
+    setConfirmingPhotoRemoval(false);
+    reload();
+  }
+
+  async function handlePhotoRemove(userId: string) {
+    if (!currentSchoolId) return;
+    setRowError((prev) => ({ ...prev, [userId]: "" }));
+    try {
+      await staffPhoto.remove(userId, currentSchoolId);
+      photoChanged(userId);
+    } catch (err) {
+      setRowError((prev) => ({ ...prev, [userId]: err instanceof ApiError ? err.message : "Une erreur est survenue." }));
+    }
+  }
+
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     if (!currentSchoolId) return;
@@ -97,6 +121,8 @@ export default function UsersPage() {
   }
 
   if (!currentSchoolId) return <p className="text-sm text-slate-500">Chargement...</p>;
+  const schoolId = currentSchoolId;
+  const columnCount = canManage ? 6 : 5;
 
   return (
     <div className="flex flex-col gap-6">
@@ -108,6 +134,9 @@ export default function UsersPage() {
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50">
             <tr>
+              <th className="px-3 py-2 text-left font-medium text-slate-600">
+                <span className="sr-only">Photo</span>
+              </th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Nom</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Email</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Rôles</th>
@@ -118,13 +147,13 @@ export default function UsersPage() {
           <tbody className="divide-y divide-slate-100">
             {items === null ? (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={columnCount} className="px-3 py-4 text-center text-slate-400">
                   Chargement...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={columnCount} className="px-3 py-4 text-center text-slate-400">
                   Aucun utilisateur.
                 </td>
               </tr>
@@ -133,8 +162,20 @@ export default function UsersPage() {
                 const schoolScopedRoles = u.roles.filter((r) => r.school_id === currentSchoolId);
                 const isSelf = currentUser?.id === u.user.id;
                 const saving = rowSaving[u.user.id] === true;
+                const photoPath = u.user.has_photo ? staffPhoto.path(u.user.id, schoolId) : null;
                 return (
-                  <tr key={u.user.id}>
+                  <Fragment key={u.user.id}>
+                  <tr>
+                    <td className="px-3 py-2">
+                      <PhotoThumb
+                        path={photoPath}
+                        version={photoVersions[u.user.id] ?? 0}
+                        name={u.user.full_name}
+                        size="sm"
+                        lazy
+                        testId={`staff-photo-${u.user.id}`}
+                      />
+                    </td>
                     <td className="px-3 py-2">{u.user.full_name}</td>
                     <td className="px-3 py-2">{u.user.email}</td>
                     <td className="px-3 py-2">
@@ -147,8 +188,18 @@ export default function UsersPage() {
                     </td>
                     {canManage && (
                       <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPhotoPanelUserId(photoPanelUserId === u.user.id ? null : u.user.id);
+                            setConfirmingPhotoRemoval(false);
+                          }}
+                          className="mb-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                        >
+                          Photo
+                        </button>
                         {isSelf ? (
-                          <span className="text-xs text-slate-400">Votre compte</span>
+                          <span className="block text-xs text-slate-400">Votre compte</span>
                         ) : (
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">
@@ -205,6 +256,49 @@ export default function UsersPage() {
                       </td>
                     )}
                   </tr>
+                  {canManage && photoPanelUserId === u.user.id && (
+                    <tr data-testid={`staff-photo-panel-${u.user.id}`}>
+                      <td colSpan={columnCount} className="bg-slate-50 px-3 py-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                          <PhotoThumb path={photoPath} version={photoVersions[u.user.id] ?? 0} name={u.user.full_name} size="lg" />
+                          <div className="flex flex-col gap-2">
+                            <p className="text-sm font-semibold text-slate-900">Photo d&apos;identité de {u.user.full_name}</p>
+                            <p className="text-xs text-slate-500">
+                              Format passeport. Avec l&apos;appareil photo, le visage dans l&apos;ovale, de face, sur un fond clair.
+                            </p>
+                            <PassportPhotoPicker
+                              capture="environment"
+                              onPhoto={async (file) => {
+                                await staffPhoto.upload(u.user.id, schoolId, file);
+                                photoChanged(u.user.id);
+                              }}
+                            />
+                            {photoPath &&
+                              (confirmingPhotoRemoval ? (
+                                <span className="flex items-center gap-3 text-sm">
+                                  <button type="button" onClick={() => void handlePhotoRemove(u.user.id)} className="font-medium text-red-700 underline">
+                                    Confirmer le retrait
+                                  </button>
+                                  <button type="button" onClick={() => setConfirmingPhotoRemoval(false)} className="text-slate-600 underline">
+                                    Annuler
+                                  </button>
+                                </span>
+                              ) : (
+                                <button type="button" onClick={() => setConfirmingPhotoRemoval(true)} className="self-start text-sm text-red-700 underline">
+                                  Retirer la photo
+                                </button>
+                              ))}
+                            {isSelf && rowError[u.user.id] && (
+                              <p role="alert" className="text-sm text-red-700">
+                                {rowError[u.user.id]}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })
             )}

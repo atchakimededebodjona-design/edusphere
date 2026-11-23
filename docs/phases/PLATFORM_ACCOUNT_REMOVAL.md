@@ -20,7 +20,7 @@
 ## 2. Ce que fait la suppression (`apps/api/app/modules/platform/accounts.py`)
 
 **Effacé ou retiré :**
-- nom remplacé par « Compte supprimé », email remplacé par `supprime-<identifiant>@comptes-supprimes.invalid` (domaine réservé : aucun courrier possible), téléphone effacé, mot de passe remplacé par un secret aléatoire jamais conservé ;
+- nom remplacé par « Compte supprimé », email remplacé par `supprime-<identifiant>@comptes-supprimes.invalid` (domaine réservé : aucun courrier possible), téléphone effacé, photo d'identité effacée (depuis la migration 0036), mot de passe remplacé par un secret aléatoire jamais conservé ;
 - rôles, affectations d'enseignant, notifications reçues, sessions, liens de réinitialisation, appareils de notification ;
 - lien entre le compte et une fiche de tuteur : **la fiche reste** dans le dossier de l'élève (fiche de l'école), sans compte.
 

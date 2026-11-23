@@ -29,3 +29,9 @@ class User(Base):
     deleted_by: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL", name="fk_users_deleted_by"), nullable=True
     )
+    # Migration 0036 — photo d'identité (chemin dans le stockage), voir users/photo.py.
+    photo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    @property
+    def has_photo(self) -> bool:
+        return self.photo_path is not None

@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { PassportPhotoPicker } from "@/components/photos/PassportPhotoPicker";
 import { ApiError } from "@/lib/api/client";
 import { students } from "@/lib/students/client";
 
-const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
-
+// Photo d'identité de l'élève. 2026-11-19 : deux façons de la mettre (components/photos/
+// PassportPhotoPicker.tsx) — appareil photo avec cadrage au format passeport, ou fichier déjà prêt
+// (JPEG, PNG, WebP, 5 Mio au plus, mêmes contrôles que l'API). L'enseignant la voit seulement.
 export function StudentPhoto({ studentId, canManage }: { studentId: string; canManage: boolean }) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState<"idle" | "uploading" | "deleting">("idle");
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -21,40 +22,14 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
     loadPhoto();
   }, [loadPhoto]);
 
-  async function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    // Réinitialise immédiatement l'input : sans ça, sélectionner deux fois le même fichier
-    // d'affilée (ex. après une erreur) ne redéclenche pas onChange côté navigateur.
-    event.target.value = "";
-    if (!file) return;
-
+  async function upload(file: File) {
     setError(null);
-    if (file.size === 0) {
-      setError("Ce fichier est vide.");
-      return;
-    }
-    if (file.size > PHOTO_MAX_BYTES) {
-      setError("Photo trop volumineuse (maximum 5 Mio).");
-      return;
-    }
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      setError("Type de fichier non autorisé (JPEG, PNG ou WebP uniquement).");
-      return;
-    }
-
-    setStatus("uploading");
-    try {
-      await students.uploadPhoto(studentId, file);
-      setPhotoUrl(await students.getPhotoBlobUrl(studentId));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échec de l'envoi de la photo.");
-    } finally {
-      setStatus("idle");
-    }
+    await students.uploadPhoto(studentId, file);
+    setPhotoUrl(await students.getPhotoBlobUrl(studentId));
   }
 
   async function handleDelete() {
-    setStatus("deleting");
+    setDeleting(true);
     setError(null);
     try {
       await students.deletePhoto(studentId);
@@ -62,21 +37,24 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Échec de la suppression de la photo.");
     } finally {
-      setStatus("idle");
+      setDeleting(false);
       setConfirmingDelete(false);
     }
   }
 
-  const busy = status !== "idle";
-
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-wrap items-start gap-4">
       {photoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={photoUrl} alt="Photo de l'élève" className="h-20 w-20 rounded object-cover" data-testid="student-photo-img" />
+        <img
+          src={photoUrl}
+          alt="Photo de l'élève"
+          className="h-[103px] w-20 rounded object-cover"
+          data-testid="student-photo-img"
+        />
       ) : (
         <div
-          className="flex h-20 w-20 items-center justify-center rounded bg-slate-200 text-xs text-slate-500"
+          className="flex h-[103px] w-20 items-center justify-center rounded bg-slate-200 text-center text-xs text-slate-500"
           data-testid="student-photo-empty"
         >
           Aucune photo
@@ -91,7 +69,7 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
               <button
                 type="button"
                 onClick={handleDelete}
-                disabled={busy}
+                disabled={deleting}
                 className="text-red-700 underline disabled:opacity-50"
                 data-testid="photo-delete-confirm-yes"
               >
@@ -100,41 +78,27 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(false)}
-                disabled={busy}
+                disabled={deleting}
                 className="text-slate-600 underline disabled:opacity-50"
               >
                 Annuler
               </button>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              <label
-                className={`cursor-pointer rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 ${
-                  busy ? "pointer-events-none opacity-50" : ""
-                }`}
-              >
-                {status === "uploading" ? "Envoi..." : "Changer la photo"}
-                <input
-                  type="file"
-                  accept={ALLOWED_MIME_TYPES.join(",")}
-                  onChange={handleChange}
-                  disabled={busy}
-                  className="hidden"
-                  data-testid="photo-file-input"
-                />
-              </label>
+            <>
+              <PassportPhotoPicker capture="environment" onPhoto={upload} disabled={deleting} />
               {photoUrl && (
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
-                  disabled={busy}
-                  className="rounded border border-slate-300 px-3 py-2 text-sm text-red-700 hover:bg-slate-100 disabled:opacity-50"
+                  disabled={deleting}
+                  className="self-start rounded border border-slate-300 px-3 py-2 text-sm text-red-700 hover:bg-slate-100 disabled:opacity-50"
                   data-testid="photo-delete"
                 >
                   Supprimer la photo
                 </button>
               )}
-            </div>
+            </>
           )}
         </div>
       )}

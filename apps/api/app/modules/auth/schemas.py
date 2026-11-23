@@ -17,6 +17,8 @@ class UserOut(BaseModel):
     is_platform_admin: bool
     created_at: datetime
     last_login_at: datetime | None
+    # 2026-11-19 — photo d'identité présente (le fichier se lit par /auth/me/photo ou /users/{id}/photo).
+    has_photo: bool = False
 
 
 class TokenPair(BaseModel):

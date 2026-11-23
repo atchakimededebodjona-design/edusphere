@@ -4,7 +4,7 @@ Le propriétaire de la plateforme (permission `platform.accounts.manage`) peut :
 - **désactiver** un compte : plus aucune connexion ni requête (chaque requête et chaque
   renouvellement de session vérifient `is_active`) ; ses sessions sont fermées et ses appareils
   retirés des notifications téléphone. **Réversible** (« réactiver ») ;
-- **supprimer** un compte, définitivement : nom, email, téléphone et mot de passe effacés ; rôles,
+- **supprimer** un compte, définitivement : nom, email, téléphone, photo et mot de passe effacés ; rôles,
   affectations d'enseignant, liens de tuteur, notifications, sessions et appareils retirés. La ligne
   `users` reste, avec `deleted_at`/`deleted_by` : l'historique (paiements, caisses, appels, notes,
   audit) garde sa référence, affichée « Compte supprimé ». L'email redevient libre.
@@ -34,6 +34,7 @@ from app.modules.notifications.models import Notification, PushDevice
 from app.modules.rbac.models import PLATFORM_ROLE_CODES, Role, UserRole
 from app.modules.students.models import Guardian
 from app.modules.users.models import User
+from app.modules.users.photo import delete_photo_file_best_effort
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,8 @@ async def delete_account(db: AsyncSession, actor_id: uuid.UUID, user_id: uuid.UU
     await db.execute(update(Guardian).where(Guardian.user_id == user.id).values(user_id=None))
     await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
 
+    photo_path = user.photo_path  # migration 0036 : la photo d'identité est une donnée personnelle
+    user.photo_path = None
     user.email = deleted_email(user.id)
     user.full_name = DELETED_ACCOUNT_NAME
     user.phone = None
@@ -148,5 +151,7 @@ async def delete_account(db: AsyncSession, actor_id: uuid.UUID, user_id: uuid.UU
     user.deleted_by = actor_id
     await db.commit()
     await db.refresh(user)
+    if photo_path:
+        await delete_photo_file_best_effort(photo_path)
     logger.info("Compte supprimé par la plateforme : %s (par %s).", user.id, actor_id)
     return user
