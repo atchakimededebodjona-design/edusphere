@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import defaultTheme from "tailwindcss/defaultTheme";
 
 const config: Config = {
   content: [
@@ -17,6 +18,30 @@ const config: Config = {
           bg: "#F5F8FC",
           text: "#172033",
         },
+        // Refonte, phase 0 (2026-11-23) — échelle de l'action principale, centrée sur le bleu de marque
+        // (600 = #1565D8), et teintes du navy pour les menus. Ajout seulement : rien d'existant ne change.
+        primary: {
+          50: "#EEF5FE",
+          100: "#D9E8FC",
+          200: "#B3D0F9",
+          300: "#82B1F3",
+          400: "#4C8DEA",
+          500: "#2474E0",
+          600: "#1565D8",
+          700: "#1253B2",
+          800: "#10438E",
+          900: "#0E3670",
+        },
+        navy: {
+          DEFAULT: "#0B1224",
+          800: "#131D36",
+          700: "#1C2A4A",
+          600: "#2A3A5F",
+        },
+      },
+      fontFamily: {
+        sans: ["var(--font-body)", ...defaultTheme.fontFamily.sans],
+        display: ["var(--font-display)", "var(--font-body)", ...defaultTheme.fontFamily.sans],
       },
       // Landing page publique — flottement très lent et discret pour les cartes illustratives du
       // Hero/Aperçu produit. Amplitude volontairement faible (8px), jamais utilisée pour un

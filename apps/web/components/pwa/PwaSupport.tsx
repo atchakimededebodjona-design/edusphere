@@ -407,7 +407,14 @@ export function PwaSupport() {
   return (
     <div
       ref={setBannerArea}
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-1.5 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-1.5 px-2 pt-2"
+      // Refonte, phase 1 (2026-11-23) : sur téléphone, les bandeaux se posent juste au-dessus de la barre
+      // de navigation du bas (hauteur publiée par components/shell/MobileTabBar.tsx), qui couvre déjà la
+      // zone du geste d'accueil des iPhone. Sans cette barre : collés en bas, comme avant.
+      style={{
+        bottom: "var(--bottom-nav-height, 0px)",
+        paddingBottom: "var(--banner-pad-bottom, max(0.5rem, env(safe-area-inset-bottom)))",
+      }}
     >
       {showOffline && (
         <div

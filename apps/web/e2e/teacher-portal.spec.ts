@@ -118,7 +118,7 @@ test("portail enseignant : connexion, classes, élèves, présences, notes, bull
   await loginTeacher(page, scenario.teacherEmail);
 
   // Mes classes : uniquement la classe affectée.
-  await page.getByRole("navigation", { name: "Navigation enseignant" }).getByRole("link", { name: "Mes classes" }).click();
+  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name: "Mes classes" }).click();
   await expect(page).toHaveURL("/teacher/classes");
   await expect(page.getByRole("heading", { name: "CM2-A" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "CM2-B" })).toHaveCount(0);

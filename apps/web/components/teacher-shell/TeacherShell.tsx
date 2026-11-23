@@ -1,139 +1,51 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { BrandSymbol } from "@/components/branding/BrandLogo";
 import { NewAnnouncementBanner } from "@/components/notifications/NewAnnouncementBanner";
-import { PhotoThumb } from "@/components/photos/PhotoThumb";
+import { SchoolLogoBlock, ShellFrame, useShellLogout } from "@/components/shell/ShellFrame";
+import { ShellTopBar } from "@/components/shell/ShellTopBar";
 import { useAuth } from "@/lib/auth/useAuth";
+import { TEACHER_MENU, bottomItems } from "@/lib/navigation/menus";
 import { useUnreadNotifications } from "@/lib/notifications/useUnreadNotifications";
-import { confirmLogoutWithUnsentEntries } from "@/lib/offline/outbox";
 import { useMyPhoto } from "@/lib/photos/useMyPhoto";
-import { useCurrentSchoolLogo } from "@/lib/schools/useSchoolLogo";
 
-// Navigation dédiée au portail enseignant. Aucun menu d'administration (École, Utilisateurs, Mise en
-// place, Frais, Paiements) : ces entrées n'existent pas dans cet espace.
-export const TEACHER_NAV = [
-  { href: "/teacher", label: "Tableau de bord" },
-  { href: "/teacher/classes", label: "Mes classes" },
-  { href: "/teacher/students", label: "Mes élèves" },
-  { href: "/teacher/attendance", label: "Présences" },
-  { href: "/teacher/grades", label: "Notes & évaluations" },
-  { href: "/teacher/report-cards", label: "Bulletins" },
-  { href: "/teacher/announcements", label: "Annonces" },
-  { href: "/teacher/notifications", label: "Notifications" },
-  { href: "/teacher/profile", label: "Mon profil" },
-];
-
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/teacher") return pathname === "/teacher";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
+// Portail enseignant. Aucun menu d'administration (École, Utilisateurs, Mise en place, Frais, Paiements) :
+// ces entrées n'existent pas dans cet espace. Refonte, phase 1 (2026-11-23) : cadre commun
+// (components/shell/ShellFrame.tsx) ; sur téléphone, barre du bas Accueil, Appel, Notes, Élèves, Plus.
 export function TeacherShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const router = useRouter();
-  const { user, logout, currentSchool } = useAuth();
-  const schoolLogo = useCurrentSchoolLogo();
+  const { user, currentSchool } = useAuth();
+  const onLogout = useShellLogout();
   const unread = useUnreadNotifications(Boolean(user));
   const myPhoto = useMyPhoto();
-
-  async function handleLogout() {
-    // Phase 32, lot 2 — des saisies non envoyées (appel, notes) seraient perdues : on prévient.
-    if (!(await confirmLogoutWithUnsentEntries())) return;
-    await logout();
-    router.replace("/login");
-  }
+  const logout = () => void onLogout();
 
   return (
-    <div className="min-h-screen bg-slate-50 md:flex">
-      <aside className="hidden w-60 shrink-0 flex-col bg-brand-navy px-4 py-6 text-slate-100 md:flex">
-        {/* 2026-11-16 : logo de l'école de l'enseignant (même source que le menu de l'espace
-            administration, voir lib/schools/useSchoolLogo.ts), posé sur une pastille blanche pour
-            rester lisible sur ce fond sombre. Place réservée pendant le chargement ; rien sans logo.
-            La marque EduLinkage est dans la barre du haut. */}
-        {(schoolLogo.url || schoolLogo.pending) && (
-          <div
-            className={`mb-4 flex h-24 items-center justify-center rounded-lg p-2 ${schoolLogo.url ? "bg-white" : ""}`}
-          >
-            {schoolLogo.url && (
-              // Blob authentifié : next/image ne s'applique pas.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={schoolLogo.url}
-                alt={currentSchool ? `Logo de ${currentSchool.name}` : "Logo de l'école"}
-                className="h-20 w-auto max-w-full object-contain"
-              />
-            )}
-          </div>
-        )}
-        <p className="px-2 text-sm font-semibold">Espace enseignant</p>
-        <p className="px-2 pb-6 text-xs text-slate-400">{currentSchool?.name ?? ""}</p>
-        <nav aria-label="Navigation enseignant" className="flex flex-col gap-1">
-          {TEACHER_NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={isActive(pathname, item.href) ? "page" : undefined}
-              className={`rounded px-3 py-2 text-sm ${isActive(pathname, item.href) ? "bg-white/15 font-medium" : "text-slate-300 hover:bg-white/10"}`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* 2026-11-16 : marque EduLinkage, qui ramène à la page d'accueil publique comme dans l'espace
-            administration (components/app-shell/TopBar.tsx). La session reste ouverte : « Mon
-            espace » y ramène ici (/dashboard renvoie un enseignant vers /teacher). */}
-        <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-3">
-          <Link href="/" className="flex items-center gap-2 rounded hover:opacity-80" title="Page d'accueil EduLinkage">
-            <BrandSymbol className="h-9 w-9" priority />
-            <span className="text-lg font-bold text-slate-900">EduLinkage</span>
-          </Link>
-          <div className="flex min-w-0 items-center gap-4">
-            {/* 2026-11-17 : cloche et compteur, comme dans les espaces administration et parent. */}
-            <Link href="/teacher/notifications" className="relative shrink-0 text-slate-600 hover:text-slate-900" aria-label="Notifications">
-              <span aria-hidden="true">🔔</span>
-              {unread.count > 0 && (
-                <span data-testid="teacher-unread-count" className="absolute -right-2 -top-2 rounded-full bg-red-600 px-1.5 text-xs font-semibold text-white">
-                  {unread.count > 99 ? "99+" : unread.count}
-                </span>
-              )}
-            </Link>
-            {/* 2026-11-19 : photo d'identité (ou initiales), qui mène à « Mon profil » où elle se change. */}
-            <Link href="/teacher/profile" className="flex min-w-0 items-center gap-2 hover:opacity-80" title="Mon profil">
-              <PhotoThumb path={myPhoto.path} version={myPhoto.version} name={user?.full_name ?? ""} size="sm" testId="teacher-header-photo" />
-              <span className="min-w-0 text-right">
-                <span className="block truncate text-sm font-semibold text-slate-900">{user?.full_name ?? ""}</span>
-                <span className="block text-xs text-slate-500">Enseignant</span>
-              </span>
-            </Link>
-            <button type="button" onClick={handleLogout} className="shrink-0 text-sm text-slate-600 underline">
-              Se déconnecter
-            </button>
-          </div>
-        </header>
-
-        {/* Navigation mobile : barre horizontale défilante, mêmes entrées que la barre latérale. */}
-        <nav aria-label="Navigation enseignant mobile" className="flex gap-2 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 md:hidden">
-          {TEACHER_NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`shrink-0 rounded-full px-3 py-1 text-xs ${isActive(pathname, item.href) ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <main className="flex-1 p-4 md:p-8">
-          <NewAnnouncementBanner inboxHref="/teacher/announcements" />
-          {children}
-        </main>
-      </div>
-    </div>
+    <ShellFrame
+      menu={TEACHER_MENU}
+      bottom={bottomItems(TEACHER_MENU, "teacher")}
+      sideTitle="Espace enseignant"
+      sideSubtitle={currentSchool?.name}
+      sideHeader={<SchoolLogoBlock />}
+      logoutLabel="Se déconnecter"
+      onLogout={logout}
+      banner={<NewAnnouncementBanner inboxHref="/teacher/announcements" />}
+      topBar={
+        <ShellTopBar
+          brandHref="/"
+          notificationsHref="/teacher/notifications"
+          unreadCount={unread.count}
+          unreadTestId="teacher-unread-count"
+          userName={user?.full_name ?? ""}
+          roleText="Enseignant"
+          photoPath={myPhoto.path}
+          photoVersion={myPhoto.version}
+          photoTestId="teacher-header-photo"
+          profileHref="/teacher/profile"
+          logoutLabel="Se déconnecter"
+          onLogout={logout}
+        />
+      }
+    >
+      {children}
+    </ShellFrame>
   );
 }
