@@ -1,19 +1,46 @@
-import { ParentNav } from "@/components/parent-shell/ParentNav";
-import { ParentTopBar } from "@/components/parent-shell/ParentTopBar";
-import { NewAnnouncementBanner } from "@/components/notifications/NewAnnouncementBanner";
+"use client";
 
-// Pas de colonne latérale (contrairement à components/app-shell/AppShell.tsx) : nav horizontale
-// empilée sous la barre du haut, meilleure adaptation mobile pour un espace consulté surtout
-// depuis un téléphone (voir consigne Phase 28A, "mobile-first").
+import { NewAnnouncementBanner } from "@/components/notifications/NewAnnouncementBanner";
+import { ShellFrame, useShellLogout } from "@/components/shell/ShellFrame";
+import { ShellTopBar } from "@/components/shell/ShellTopBar";
+import { useAuth } from "@/lib/auth/useAuth";
+import { PARENT_MENU, bottomItems } from "@/lib/navigation/menus";
+import { useUnreadNotifications } from "@/lib/notifications/useUnreadNotifications";
+import { useMyPhoto } from "@/lib/photos/useMyPhoto";
+
+// Espace parent. Refonte, phase 1 (2026-11-23) : même cadre que les autres espaces
+// (components/shell/ShellFrame.tsx). Sur téléphone, où il est surtout consulté, barre du bas (Accueil,
+// Enfants, Notifications, Plus) au lieu des onglets du haut.
 export function ParentShell({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const onLogout = useShellLogout();
+  const unread = useUnreadNotifications(Boolean(user));
+  const myPhoto = useMyPhoto();
+  const logout = () => void onLogout();
+
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      <ParentTopBar />
-      <ParentNav />
-      <main className="flex-1 p-4 sm:p-8">
-        <NewAnnouncementBanner inboxHref="/parent/notifications" />
-        {children}
-      </main>
-    </div>
+    <ShellFrame
+      menu={PARENT_MENU}
+      bottom={bottomItems(PARENT_MENU, "parent")}
+      sideTitle="Espace parent"
+      logoutLabel="Déconnexion"
+      onLogout={logout}
+      banner={<NewAnnouncementBanner inboxHref="/parent/notifications" />}
+      topBar={
+        <ShellTopBar
+          brandHref="/parent"
+          notificationsHref="/parent/notifications"
+          unreadCount={unread.count}
+          userName={user?.full_name ?? ""}
+          roleText="Parent"
+          photoPath={myPhoto.path}
+          photoVersion={myPhoto.version}
+          logoutLabel="Déconnexion"
+          onLogout={logout}
+        />
+      }
+    >
+      {children}
+    </ShellFrame>
   );
 }

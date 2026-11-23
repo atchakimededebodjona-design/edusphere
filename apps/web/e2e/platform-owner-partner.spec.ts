@@ -95,7 +95,7 @@ test("propriétaire de la plateforme : accueil et menu plateforme uniquement, cr
   await login(page, ownerEmail);
   await expect(page).toHaveURL("/dashboard");
   await expect(page.getByRole("heading", { name: "Administration de la plateforme" })).toBeVisible();
-  const nav = page.locator("nav");
+  const nav = page.getByRole("navigation", { name: "Navigation principale" });
   await expect(nav.getByRole("link", { name: "Partenaires" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Établissements" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Élèves" })).toHaveCount(0);

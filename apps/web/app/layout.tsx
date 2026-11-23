@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { bodyFont, displayFont } from "./fonts";
 import { PwaSupport } from "@/components/pwa/PwaSupport";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 
@@ -26,8 +27,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr">
-      <body>
+    <html lang="fr" className={`${bodyFont.variable} ${displayFont.variable}`}>
+      <body className="font-sans text-slate-900 antialiased">
         <AuthProvider>
           {children}
           <PwaSupport />

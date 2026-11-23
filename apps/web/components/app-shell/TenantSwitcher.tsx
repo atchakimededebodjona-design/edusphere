@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { Icon } from "@/components/ui/Icon";
 import type { Organization } from "@/lib/organizations/client";
 import type { School } from "@/lib/schools/client";
 import type { TenantContextStatus } from "@/lib/auth/AuthProvider";
@@ -148,9 +149,9 @@ export function TenantSwitcher() {
     // Cas 1 (une organisation / une école) : le contexte reste visible, sans menu de changement
     // inutile — voir mission.
     return (
-      <span className="flex items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700">
-        <span aria-hidden="true">🏫</span>
-        <span className="max-w-[10rem] truncate sm:max-w-[16rem]">{label}</span>
+      <span className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+        <Icon name="school" className="h-4 w-4 shrink-0" />
+        <span className="max-w-[7rem] truncate sm:max-w-[16rem]">{label}</span>
       </span>
     );
   }
@@ -165,11 +166,11 @@ export function TenantSwitcher() {
         aria-controls={menuId}
         aria-label={`Contexte actuel : ${label}. Changer d'organisation ou d'école.`}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+        className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
       >
-        <span aria-hidden="true">🏫</span>
-        <span className="max-w-[10rem] truncate sm:max-w-[16rem]">{label}</span>
-        <span aria-hidden="true">▾</span>
+        <Icon name="school" className="h-4 w-4 shrink-0" />
+        <span className="max-w-[7rem] truncate sm:max-w-[16rem]">{label}</span>
+        <Icon name="chevronDown" className="h-4 w-4 shrink-0" />
       </button>
 
       {open && (

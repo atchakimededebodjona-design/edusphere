@@ -201,7 +201,10 @@ test("mono-organisation, mono-école : badge non interactif, aucun menu de chang
 
   await expect(switcherTrigger(page)).toHaveCount(0);
   // Le badge reste visible (icône + nom de l'école) mais n'est pas exposé comme un bouton de menu.
-  await expect(page.locator("header")).toContainText("🏫");
+  // Refonte 2026-11-23 : l'emoji est devenu une icône dessinée ; on vérifie le nom de l'école.
+  const schoolName = (await page.locator("p", { hasText: "Bienvenue sur l'espace de" }).locator("strong").textContent()) ?? "";
+  expect(schoolName).not.toBe("");
+  await expect(page.locator("header")).toContainText(schoolName);
 });
 
 // --- 3, 4, 5, 7, 8, 9, 10, 11, 14 : plusieurs organisations, plusieurs écoles chacune -------------
