@@ -245,7 +245,8 @@ test("PARTNER_ADMIN : organisation + Primaire, ajout du Collège, compteurs él�
   await page.getByPlaceholder("Nom de l'école").fill("Primaire Partenaire");
   await page.getByPlaceholder("Nom de l'administrateur").fill("Admin Primaire Partenaire");
   await page.getByPlaceholder("Email de l'administrateur").fill(primaryAdminEmail);
-  await page.getByPlaceholder("Mot de passe initial (8 caractères min.)").fill(PASSWORD);
+  // Texte indicatif suivant la règle du mot de passe (12 caractères depuis la revue de sécurité).
+  await page.getByPlaceholder(/^Mot de passe initial/).fill(PASSWORD);
   await page.getByRole("button", { name: "Inscrire l'école" }).click();
   await expect(page.getByText("École « Primaire Partenaire » inscrite.", { exact: false })).toBeVisible();
 

@@ -20,7 +20,7 @@
 | 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | Livrée (voir plus bas) |
 | 3 | Écrans de gestion. Lot A : élèves, paiements, frais en retard, utilisateurs, notifications. Lot B : barèmes de frais, fiche élève, bulletins, annonces, école, académique | Lots A et B livrés (voir plus bas) |
 | 4 | A : plateforme et partenaire. B : assistant, réinscriptions, journal d'audit. C : pages publiques et mot de passe | A, B et C livrées (voir plus bas) |
-| 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | À faire |
+| 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | Premier lot livré (voir plus bas) ; refus 403 d'AuthProvider à traiter avec accord |
 
 ## Phase 0 — fondations
 
@@ -485,6 +485,51 @@ Ils demandent Docker et la CI ne les lance pas ; ils n'ont pas été exécutés.
 - **Non-régression** :
   - règles de connexion : 52 ;
   - enveloppes (phase 1) : 105 ;
+  - hors connexion :
+    - connexion sans internet : 26 ;
+    - appel et notes : 24 ;
+    - coupure : 5 ;
+    - bandeaux : 8 ;
+    - base locale : 3 ;
+    - caisse : 36 ;
+    - consultation : 13 ;
+    - notifications : 9.
+
+## Phase 5 — finitions, premier lot (2026-11-24)
+
+- **Derniers écrans à l'ancien style** : styles remplacés par ceux du système commun, par substitution exacte des classes. Ni la logique ni le texte ne changent. Sont concernés :
+  - les présences et les notes vues par l'administration (`attendance/*`, `grades/*`) ;
+  - la supervision de caisse, l'abonnement de l'école (avec `OnlinePaymentPanel`, présentation seulement) ;
+  - l'espace enseignant hors appel et notes (classes, élèves, bulletins, annonces, profil) ;
+  - le choix de l'école (`TenantSwitcher`).
+- **Chargement** : 33 écrans ou panneaux affichent le squelette commun (`TableSkeleton`) au lieu du texte « Chargement... » quand tout leur contenu attend l'API. Les petits indicateurs dans une ligne restent en texte.
+- **Contrôle d'accessibilité de tout le site** (script de vérification, vraie API) :
+  - périmètre : 51 pages, 6 profils (public, administration, enseignant, parent, plateforme, partenaire), sur ordinateur et sur téléphone ;
+  - éléments vérifiés :
+    - champs, boutons et liens nommés ;
+    - images avec `alt` ;
+    - aucun texte gris clair sur fond clair ni bouton noir ;
+    - cibles tactiles de 24 px au moins ;
+    - pas de défilement horizontal ;
+    - focus clavier visible.
+  - Corrigé à la suite de ce contrôle :
+    - **focus invisible sur les champs de date** (8 écrans) : Chrome place le focus dans leurs sous-champs, donc le champ ne prenait pas `:focus`. Une règle `:focus-within` dans `globals.css` le rétablit partout ;
+    - **champs sans nom** : la recherche et le choix de classe de « Mes élèves » (enseignant), et le formulaire d'inscription d'une école par un partenaire, qui a maintenant des libellés visibles (ses textes indicatifs sont gardés) ;
+    - **liens trop petits au doigt** : « Détail », « Élèves », « Présences » et « Notes » sur les cartes des classes de l'enseignant.
+- **Test e2e du dépôt aligné** : `multi-school-organizations` attendait encore le texte indicatif « Mot de passe initial (8 caractères min.) ». Il est périmé depuis la revue de sécurité (12 caractères), comme `password-reset`, aligné en phase 4 C.
+
+## Vérifications de la phase 5, premier lot (2026-11-24)
+
+- **Site** : vérification des types, analyse du code, build de production.
+- **Accessibilité** : 51 pages, 6 profils, sur ordinateur et sur téléphone. **664 vérifications réussies**, après correction des 13 défauts relevés au premier passage.
+- **Non-régression** (même build, vraie API, puis fausses API pour le hors connexion), **784 vérifications réussies** :
+  - phase 3 lot A : 143 ;
+  - phase 3 lot B : 136 ;
+  - phase 4 A : 100 ;
+  - phase 4 B : 29 ;
+  - phase 4 C : 52 ;
+  - phase 2 : 95 ;
+  - phase 1 : 105 ;
   - hors connexion :
     - connexion sans internet : 26 ;
     - appel et notes : 24 ;

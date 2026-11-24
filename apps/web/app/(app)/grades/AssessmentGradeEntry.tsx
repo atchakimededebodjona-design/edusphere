@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { results, type Assessment, type AssessmentResult } from "@/lib/grades/client";
@@ -69,20 +70,20 @@ export function AssessmentGradeEntry({
     }
   }
 
-  if (existing === null) return <p className="text-sm text-slate-400">Chargement des notes...</p>;
+  if (existing === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-600">
         Note sur {assessment.max_score} — coefficient {assessment.weight}
       </p>
-      <div className="overflow-x-auto rounded border border-slate-200">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50">
             <tr>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Élève</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Note</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Absent</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Élève</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Note</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Absent</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -102,7 +103,7 @@ export function AssessmentGradeEntry({
                       value={value.score}
                       onChange={(e) => updateValue(student.id, { score: e.target.value })}
                       disabled={!canManage || value.is_absent}
-                      className="w-20 rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+                      className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 !w-24"
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -118,7 +119,7 @@ export function AssessmentGradeEntry({
             })}
             {sortedRoster.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={3} className="px-3 py-4 text-center text-slate-600">
                   Aucun élève inscrit dans cette classe.
                 </td>
               </tr>
@@ -131,13 +132,13 @@ export function AssessmentGradeEntry({
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 w-fit"
         >
           {saving ? "Enregistrement..." : "Enregistrer les notes"}
         </button>
       )}
       {saved && <p className="text-sm text-green-700">Notes enregistrées.</p>}
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
     </div>
   );
 }

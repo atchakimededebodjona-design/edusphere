@@ -19,7 +19,7 @@ import { useAuth } from "@/lib/auth/useAuth";
 // AuthProvider::selectOrganization/selectSchool (n'acceptent que ce qui figure dans ces listes).
 
 function GroupHeading({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{children}</p>;
+  return <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-slate-600">{children}</p>;
 }
 
 function ItemButton({
@@ -69,16 +69,16 @@ function SwitchGroup<T extends { id: string; name: string }>({
   return (
     <div className={className} role="group" aria-label={title}>
       <GroupHeading>{title}</GroupHeading>
-      {status === "loading" && <p className="px-2 py-1 text-sm text-slate-500">Chargement...</p>}
+      {status === "loading" && <p className="px-2 py-1 text-sm text-slate-600">Chargement...</p>}
       {status === "error" && (
         <div className="flex flex-col items-start gap-1.5 px-2 py-1">
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error ?? "Une erreur est survenue."}
           </p>
           <button
             type="button"
             onClick={onRetry}
-            className="rounded border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
+            className="inline-flex min-h-9 items-center rounded-lg border border-red-300 bg-white px-2 text-xs font-medium text-red-800 hover:bg-red-100"
           >
             Réessayer
           </button>
@@ -178,7 +178,7 @@ export function TenantSwitcher() {
           id={menuId}
           role="menu"
           aria-label="Changer de contexte"
-          className="absolute right-0 z-20 mt-2 w-72 rounded border border-slate-200 bg-white p-3 shadow-lg"
+          className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-lg"
         >
           {canSwitchOrganization && (
             <SwitchGroup

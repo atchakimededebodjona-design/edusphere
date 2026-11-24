@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
@@ -245,7 +246,7 @@ export function ClassSubjectsEditor({
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClassSubjects} />;
-  if (attached === null) return <p className="text-sm text-slate-600">Chargement des matières...</p>;
+  if (attached === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-3">
@@ -381,7 +382,7 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
   if (years === null || levels === null || subjects === null || classes === null) {
-    return <p className="text-sm text-slate-600">Chargement...</p>;
+    return <TableSkeleton rows={3} />;
   }
 
   if (years.length === 0) {

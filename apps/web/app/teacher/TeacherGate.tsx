@@ -20,7 +20,7 @@ export function TeacherGate({ children }: { children: React.ReactNode }) {
   }, [status, user, roles, router]);
 
   if (!allowed) {
-    return <p className="p-6 text-sm text-slate-400">Vérification des droits...</p>;
+    return <p className="p-6 text-sm text-slate-600">Vérification des droits...</p>;
   }
   return <TeacherShell>{children}</TeacherShell>;
 }

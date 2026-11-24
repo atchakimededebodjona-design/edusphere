@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
 import type { AcademicYear } from "@/lib/academics/client";
@@ -31,7 +32,7 @@ export default function SetupWizardPage() {
   const canManage = permissions.includes("academics.manage");
 
   if (!currentSchoolId) {
-    return <p className="text-sm text-slate-600">Chargement...</p>;
+    return <TableSkeleton rows={3} />;
   }
 
   if (!canManage) {

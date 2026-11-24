@@ -106,7 +106,7 @@ export function OnlinePaymentPanel({ invoice, maxAmount, onPaid }: Props) {
 
   if (attempt && isInProgress(attempt)) {
     return (
-      <div className="flex flex-col gap-2 rounded border border-sky-200 bg-sky-50 p-3 text-sky-900">
+      <div className="flex flex-col gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-900">
         <p className="font-semibold">Paiement en attente de confirmation</p>
         <p>
           Une demande de paiement de {formatApiAmount(attempt.amount, attempt.currency)} a été envoyée au numéro{" "}
@@ -124,13 +124,13 @@ export function OnlinePaymentPanel({ invoice, maxAmount, onPaid }: Props) {
             <button
               type="button"
               onClick={() => setPolls(MAX_AUTOMATIC_POLLS - 1)}
-              className="self-start rounded border border-sky-400 px-3 py-1"
+              className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 self-start"
             >
               Vérifier maintenant
             </button>
           </div>
         )}
-        {error && <p className="text-sm text-red-700">{error}</p>}
+        {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
       </div>
     );
   }
@@ -141,7 +141,7 @@ export function OnlinePaymentPanel({ invoice, maxAmount, onPaid }: Props) {
 
   if (attempt?.status === "ANOMALY") {
     return (
-      <p className="rounded border border-red-200 bg-red-50 p-3 text-red-800">
+      <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-800">
         Votre paiement a été reçu mais doit être vérifié par EduLinkage. Ne payez pas une seconde fois : EduLinkage vous
         contactera.
       </p>
@@ -151,7 +151,7 @@ export function OnlinePaymentPanel({ invoice, maxAmount, onPaid }: Props) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-3">
       {attempt && (attempt.status === "FAILED" || attempt.status === "EXPIRED") && (
-        <p className="rounded border border-amber-300 bg-white p-2 text-amber-900">
+        <p className="rounded-lg border border-amber-300 bg-white p-3 text-amber-900">
           Le paiement précédent n&apos;a pas abouti (refusé, annulé ou non validé à temps). Aucun montant n&apos;a été
           enregistré : vous pouvez réessayer.
         </p>
@@ -175,14 +175,14 @@ export function OnlinePaymentPanel({ invoice, maxAmount, onPaid }: Props) {
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           placeholder="90 12 34 56"
-          className="max-w-xs rounded border border-slate-300 bg-white px-2 py-1 text-slate-900"
+          className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 max-w-xs"
         />
       </label>
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
       <button
         type="submit"
         disabled={submitting || phone.trim().length < 8}
-        className="self-start rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 self-start"
       >
         {submitting ? "Envoi de la demande..." : `Payer ${invoice.total_amount ? formatApiAmount(invoice.total_amount, invoice.currency) : ""}`}
       </button>

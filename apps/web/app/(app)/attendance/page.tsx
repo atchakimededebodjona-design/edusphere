@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { AttendanceSessionPanel } from "@/app/(app)/attendance/AttendanceSessionPanel";
@@ -13,7 +14,7 @@ export default function AttendancePage() {
   const canManage = permissions.includes("attendance.manage");
   const [tab, setTab] = useState<Tab>("Appel");
 
-  if (!currentSchoolId) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (!currentSchoolId) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-6">

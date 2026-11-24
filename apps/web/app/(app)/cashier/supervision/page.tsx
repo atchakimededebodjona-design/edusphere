@@ -49,7 +49,7 @@ function OfflinePayments({ payments, currency }: { payments: CashSessionPayment[
       </h3>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[36rem] text-left text-xs">
-          <thead className="text-slate-500">
+          <thead className="text-slate-600">
             <tr>
               <th className="py-1 pr-2 font-medium">Reçu officiel</th>
               <th className="py-1 pr-2 font-medium">Reçu provisoire</th>
@@ -155,14 +155,14 @@ export default function CashSupervisionPage() {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Supervision des caisses</h1>
-        <p role="alert" className="rounded border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        <p role="alert" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
           Cet espace est réservé aux superviseurs de caisse.
         </p>
       </div>
     );
   }
   if (error) return <ErrorRetry message={error} onRetry={() => void reload()} />;
-  if (!data) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (!data) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   const s = data.daily.sessions;
   const cards: [string, string][] = [
@@ -189,31 +189,31 @@ export default function CashSupervisionPage() {
       >
         <label className="flex flex-col gap-1">
           Du
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm" />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500" />
         </label>
         <label className="flex flex-col gap-1">
           Au
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500" />
         </label>
         <label className="flex flex-col gap-1">
           Statut
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value as CashSessionStatus | "")}
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">Toutes</option>
             <option value="OPEN">Ouvertes</option>
             <option value="CLOSED">Clôturées</option>
           </select>
         </label>
-        <button type="submit" className="rounded bg-slate-900 px-3 py-2 text-sm text-white">
+        <button type="submit" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
           Afficher
         </button>
-        <button type="button" onClick={() => void exportCsv()} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
+        <button type="button" onClick={() => void exportCsv()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
           Exporter CSV
         </button>
-        {exportError && <span className="text-sm text-red-700">{exportError}</span>}
+        {exportError && <span className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{exportError}</span>}
       </form>
 
       <section aria-labelledby="daily-title" className="flex flex-col gap-2">
@@ -222,8 +222,8 @@ export default function CashSupervisionPage() {
         </h2>
         <dl data-testid="cash-daily-report" className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
           {cards.map(([label, value]) => (
-            <div key={label} className="rounded border border-slate-200 bg-white p-3">
-              <dt className="text-xs text-slate-500">{label}</dt>
+            <div key={label} className="rounded-xl border border-slate-200 bg-white p-4">
+              <dt className="text-xs text-slate-600">{label}</dt>
               <dd className="font-semibold text-slate-900">{value}</dd>
             </div>
           ))}
@@ -244,12 +244,12 @@ export default function CashSupervisionPage() {
       </section>
 
       {detail && (
-        <section aria-label="Détail de la session" className="flex flex-col gap-3 rounded border border-slate-300 bg-white p-4">
+        <section aria-label="Détail de la session" className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <div className="flex items-start justify-between gap-2">
             <h2 className="text-lg font-semibold text-slate-900">
               Session de {detail.session.cashier_name ?? "—"} du {formatDateFR(detail.session.business_date)}
             </h2>
-            <button type="button" onClick={() => setDetail(null)} className="text-xs text-slate-700 underline">
+            <button type="button" onClick={() => setDetail(null)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
               Fermer
             </button>
           </div>
@@ -257,7 +257,7 @@ export default function CashSupervisionPage() {
             <CashTotalsCard totals={detail.totals} currency={currency} />
             <div className="flex flex-col gap-2 text-sm">
               <h3 className="font-semibold text-slate-700">Mouvements</h3>
-              {detail.movements.length === 0 && <p className="text-slate-500">Aucun mouvement.</p>}
+              {detail.movements.length === 0 && <p className="text-slate-600">Aucun mouvement.</p>}
               <ul className="divide-y divide-slate-100">
                 {detail.movements.map((m) => (
                   <li key={m.id} className="flex justify-between gap-2 py-1">
@@ -298,13 +298,13 @@ export default function CashSupervisionPage() {
             Par caissier
           </h2>
           {data.cashiers.rows.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucune session sur la période.</p>
+            <p className="text-sm text-slate-600">Aucune session sur la période.</p>
           ) : (
-            <ul aria-label="Rapport par caissier" className="divide-y divide-slate-100 rounded border border-slate-200 bg-white text-sm">
+            <ul aria-label="Rapport par caissier" className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white text-sm">
               {data.cashiers.rows.map((row) => (
                 <li key={row.cashier_user_id} className="flex flex-wrap justify-between gap-2 px-3 py-2">
                   <span className="font-medium">
-                    {row.cashier_name ?? "—"} <span className="text-xs text-slate-500">({row.sessions_count} session(s))</span>
+                    {row.cashier_name ?? "—"} <span className="text-xs text-slate-600">({row.sessions_count} session(s))</span>
                   </span>
                   <span>
                     {formatApiAmount(row.cash_payments_total, currency)} · écart {formatApiAmount(row.variance_total, currency)}
@@ -319,16 +319,16 @@ export default function CashSupervisionPage() {
             Par méthode de paiement
           </h2>
           {data.methods.rows.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucun paiement sur la période.</p>
+            <p className="text-sm text-slate-600">Aucun paiement sur la période.</p>
           ) : (
-            <ul aria-label="Rapport par méthode" className="divide-y divide-slate-100 rounded border border-slate-200 bg-white text-sm">
+            <ul aria-label="Rapport par méthode" className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white text-sm">
               {data.methods.rows.map((row) => (
                 <li key={row.method} className="flex flex-wrap justify-between gap-2 px-3 py-2">
                   <span className="font-medium">{PAYMENT_METHOD_LABELS[row.method]}</span>
                   <span>
                     {formatApiAmount(row.completed_total, currency)} ({row.completed_count})
                     {row.cancelled_count > 0 && (
-                      <span className="ml-1 text-xs text-slate-500">
+                      <span className="ml-1 text-xs text-slate-600">
                         · annulés {formatApiAmount(row.cancelled_total, currency)} ({row.cancelled_count})
                       </span>
                     )}

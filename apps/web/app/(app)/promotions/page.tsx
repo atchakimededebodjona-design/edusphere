@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useEffect, useMemo, useState } from "react";
 import { academicYears, schoolClasses, type AcademicYear, type SchoolClass } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
@@ -320,7 +321,7 @@ export default function PromotionsPage() {
   }
   if (loadError) return <ErrorRetry message={loadError} onRetry={() => window.location.reload()} />;
   if (!currentSchoolId || years === null || classes === null) {
-    return <p className="text-sm text-slate-600">Chargement...</p>;
+    return <TableSkeleton rows={3} />;
   }
 
   const stepIndex = (["years", "mapping", "students", "preview", "result"] as Step[]).indexOf(step);

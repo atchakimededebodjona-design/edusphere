@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, schoolClasses, type AcademicTerm, type SchoolClass } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
@@ -108,7 +109,7 @@ export function GenerationPanel({ schoolId, canManage }: { schoolId: string; can
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClassesAndTemplates} />;
-  if (classes === null || templates === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (classes === null || templates === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">

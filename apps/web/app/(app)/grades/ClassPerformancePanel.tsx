@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, schoolClasses, type AcademicTerm, type SchoolClass } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
@@ -89,14 +90,14 @@ export function ClassPerformancePanel({ schoolId, canExport }: { schoolId: strin
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClasses} />;
-  if (classes === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (classes === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-3">
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Classe
-          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm">
+          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500">
             <option value="">—</option>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
@@ -105,13 +106,13 @@ export function ClassPerformancePanel({ schoolId, canExport }: { schoolId: strin
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Période
           <select
             value={selectedTermId}
             onChange={(e) => setSelectedTermId(e.target.value)}
             disabled={!terms}
-            className="rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">—</option>
             {terms?.map((t) => (
@@ -127,36 +128,36 @@ export function ClassPerformancePanel({ schoolId, canExport }: { schoolId: strin
               type="button"
               onClick={() => void handleExport()}
               disabled={exporting}
-              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               {exporting ? "Génération..." : "Exporter (.xlsx)"}
             </button>
           </div>
         )}
       </div>
-      {error && <p className="text-sm text-red-700">{error}</p>}
-      {exportError && <p className="text-sm text-red-700">{exportError}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+      {exportError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{exportError}</p>}
 
       {selectedClassId && selectedTermId && (
-        <div className="overflow-x-auto rounded border border-slate-200">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Rang</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Élève</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Moyenne</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Rang</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Élève</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Moyenne</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {performance === null ? (
                 <tr>
-                  <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
+                  <td colSpan={3} className="px-3 py-4 text-center text-slate-600">
                     Chargement...
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
+                  <td colSpan={3} className="px-3 py-4 text-center text-slate-600">
                     Aucune moyenne disponible pour cette période.
                   </td>
                 </tr>

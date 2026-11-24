@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ApiError } from "@/lib/api/client";
 import { useAsyncData } from "@/lib/api/useAsyncData";
@@ -30,7 +31,7 @@ function AssessmentTypesPanel({ schoolId, canManage }: { schoolId: string; canMa
     }
   }
 
-  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.isLoading) return <TableSkeleton rows={3} />;
   if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   const items = list.data;
 
@@ -40,29 +41,29 @@ function AssessmentTypesPanel({ schoolId, canManage }: { schoolId: string; canMa
       {list.error && <ErrorRetry message={list.error} onRetry={list.retry} />}
       <ul className="flex flex-col gap-1">
         {items.map((t) => (
-          <li key={t.id} className="rounded border border-slate-200 px-3 py-1.5 text-sm">
+          <li key={t.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             {t.name}
           </li>
         ))}
-        {items.length === 0 && <li className="text-sm text-slate-400">Aucun type d&apos;évaluation.</li>}
+        {items.length === 0 && <li className="text-sm text-slate-600">Aucun type d&apos;évaluation.</li>}
       </ul>
       {canManage && (
-        <form onSubmit={handleCreate} className="flex items-end gap-3 rounded border border-dashed border-slate-300 p-3">
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Nom
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             />
           </label>
-          <button type="submit" disabled={creating} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+          <button type="submit" disabled={creating} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
             {creating ? "Ajout..." : "Ajouter"}
           </button>
         </form>
       )}
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
     </div>
   );
 }
@@ -76,7 +77,7 @@ export default function GradesPage() {
   const canExport = permissions.includes("grades.read");
   const [tab, setTab] = useState<Tab>("Cahier de notes");
 
-  if (!currentSchoolId) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (!currentSchoolId) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-6">
