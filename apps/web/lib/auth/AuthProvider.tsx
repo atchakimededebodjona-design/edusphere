@@ -114,6 +114,24 @@ function loginUnreachable(err: unknown): boolean {
   return err instanceof ApiError && [0, 502, 503, 504].includes(err.status);
 }
 
+// 2026-11-24 (accord de l'exploitant pour modifier ce fichier protégé) — les noms de l'organisation et de
+// l'école ne servent qu'à l'affichage. On ne les demande qu'aux comptes que l'API autorise, au lieu de
+// recevoir un refus 403 silencieux (comptable, caissier, enseignant, parent). Mêmes règles que
+// apps/api/app/core/permissions.py::get_scoped_permission_codes :
+// - `GET /organizations/{id}` (organizations.read, vérifié à l'échelle de l'organisation) : seul un rôle
+//   plateforme ou un rôle de TOUTE cette organisation (school_id nul) compte, jamais un rôle d'une école ;
+// - `GET /schools/{id}` (schools.read, vérifié à l'échelle de l'école) : le rôle dans cette école compte.
+function mayReadOrganization(me: Me, organizationId: string): boolean {
+  return (
+    me.permissions.includes("organizations.read") &&
+    me.roles.some((r) => r.school_id === null && (r.organization_id === null || r.organization_id === organizationId))
+  );
+}
+
+function mayReadSchool(me: Me): boolean {
+  return me.permissions.includes("schools.read");
+}
+
 function formatTenantContextError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Votre session a expiré. Reconnectez-vous pour continuer.";
@@ -358,16 +376,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // `roles` ne porte que des identifiants (jamais de nom) : les objets complets sont
         // récupérés en tâche de fond, uniquement pour l'affichage (sélecteur de contexte) — sans
         // retarder ni conditionner la résolution ci-dessus, déjà terminée.
-        void getOrganization(fastPath.organizationId)
-          .then((org) => {
-            if (!cancelledRef.current) setCurrentOrganization(org);
-          })
-          .catch(() => {});
-        void getSchool(fastPath.schoolId)
-          .then((school) => {
-            if (!cancelledRef.current) setCurrentSchool(school);
-          })
-          .catch(() => {});
+        if (mayReadOrganization(me!, fastPath.organizationId)) {
+          void getOrganization(fastPath.organizationId)
+            .then((org) => {
+              if (!cancelledRef.current) setCurrentOrganization(org);
+            })
+            .catch(() => {});
+        }
+        if (mayReadSchool(me!)) {
+          void getSchool(fastPath.schoolId)
+            .then((school) => {
+              if (!cancelledRef.current) setCurrentSchool(school);
+            })
+            .catch(() => {});
+        }
         return;
       }
 
@@ -386,11 +408,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setOrganizationContextStatus("resolved");
         // Même motif que ci-dessus : le nom de l'organisation n'est jamais nécessaire à la
         // résolution elle-même, seulement à son affichage.
-        void getOrganization(orgIds[0])
-          .then((org) => {
-            if (!cancelledRef.current) setCurrentOrganization(org);
-          })
-          .catch(() => {});
+        if (mayReadOrganization(me!, orgIds[0])) {
+          void getOrganization(orgIds[0])
+            .then((org) => {
+              if (!cancelledRef.current) setCurrentOrganization(org);
+            })
+            .catch(() => {});
+        }
         await resolveSchoolsForOrganization(orgIds[0], roles, cancelledRef);
         return;
       }
