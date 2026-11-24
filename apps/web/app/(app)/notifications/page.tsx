@@ -1,22 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { NotificationItem } from "@/components/notifications/NotificationItem";
+import { Button } from "@/components/ui/Button";
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { Card, EmptyState, PageHeader } from "@/components/ui/Surface";
 import { ApiError } from "@/lib/api/client";
 import { notifications as notificationsClient, type Notification } from "@/lib/notifications/client";
 
-const TYPE_LABELS: Record<string, string> = {
-  ANNOUNCEMENT: "Annonce",
-  REPORT_CARD_PUBLISHED: "Bulletin",
-  PAYMENT_RECORDED: "Paiement",
-  STUDENT_ABSENT: "Absence",
-  FEE_OVERDUE: "Paiement en retard",
-  SUBSCRIPTION_RENEWAL_DUE: "Abonnement à renouveler",
-  SUBSCRIPTION_EXPIRED: "Abonnement expiré",
-  SUBSCRIPTION_INVOICE_DUE: "Facture d'abonnement à régler",
-  SUBSCRIPTION_PAYMENT_CONFIRMED: "Abonnement payé",
-};
-
+// Centre de notifications de l'administration ; la même page sert au parent (/parent/notifications).
 export default function NotificationsPage() {
   const [items, setItems] = useState<Notification[] | null>(null);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
@@ -28,6 +21,7 @@ export default function NotificationsPage() {
       const page = await notificationsClient.list({ limit: 20 });
       setItems(page.items);
       setNextBefore(page.next_before);
+      setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     }
@@ -52,61 +46,67 @@ export default function NotificationsPage() {
   }
 
   async function handleMarkRead(id: string) {
-    const updated = await notificationsClient.markRead(id);
-    setItems((prev) => (prev ?? []).map((n) => (n.id === id ? updated : n)));
+    try {
+      const updated = await notificationsClient.markRead(id);
+      setItems((prev) => (prev ?? []).map((n) => (n.id === id ? updated : n)));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    }
   }
 
   async function handleMarkAllRead() {
-    await notificationsClient.markAllRead();
-    await loadFirstPage();
+    try {
+      await notificationsClient.markAllRead();
+      await loadFirstPage();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    }
   }
 
   if (error && items === null) return <ErrorRetry message={error} onRetry={loadFirstPage} />;
-  if (items === null) return <p className="text-sm text-slate-500">Chargement...</p>;
 
-  const hasUnread = items.some((n) => n.read_at === null);
+  const unreadCount = (items ?? []).filter((n) => n.read_at === null).length;
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Notifications</h1>
-        {hasUnread && (
-          <button type="button" onClick={() => void handleMarkAllRead()} className="text-sm text-slate-600 underline">
-            Tout marquer comme lu
-          </button>
-        )}
-      </div>
+    <div className="flex max-w-3xl flex-col gap-5">
+      <PageHeader
+        title="Notifications"
+        description={
+          items === null
+            ? undefined
+            : unreadCount > 0
+              ? `${unreadCount} non lue${unreadCount > 1 ? "s" : ""}${nextBefore ? " parmi les plus récentes" : ""}.`
+              : "Tout est lu."
+        }
+        actions={
+          unreadCount > 0 && (
+            <Button variant="secondary" icon="checkSquare" onClick={() => void handleMarkAllRead()}>
+              Tout marquer comme lu
+            </Button>
+          )
+        }
+      />
 
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <ErrorRetry message={error} onRetry={loadFirstPage} />}
 
-      <div className="flex flex-col divide-y divide-slate-100 rounded border border-slate-200">
-        {items.map((n) => (
-          <div key={n.id} className={`flex items-start justify-between gap-3 px-4 py-3 ${n.read_at === null ? "bg-slate-50" : ""}`}>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">{TYPE_LABELS[n.type] ?? n.type}</span>
-              <span className="text-sm font-semibold text-slate-900">{n.title}</span>
-              <span className="text-sm text-slate-600">{n.body}</span>
-              <span className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</span>
-            </div>
-            {n.read_at === null && (
-              <button type="button" onClick={() => void handleMarkRead(n.id)} className="shrink-0 text-xs text-slate-700 underline">
-                Marquer lu
-              </button>
-            )}
-          </div>
-        ))}
-        {items.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Aucune notification.</p>}
-      </div>
+      {items === null ? (
+        <TableSkeleton rows={4} />
+      ) : items.length === 0 ? (
+        <EmptyState icon="bell" title="Aucune notification." description="Annonces, bulletins, paiements et absences s'afficheront ici." />
+      ) : (
+        <Card padded={false}>
+          <ul aria-label="Notifications" className="divide-y divide-slate-200">
+            {items.map((n) => (
+              <NotificationItem key={n.id} notification={n} onMarkRead={(id) => void handleMarkRead(id)} />
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {nextBefore && (
-        <button
-          type="button"
-          onClick={() => void handleLoadMore()}
-          disabled={loadingMore}
-          className="w-fit rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-        >
+        <Button variant="secondary" className="self-center" onClick={() => void handleLoadMore()} disabled={loadingMore}>
           {loadingMore ? "Chargement..." : "Charger plus"}
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -30,7 +30,12 @@ export function Modal({
     const previous = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const focusable = panel.current?.querySelector<HTMLElement>("[data-autofocus], button, a[href], input, select, textarea");
+    // Phase 3 (2026-11-24) — `[data-autofocus]` d'abord : dans une seule liste de sélecteurs,
+    // `querySelector` rend le premier élément DANS L'ORDRE DE LA PAGE, donc toujours le bouton
+    // « Fermer » de l'en-tête, jamais le champ ou le bouton désigné.
+    const focusable =
+      panel.current?.querySelector<HTMLElement>("[data-autofocus]") ??
+      panel.current?.querySelector<HTMLElement>("button, a[href], input, select, textarea");
     (focusable ?? panel.current)?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCloseRef.current();

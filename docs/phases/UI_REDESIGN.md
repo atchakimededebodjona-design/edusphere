@@ -18,7 +18,7 @@
 | 0 | Fondations : jetons, polices, icônes, composants de base | Livrée avec la phase 1 |
 | 1 | Enveloppes et navigation, accueil selon le rôle (caisse) | Livrée, validée sur téléphone le 2026-11-23 |
 | 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | Livrée (voir plus bas) |
-| 3 | Écrans de gestion : élèves, frais, paiements, bulletins, annonces, utilisateurs… | À faire |
+| 3 | Écrans de gestion. Lot A : élèves, paiements, frais en retard, utilisateurs, notifications. Lot B : barèmes de frais, fiche élève, bulletins, annonces, école, académique | Lot A livré (voir plus bas), lot B à faire |
 | 4 | Plateforme, partenaire, assistant, réinscriptions, pages publiques | À faire |
 | 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | À faire |
 
@@ -186,6 +186,101 @@ Ils demandent Docker pour créer leurs comptes et la CI ne les lance pas ; ils n
     - aucun refus 403 nouveau.
 - **Non-régression** :
   - enveloppes de la phase 1 : 105 vérifications ;
+  - appel et notes hors connexion : 24 ;
+  - coupure pendant l'envoi : 5 ;
+  - bandeaux du bas : 8 ;
+  - connexion sans internet : 26 ;
+  - base locale : 3 ;
+  - caisse hors connexion et reçu provisoire : 36 ;
+  - consultation hors connexion : 13 ;
+  - proposition de notifications : 9.
+
+## Phase 3, lot A — écrans de gestion (2026-11-24)
+
+**Règle inchangée** : mêmes appels à l'API, mêmes permissions. Seules la présentation et trois confirmations changent.
+
+**Nouvelles briques** (`components/ui/`) :
+- `DataTable` : le tableau commun des écrans de gestion.
+  - Sur ordinateur, c'est un vrai tableau.
+  - Sur téléphone (moins de 640 px), **chaque ligne devient une carte** : le titre en tête, puis les valeurs deux par deux, chacune avec son libellé. Les actions occupent toute la largeur.
+  - Il n'y a qu'une seule structure de tableau, jamais deux copies (tableau et cartes). Les tests et les lecteurs d'écran trouvent donc chaque ligne une seule fois.
+  - Les libellés du téléphone sont écrits par le CSS (`data-label`), pas dans le texte des cellules.
+  - Les rôles ARIA (`table`, `row`, `cell`) sont posés explicitement, parce que certains navigateurs les oublient quand l'affichage d'un tableau change.
+  - Il accepte aussi un panneau ouvert sous une ligne (`after`) et un état vide.
+- `Pager` : pagination précédente / suivante.
+- `TableSkeleton` : lignes grises pendant le premier chargement.
+- `NotificationItem` (`components/notifications/`) : une notification présentée de la même façon pour l'administration, le parent et l'enseignant (type en pastille, date en français, point bleu si non lue).
+- Icônes ajoutées : `chevronLeft`, `search`, `plus`, `download`.
+- `Button` : deux variantes discrètes colorées, `quiet` (bleu) et `quietDanger` (rouge). Ajouter une couleur de texte à `ghost` par `className` ne marchait pas : les deux couleurs Tailwind entraient en conflit et le gris l'emportait.
+- **Corrigé** dans `Modal` : `[data-autofocus]` est maintenant cherché en premier. Avant, `querySelector` avec une seule liste de sélecteurs rendait le premier élément de la page, donc toujours le bouton « Fermer », jamais le champ ou le bouton désigné. Ainsi, une action dangereuse place bien le focus sur « Annuler ».
+
+**Élèves** (`students`) :
+- filtres avec libellés visibles (« Rechercher », « Filtrer par statut », « Filtrer par classe ») ;
+- statuts en pastilles, « Non affecté » mis en évidence ;
+- barre de sélection avec « Modifier en masse » et « Affecter à une classe » ;
+- formulaire « Nouvel élève » avec libellés et confirmation d'ajout ;
+- import et panneaux en masse alignés sur les composants communs ;
+- **corrigé (antérieur)** : chaque lettre tapée dans la recherche remplaçait toute la page par « Chargement... », ce qui faisait perdre le curseur. Maintenant, seule la liste se recharge, et la recherche part 300 ms après la dernière lettre.
+
+**Paiements** (`payments`) :
+- totaux en cartes et montants en francs (« 25 000 FCFA » au lieu de « 25000.00 ») ;
+- modes et statuts en français (« Virement », « Enregistré », « Annulé ») ;
+- motif affiché sur un paiement annulé ;
+- **l'annulation se confirme dans une fenêtre de l'application**, avec le champ « Motif de l'annulation » obligatoire, au lieu de la boîte `window.prompt` du navigateur. Les protections ne changent pas : un seul envoi par paiement, pas de rechargement sur refus, message d'erreur métier ;
+- le reçu s'ouvre comme à la caisse (`openReceipt`), sans blocage de fenêtre surgissante.
+
+**Frais en retard** (`fees/overdue`) :
+- échéances en français, retard en pastille, montant restant formaté ;
+- canaux de relance en pastilles (mêmes libellés prudents qu'avant) ;
+- pagination commune.
+
+**Utilisateurs** (`users`) :
+- photo, nom, email, rôles, statut en pastille ;
+- sélecteur de rôle nommé pour les lecteurs d'écran (« Rôle de NOM ») ;
+- **activer / désactiver et retirer une photo se confirment dans une fenêtre commune**, au lieu de « Confirmer ? Oui / Non » dans la ligne ;
+- panneau photo toujours sous la ligne ;
+- formulaire de création avec libellés. La règle « Parent / Élève réservés à l'administrateur de l'école » est inchangée.
+
+**Notifications** : `(app)/notifications`, aussi utilisée par le parent, et `teacher/notifications` ont la même présentation et des dates en français. Le bouton s'appelle « Marquer comme lue » ; sur téléphone, il passe sous le texte pour lui laisser toute la largeur. « Tout marquer comme lu » se trouve en tête.
+
+**Tests e2e du dépôt alignés** :
+- `payments-cancel` : fenêtre d'annulation, montants « 67 000 », statuts « Enregistré » et « Annulé » ;
+- `audit-logs` : confirmation de désactivation dans la fenêtre.
+
+Ils demandent Docker et la CI ne les lance pas ; ils n'ont pas été exécutés.
+
+## Vérifications de la phase 3, lot A (2026-11-24)
+
+- **Site** : vérification des types, analyse du code, build de production.
+- **Écrans du lot A** : build de production, **vraie API** sur PostgreSQL, Chromium, sur ordinateur (1366 px) et sur téléphone (360 px). Données : 24 élèves dont un sans classe, 23 frais en retard sur deux pages, deux paiements, une annonce. **143 vérifications réussies** :
+  - **élèves** :
+    - en-têtes ;
+    - matricule seul dans sa cellule ;
+    - le curseur reste dans la recherche, qui réduit la liste ;
+    - filtre « Non affectés » ;
+    - sélection, panneau d'affectation ;
+    - ajout d'un élève avec confirmation ;
+  - **paiements** :
+    - totaux et montants en francs, mode et date en français ;
+    - annulation par la fenêtre : curseur dans le motif, confirmation impossible sans motif, Échap ferme sans rien envoyer ;
+    - une seule demande, aucune boîte du navigateur ;
+    - statut « Annulé » et motif affichés, totaux relus ;
+  - **frais en retard** : nombre et pages annoncés, 20 lignes, retard en jours, échéance en français, pagination ;
+  - **utilisateurs** :
+    - désactivation puis réactivation par la fenêtre, avec le focus sur « Annuler » ;
+    - panneau photo ;
+    - sélecteur de rôle nommé ;
+    - « Parent » et « Élève » proposés à l'administrateur ;
+  - **notifications** :
+    - administration, parent et enseignant ;
+    - dates en français ;
+    - « Marquer comme lue » et « Tout marquer comme lu » ;
+    - texte sur toute la largeur sur téléphone ;
+  - **téléphone** : lignes en cartes avec libellés, pas de défilement horizontal, aucun champ ni bouton hors de l'écran ;
+  - **partout** : « Annuler » et « Désactiver » en rouge, aucune erreur JavaScript ou CSP, aucun refus 403 nouveau.
+- **Non-régression** :
+  - écrans du quotidien (phase 2) : 95 ;
+  - enveloppes (phase 1) : 105 ;
   - appel et notes hors connexion : 24 ;
   - coupure pendant l'envoi : 5 ;
   - bandeaux du bas : 8 ;
