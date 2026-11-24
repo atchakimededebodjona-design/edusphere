@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
+import { AuthFrame, authButtonClass, authInputClass, authLabelClass } from "@/components/auth/AuthFrame";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ApiError, resetPassword } from "@/lib/auth/client";
@@ -42,30 +43,36 @@ function ResetPasswordForm() {
       await resetPassword(token, password);
       setStatus("done");
     } catch (err) {
-      setError(err instanceof ApiError ? translatePasswordRefusal(err.message) : "Une erreur est survenue.");
+      // Phase 4 C (2026-11-24) — le refus du jeton arrivait en anglais (« Invalid or expired reset token »).
+      setError(
+        err instanceof ApiError
+          ? err.message.includes("reset token")
+            ? "Ce lien n'est plus valable : il a expiré, a déjà servi ou est incomplet. Demandez un nouveau lien depuis « Mot de passe oublié »."
+            : translatePasswordRefusal(err.message)
+          : "Une erreur est survenue.",
+      );
       setStatus("error");
     }
   }
 
   if (!token) {
     return (
-      <p className="max-w-sm text-center text-sm text-red-700">
-        Ce lien est invalide. Demandez un nouveau lien de réinitialisation.
+      <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        Ce lien est invalide.{" "}
+        <Link href="/forgot-password" className="font-medium underline">
+          Demandez un nouveau lien de réinitialisation.
+        </Link>
       </p>
     );
   }
 
   if (status === "done") {
     return (
-      <div className="flex flex-col items-center gap-4">
-        <p className="max-w-sm text-center text-sm text-slate-600">
+      <div className="flex flex-col gap-4">
+        <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Votre mot de passe a été défini. Vous pouvez maintenant vous connecter.
         </p>
-        <button
-          type="button"
-          onClick={() => router.push("/login")}
-          className="rounded bg-slate-900 px-4 py-2 text-sm text-white"
-        >
+        <button type="button" onClick={() => router.push("/login")} className={authButtonClass}>
           Aller à la connexion
         </button>
       </div>
@@ -73,7 +80,9 @@ function ResetPasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <label className={authLabelClass}>
+        Nouveau mot de passe
       <PasswordInput
         placeholder={`Nouveau mot de passe (${PASSWORD_RULE_HINT})`}
         value={password}
@@ -82,8 +91,11 @@ function ResetPasswordForm() {
         minLength={PASSWORD_MIN_LENGTH}
         maxLength={PASSWORD_MAX_LENGTH}
         autoComplete="new-password"
-        className="rounded border border-slate-300 px-3 py-2"
+        className={authInputClass}
       />
+      </label>
+      <label className={authLabelClass}>
+        Confirmation
       <PasswordInput
         toggleLabel="Afficher la confirmation"
         placeholder="Confirmer le mot de passe"
@@ -93,34 +105,38 @@ function ResetPasswordForm() {
         minLength={PASSWORD_MIN_LENGTH}
         maxLength={PASSWORD_MAX_LENGTH}
         autoComplete="new-password"
-        className="rounded border border-slate-300 px-3 py-2"
+        className={authInputClass}
       />
-      <p className="text-xs text-slate-500">
+      </label>
+      <p className="text-xs text-slate-600">
         Au moins {PASSWORD_MIN_LENGTH} caractères. Une courte phrase facile à retenir convient bien ; évitez les mots de passe
         courants.
       </p>
-      <button
-        type="submit"
-        disabled={status === "loading"}
-        className="rounded bg-slate-900 px-3 py-2 text-white disabled:opacity-50"
-      >
+      <button type="submit" disabled={status === "loading"} className={authButtonClass}>
         {status === "loading" ? "Enregistrement..." : "Définir le mot de passe"}
       </button>
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
     </form>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-50 p-8">
-      <h1 className="text-2xl font-bold text-slate-900">Définir votre mot de passe</h1>
-      <Suspense fallback={<p className="text-sm text-slate-500">Chargement...</p>}>
+    <AuthFrame
+      title="Définir votre mot de passe"
+      footer={
+        <Link href="/login" className="inline-flex min-h-11 items-center text-sm font-medium text-brand-blue hover:underline">
+          Retour à la connexion
+        </Link>
+      }
+    >
+      <Suspense fallback={<p className="text-sm text-slate-600">Chargement...</p>}>
         <ResetPasswordForm />
       </Suspense>
-      <Link href="/login" className="text-sm text-slate-600 underline">
-        Retour à la connexion
-      </Link>
-    </main>
+    </AuthFrame>
   );
 }
