@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { STATE_TONES } from "@/components/subscriptions/tones";
+import { SelectField } from "@/components/ui/Field";
+import { Badge } from "@/components/ui/Surface";
 import { formatDateFR } from "@/lib/format/date";
 import {
   INVOICE_STATUS_LABELS,
@@ -29,23 +32,22 @@ export default function PlatformSubscriptionsPage() {
       reloadKey={reloadKey}
       columns={[
         { header: "École", render: (row) => row.school_name },
-        { header: "État", render: (row) => STATE_LABELS[row.state] },
+        { header: "État", render: (row) => <Badge tone={STATE_TONES[row.state]}>{STATE_LABELS[row.state]}</Badge> },
         { header: "Période en cours", render: (row) => (row.current_period_kind ? PERIOD_KIND_LABELS[row.current_period_kind] : "—") },
         { header: "Couvert jusqu'au", render: (row) => (row.covered_until ? formatDateFR(row.covered_until) : "—") },
         { header: "Trimestre gratuit", render: (row) => (row.has_free_trial ? "Attribué" : "Pas encore") },
         { header: "Facture ouverte", render: (row) => (row.open_invoice_status ? INVOICE_STATUS_LABELS[row.open_invoice_status] : "—") },
-        { header: "Élèves actifs", render: (row) => String(row.active_student_count) },
+        { header: "Élèves actifs", align: "right", render: (row) => String(row.active_student_count) },
       ]}
     >
-      <label className="flex items-center gap-2 text-sm text-slate-700">
-        État
-        <select
+      <div className="w-full sm:max-w-xs">
+        <SelectField
+          label="État"
           value={state}
           onChange={(e) => {
             setState(e.target.value as SubscriptionState | "");
             setReloadKey((k) => k + 1);
           }}
-          className="rounded border border-slate-300 px-2 py-1"
         >
           <option value="">Tous</option>
           {STATES.map((code) => (
@@ -53,8 +55,8 @@ export default function PlatformSubscriptionsPage() {
               {STATE_LABELS[code]}
             </option>
           ))}
-        </select>
-      </label>
+        </SelectField>
+      </div>
     </PlatformListPage>
   );
 }

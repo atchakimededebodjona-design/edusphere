@@ -19,7 +19,7 @@
 | 1 | Enveloppes et navigation, accueil selon le rôle (caisse) | Livrée, validée sur téléphone le 2026-11-23 |
 | 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | Livrée (voir plus bas) |
 | 3 | Écrans de gestion. Lot A : élèves, paiements, frais en retard, utilisateurs, notifications. Lot B : barèmes de frais, fiche élève, bulletins, annonces, école, académique | Lots A et B livrés (voir plus bas) |
-| 4 | Plateforme, partenaire, assistant, réinscriptions, pages publiques | À faire |
+| 4 | A : plateforme et partenaire. B : assistant, réinscriptions, journal d'audit. C : pages publiques et mot de passe | A livrée (voir plus bas), B et C à faire |
 | 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | À faire |
 
 ## Phase 0 — fondations
@@ -382,3 +382,41 @@ Ils demandent Docker et la CI ne les lance pas ; ils n'ont pas été exécutés.
     - caisse : 36 ;
     - consultation : 13 ;
     - notifications : 9.
+
+## Phase 4, partie A — plateforme et partenaire (2026-11-24)
+
+**Règle inchangée** : mêmes appels à l'API, mêmes permissions, mêmes en-têtes de colonnes et même texte dans les cellules. Les tests e2e lisent ces textes exacts.
+
+- **`PlatformListPage`**, la liste paginée partagée par les organisations, les écoles, les partenaires, les abonnements et les factures :
+  - elle repose sur le tableau commun (cartes sur téléphone) ;
+  - elle utilise la pagination commune, un état vide et un squelette de chargement ;
+  - chaque colonne peut préciser sa place sur téléphone et son alignement.
+- **Pastilles** : les états d'abonnement, de facture, de paiement en ligne et de commission ont une couleur (`components/subscriptions/tones.ts`). Les libellés ne changent pas.
+- **Factures d'abonnement** : « Chiffrer le devis », « Enregistrer le paiement » et « Annuler » s'ouvrent dans la fenêtre commune (`Modal`), au lieu d'un panneau ouvert au-dessus du tableau. La logique et les contrôles sont les mêmes, et le curseur se place dans le premier champ à remplir. Le reçu s'ouvre comme à la caisse.
+- **Partenaires** :
+  - le formulaire a des libellés visibles, et ses textes indicatifs ne changent pas ;
+  - le statut s'affiche en pastille ;
+  - le taux de commission se modifie avec les boutons communs, dans un champ nommé (« Taux de commission de … »).
+- **Comptes de la plateforme** : tableau commun, avec le repère `account-<id>` gardé et les statuts en pastilles (« Actif », « Désactivé », « Supprimé le … »).
+- **Espace partenaire** :
+  - « Mes écoles », « Comptes » et « Mes commissions » passent au tableau commun ;
+  - les rôles s'affichent en français ;
+  - les commissions ont des cartes d'indicateurs.
+- **Commissions de la plateforme**, **grille tarifaire**, **inscription d'une organisation** : styles remplacés par ceux du système commun (substitution exacte des classes). La grille garde son tableau à double entrée, qui défile sur le côté.
+
+## Vérifications de la phase 4, partie A (2026-11-24)
+
+- **Site** : vérification des types, analyse du code, build de production.
+- **Plateforme et partenaire** : build de production, **vraie API** sur PostgreSQL, Chromium, sur ordinateur et sur téléphone. Données : grille active, école d'un partenaire avec deux factures payées (donc des commissions), école directe avec une facture ouverte. **100 vérifications réussies** :
+  - en-têtes et texte exact des cellules inchangés (organisations, écoles, « Mes écoles ») ;
+  - factures :
+    - « Annuler » et « Enregistrer le paiement » ouvrent la fenêtre, avec le curseur dans le motif ;
+    - Échap la ferme ;
+    - le montant est affiché ;
+    - « Reçu » est présent sur une facture payée ;
+  - partenaires : taux de commission modifié dans un champ nommé, création d'un partenaire par ses textes indicatifs, libellés visibles ;
+  - comptes : repère `account-<id>` et statuts en pastilles ;
+  - espace partenaire : rôles en français, commissions « À verser » ;
+  - téléphone : lignes en cartes, pas de défilement horizontal, aucun champ ni bouton hors de l'écran ;
+  - partout : aucun texte en gris clair, aucune erreur JavaScript ou CSP, aucun refus 403 nouveau.
+- **Non-régression** : phase 2 (95, dont les tableaux de bord plateforme et partenaire) et phase 1 (105).

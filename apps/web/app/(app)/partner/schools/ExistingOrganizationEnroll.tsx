@@ -16,10 +16,10 @@ export function ExistingOrganizationEnroll({ onEnrolled }: { onEnrolled: () => v
   const [selectedId, setSelectedId] = useState<string>("");
 
   if (error) return <ErrorRetry message={error} onRetry={retry} />;
-  if (isLoading || !data) return <p className="text-sm text-slate-400">Chargement de vos organisations...</p>;
+  if (isLoading || !data) return <p className="text-sm text-slate-600">Chargement de vos organisations...</p>;
   if (data.length === 0) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-slate-600">
         Aucune organisation dans votre périmètre : inscrivez d&apos;abord une école avec « Nouvelle organisation ».
       </p>
     );
@@ -27,11 +27,11 @@ export function ExistingOrganizationEnroll({ onEnrolled }: { onEnrolled: () => v
 
   const selected = data.find((org) => org.organization_id === selectedId) ?? null;
   return (
-    <div className="flex flex-col gap-3 rounded border border-slate-200 p-4">
+    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
       <label className="flex flex-col gap-1 text-sm text-slate-700">
         Organisation
         <select
-          className="w-full max-w-md rounded border border-slate-300 px-3 py-2 text-sm"
+          className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 max-w-md"
           value={selectedId}
           onChange={(e) => setSelectedId(e.target.value)}
         >

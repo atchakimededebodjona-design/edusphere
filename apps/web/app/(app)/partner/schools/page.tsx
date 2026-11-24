@@ -1,5 +1,7 @@
 "use client";
 
+import { DataTable, TableSkeleton } from "@/components/ui/DataTable";
+import { Badge, EmptyState } from "@/components/ui/Surface";
 import { useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { PasswordInput } from "@/components/ui/PasswordInput";
@@ -104,7 +106,7 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
 
   const input = "rounded border border-slate-300 px-3 py-2 text-sm";
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded border border-slate-200 p-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
       <h2 className="font-semibold text-slate-900">Inscrire une nouvelle école</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <input className={input} placeholder="Nom de l'organisation" value={form.orgName} onChange={set("orgName")} />
@@ -122,7 +124,7 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
         />
       </div>
       {error && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
       )}
@@ -131,7 +133,7 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
         <button
           type="submit"
           disabled={submitting}
-          className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
         >
           {submitting ? "Inscription..." : "Inscrire l'école"}
         </button>
@@ -172,36 +174,28 @@ export default function PartnerSchoolsPage() {
       </fieldset>
       {mode === "new" ? <EnrollSchoolForm onEnrolled={retry} /> : <ExistingOrganizationEnroll onEnrolled={retry} />}
       {error && <ErrorRetry message={error} onRetry={retry} />}
-      {isLoading && !error && <p className="text-sm text-slate-400">Chargement...</p>}
-      {data &&
-        (data.length === 0 ? (
-          <p className="text-sm text-slate-500">Aucune école inscrite pour le moment.</p>
-        ) : (
-          <div className="overflow-x-auto rounded border border-slate-200">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">École</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Organisation</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Élèves</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Inscrite le</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Statut</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.map((school) => (
-                  <tr key={school.school_id}>
-                    <td className="px-3 py-2 text-slate-700">{school.school_name}</td>
-                    <td className="px-3 py-2 text-slate-700">{school.organization_name}</td>
-                    <td className="px-3 py-2 text-slate-700">{school.student_count}</td>
-                    <td className="px-3 py-2 text-slate-700">{new Date(school.enrolled_at).toLocaleDateString("fr-FR")}</td>
-                    <td className="px-3 py-2 text-slate-700">{school.status === "ACTIVE" ? "Active" : school.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
+      {isLoading && !error && <TableSkeleton />}
+      {data && (
+        <DataTable
+          caption="Mes écoles"
+          rows={data}
+          rowKey={(school) => school.school_id}
+          empty={<EmptyState icon="school" title="Aucune école inscrite pour le moment." />}
+          columns={[
+            { key: "school", header: "École", mobile: "title", cell: (school) => school.school_name },
+            { key: "org", header: "Organisation", cell: (school) => school.organization_name },
+            { key: "students", header: "Élèves", align: "right", cell: (school) => String(school.student_count) },
+            { key: "enrolled", header: "Inscrite le", cell: (school) => new Date(school.enrolled_at).toLocaleDateString("fr-FR") },
+            {
+              key: "status",
+              header: "Statut",
+              cell: (school) => (
+                <Badge tone={school.status === "ACTIVE" ? "success" : "neutral"}>{school.status === "ACTIVE" ? "Active" : school.status}</Badge>
+              ),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

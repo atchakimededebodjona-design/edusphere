@@ -21,8 +21,8 @@ export default function PlatformSchoolsPage() {
           header: "Source",
           render: (school) => (school.acquisition_source ? SOURCE_LABELS[school.acquisition_source] : "—"),
         },
-        { header: "Élèves", render: (school) => String(school.student_count) },
-        { header: "Élèves actifs", render: (school) => String(school.active_student_count) },
+        { header: "Élèves", align: "right", render: (school) => String(school.student_count) },
+        { header: "Élèves actifs", align: "right", render: (school) => String(school.active_student_count) },
         { header: "Créée le", render: (school) => formatDate(school.created_at) },
       ]}
     />

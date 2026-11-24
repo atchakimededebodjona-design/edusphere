@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { DataTable, Pager, TableSkeleton, type Column as TableColumn } from "@/components/ui/DataTable";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { EmptyState, PageHeader } from "@/components/ui/Surface";
 import { useAsyncData } from "@/lib/api/useAsyncData";
 import type { Page } from "@/lib/platform/client";
 
@@ -10,6 +12,9 @@ const PAGE_SIZE = 20;
 export type Column<T> = {
   header: string;
   render: (row: T) => ReactNode;
+  /** Place sur téléphone (voir `DataTable`) ; par défaut, la première colonne sert de titre de carte. */
+  mobile?: TableColumn<T>["mobile"];
+  align?: "left" | "right";
 };
 
 export function formatDate(iso: string): string {
@@ -19,7 +24,10 @@ export function formatDate(iso: string): string {
 /** Liste plateforme paginée en lecture seule (PR #17) — métadonnées uniquement. Les données
  * affichées sont déjà filtrées par l'API (permission `platform.*` vérifiée côté serveur) : ce
  * composant n'applique aucun contrôle d'accès lui-même. `reloadKey` force un rechargement (ex.
- * après création d'un partenaire). */
+ * après création d'un partenaire).
+ *
+ * Refonte, phase 4 A (2026-11-24) : tableau commun (cartes sur téléphone), pagination commune, état
+ * vide et squelette de chargement. Mêmes colonnes, mêmes en-têtes, même texte dans les cellules. */
 export function PlatformListPage<T>({
   title,
   description,
@@ -28,6 +36,8 @@ export function PlatformListPage<T>({
   rowKey,
   reloadKey = 0,
   children,
+  emptyTitle = "Aucun élément.",
+  actions,
 }: {
   title: string;
   description: string;
@@ -36,6 +46,8 @@ export function PlatformListPage<T>({
   rowKey: (row: T) => string;
   reloadKey?: number;
   children?: ReactNode;
+  emptyTitle?: string;
+  actions?: ReactNode;
 }) {
   const [page, setPage] = useState(1);
   const { data, error, isLoading, isRefreshing, retry } = useAsyncData(
@@ -43,75 +55,37 @@ export function PlatformListPage<T>({
     [page, reloadKey],
   );
 
+  const tableColumns: TableColumn<T>[] = columns.map((column, index) => ({
+    key: column.header,
+    header: column.header,
+    align: column.align,
+    mobile: column.mobile ?? (index === 0 ? "title" : undefined),
+    cell: column.render,
+  }));
+
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
-        <p className="text-sm text-slate-600">{description}</p>
-      </div>
+      <PageHeader title={title} description={description} actions={actions} />
 
       {children}
 
       {error && <ErrorRetry message={error} onRetry={retry} />}
-      {isLoading && !error && <p className="text-sm text-slate-400">Chargement...</p>}
+      {isLoading && !error && <TableSkeleton />}
 
       {data && (
         <>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-600" aria-live="polite">
             {data.total} résultat{data.total > 1 ? "s" : ""}
             {isRefreshing && " — actualisation..."}
           </p>
-          {data.items.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucun élément.</p>
-          ) : (
-            <div className="overflow-x-auto rounded border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    {columns.map((column) => (
-                      <th key={column.header} className="px-3 py-2 text-left font-medium text-slate-600">
-                        {column.header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {data.items.map((row) => (
-                    <tr key={rowKey(row)}>
-                      {columns.map((column) => (
-                        <td key={column.header} className="px-3 py-2 text-slate-700">
-                          {column.render(row)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {data.total_pages > 1 && (
-            <div className="flex items-center gap-3 text-sm">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
-              >
-                Précédent
-              </button>
-              <span className="text-slate-600">
-                Page {data.page} / {data.total_pages}
-              </span>
-              <button
-                type="button"
-                disabled={page >= data.total_pages}
-                onClick={() => setPage((p) => p + 1)}
-                className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
-              >
-                Suivant
-              </button>
-            </div>
-          )}
+          <DataTable
+            caption={title}
+            columns={tableColumns}
+            rows={data.items}
+            rowKey={rowKey}
+            empty={<EmptyState title={emptyTitle} />}
+          />
+          <Pager page={data.page} totalPages={data.total_pages} onPage={(next) => setPage(Math.max(1, next))} />
         </>
       )}
     </div>

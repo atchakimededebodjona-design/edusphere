@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { TextField, controlClass } from "@/components/ui/Field";
+import { Alert, Badge, Card } from "@/components/ui/Surface";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
 import { platformCommissions } from "@/lib/commissions/client";
@@ -51,31 +54,32 @@ function CreatePartnerForm({ onCreated }: { onCreated: () => void }) {
     }
   }
 
-  const input = "rounded border border-slate-300 px-3 py-2 text-sm";
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded border border-slate-200 p-4">
-      <h2 className="font-semibold text-slate-900">Nouveau partenaire</h2>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <input className={input} placeholder="Nom du partenaire" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-        <input className={input} placeholder="Nom du contact" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        <input className={input} type="email" placeholder="Email du contact" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <input className={input} placeholder="Téléphone (optionnel)" value={phone} onChange={(e) => setPhone(e.target.value)} />
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-red-700">
-          {error}
-        </p>
-      )}
-      {success && <p className="text-sm text-emerald-700">{success}</p>}
-      <div>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-        >
+    <form onSubmit={handleSubmit}>
+      <Card className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Nouveau partenaire</h2>
+          <p className="text-sm text-slate-600">Le contact reçoit par email un lien pour choisir son mot de passe.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <TextField label="Nom du partenaire" placeholder="Nom du partenaire" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+          <TextField label="Nom du contact" placeholder="Nom du contact" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <TextField label="Email du contact" type="email" placeholder="Email du contact" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <TextField
+            label="Téléphone"
+            type="tel"
+            placeholder="Téléphone (optionnel)"
+            hint="Facultatif"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        </div>
+        {error && <Alert tone="danger">{error}</Alert>}
+        {success && <Alert tone="success">{success}</Alert>}
+        <Button type="submit" icon="plus" disabled={submitting} className="self-start">
           {submitting ? "Création..." : "Créer le partenaire"}
-        </button>
-      </div>
+        </Button>
+      </Card>
     </form>
   );
 }
@@ -109,27 +113,37 @@ function CommissionRateCell({ partner, canManage, onSaved }: { partner: Platform
 
   if (!editing) {
     return (
-      <span className="flex items-center gap-2">
-        {Number(partner.commission_rate)} %
+      <span className="flex flex-wrap items-center gap-1">
+        <span className="tabular-nums">{Number(partner.commission_rate)} %</span>
         {canManage && (
-          <button type="button" onClick={() => setEditing(true)} className="text-sky-700 underline">
+          <Button variant="quiet" size="sm" onClick={() => setEditing(true)}>
             Modifier
-          </button>
+          </Button>
         )}
       </span>
     );
   }
   return (
     <span className="flex flex-wrap items-center gap-2">
-      <input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" className="w-16 rounded border border-slate-300 px-2 py-1" />
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        inputMode="decimal"
+        aria-label={`Taux de commission de ${partner.display_name}`}
+        className={`${controlClass} !min-h-9 !w-20`}
+      />
       %
-      <button type="button" disabled={saving} onClick={save} className="text-emerald-700 underline disabled:opacity-50">
+      <Button size="sm" disabled={saving} onClick={save}>
         Enregistrer
-      </button>
-      <button type="button" onClick={() => setEditing(false)} className="text-slate-600 underline">
+      </Button>
+      <Button variant="secondary" size="sm" onClick={() => setEditing(false)}>
         Annuler
-      </button>
-      {error && <span className="text-xs text-red-700">{error}</span>}
+      </Button>
+      {error && (
+        <span role="alert" className="w-full text-xs font-medium text-red-700">
+          {error}
+        </span>
+      )}
     </span>
   );
 }
@@ -147,9 +161,12 @@ export default function PlatformPartnersPage() {
       reloadKey={reloadKey}
       columns={[
         { header: "Partenaire", render: (partner) => partner.display_name },
-        { header: "Email", render: (partner) => partner.email ?? "—" },
-        { header: "Statut", render: (partner) => (partner.status === "ACTIVE" ? "Actif" : "Suspendu") },
-        { header: "Écoles inscrites", render: (partner) => String(partner.enrollment_count) },
+        { header: "Email", mobile: "full", render: (partner) => <span className="break-all">{partner.email ?? "—"}</span> },
+        {
+          header: "Statut",
+          render: (partner) => <Badge tone={partner.status === "ACTIVE" ? "success" : "neutral"}>{partner.status === "ACTIVE" ? "Actif" : "Suspendu"}</Badge>,
+        },
+        { header: "Écoles inscrites", align: "right", render: (partner) => String(partner.enrollment_count) },
         {
           header: "Commission",
           render: (partner) => (

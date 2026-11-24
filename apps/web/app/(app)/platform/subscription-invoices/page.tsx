@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { INVOICE_STATUS_TONES } from "@/components/subscriptions/tones";
+import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Dialog";
+import { SelectField, TextField } from "@/components/ui/Field";
+import { Alert, Badge } from "@/components/ui/Surface";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
 import { formatApiAmount } from "@/lib/fees/allocation";
@@ -37,7 +42,7 @@ function onlinePaymentCell(invoice: PlatformInvoice): ReactNode {
   const anomalies = online.filter((payment) => payment.status === "ANOMALY").length;
   const last = online[online.length - 1];
   return (
-    <span className={anomalies ? "font-semibold text-red-700" : undefined}>
+    <span className={anomalies ? "font-semibold text-red-700" : "text-slate-800"}>
       {anomalies ? `${anomalies} anomalie${anomalies > 1 ? "s" : ""} à traiter` : PAYMENT_STATUS_LABELS[last.status]}
       {last.payer_phone_last4 ? ` (•• ${last.payer_phone_last4})` : ""}
     </span>
@@ -88,52 +93,59 @@ export default function PlatformSubscriptionInvoicesPage() {
     const buttons: ReactNode[] = [];
     if (invoice.status === "QUOTE_REQUIRED") {
       buttons.push(
-        <button key="quote" type="button" onClick={() => open({ kind: "quote", invoice, amount: "" })} className="text-sky-700 underline">
+        <Button key="quote" variant="quiet" size="sm" onClick={() => open({ kind: "quote", invoice, amount: "" })}>
           Chiffrer le devis
-        </button>,
+        </Button>,
       );
     }
     if (invoice.status === "ISSUED") {
       buttons.push(
-        <button
+        <Button
           key="pay"
-          type="button"
+          variant="quiet"
+          size="sm"
           onClick={() =>
             open({ kind: "pay", invoice, method: "BANK_TRANSFER", reference: "", key: platformSubscriptions.newIdempotencyKey() })
           }
-          className="text-emerald-700 underline"
         >
           Enregistrer le paiement
-        </button>,
+        </Button>,
       );
     }
     if (invoice.status === "PAID") {
       buttons.push(
-        <button
+        <Button
           key="receipt"
-          type="button"
+          variant="secondary"
+          size="sm"
+          icon="download"
           onClick={async () => {
             setActionError(null);
+            // Onglet ouvert AVANT l'appel réseau (geste encore actif : pas de blocage des fenêtres
+            // surgissantes sur téléphone), puis dirigé vers le reçu — comme à la caisse.
+            const tab = window.open("", "_blank");
             try {
-              window.open(await platformSubscriptions.receiptBlobUrl(invoice.id), "_blank", "noopener");
+              const url = await platformSubscriptions.receiptBlobUrl(invoice.id);
+              if (tab) tab.location.href = url;
+              else window.open(url, "_blank", "noopener");
             } catch (err) {
+              tab?.close();
               setActionError(toErrorMessage(err));
             }
           }}
-          className="text-sky-700 underline"
         >
           Reçu
-        </button>,
+        </Button>,
       );
     }
     if (invoice.status === "ISSUED" || invoice.status === "QUOTE_REQUIRED") {
       buttons.push(
-        <button key="cancel" type="button" onClick={() => open({ kind: "cancel", invoice, reason: "" })} className="text-red-700 underline">
+        <Button key="cancel" variant="quietDanger" size="sm" onClick={() => open({ kind: "cancel", invoice, reason: "" })}>
           Annuler
-        </button>,
+        </Button>,
       );
     }
-    return buttons.length ? <div className="flex flex-wrap gap-2">{buttons}</div> : "—";
+    return buttons.length ? <div className="flex flex-wrap gap-2 max-sm:-ml-2">{buttons}</div> : "—";
   }
 
   return (
@@ -147,30 +159,33 @@ export default function PlatformSubscriptionInvoicesPage() {
         { header: "Numéro", render: (invoice) => invoice.number ?? "Devis" },
         { header: "École", render: (invoice) => invoice.school_name },
         { header: "Durée", render: (invoice) => periodLabel(invoice.period_months) },
-        { header: "Effectif", render: (invoice) => String(invoice.student_count) },
+        { header: "Effectif", align: "right", render: (invoice) => String(invoice.student_count) },
         {
           header: "Montant",
+          align: "right",
           render: (invoice) => (invoice.total_amount ? formatApiAmount(invoice.total_amount, invoice.currency) : "—"),
         },
-        { header: "Statut", render: (invoice) => INVOICE_STATUS_LABELS[invoice.status] },
+        {
+          header: "Statut",
+          render: (invoice) => <Badge tone={INVOICE_STATUS_TONES[invoice.status]}>{INVOICE_STATUS_LABELS[invoice.status]}</Badge>,
+        },
         { header: "Mobile Money", render: onlinePaymentCell },
         {
           header: "Période",
           render: (invoice) =>
             invoice.period ? `${formatDateFR(invoice.period.starts_on)} → ${formatDateFR(invoice.period.ends_on)}` : "—",
         },
-        { header: "Actions", render: actionsFor },
+        { header: "Actions", mobile: "full", render: actionsFor },
       ]}
     >
-      <label className="flex items-center gap-2 text-sm text-slate-700">
-        Statut
-        <select
+      <div className="w-full sm:max-w-xs">
+        <SelectField
+          label="Statut"
           value={status}
           onChange={(e) => {
             setStatus(e.target.value as InvoiceStatus | "");
             setReloadKey((k) => k + 1);
           }}
-          className="rounded border border-slate-300 px-2 py-1"
         >
           <option value="">Tous</option>
           {STATUSES.map((code) => (
@@ -178,86 +193,88 @@ export default function PlatformSubscriptionInvoicesPage() {
               {INVOICE_STATUS_LABELS[code]}
             </option>
           ))}
-        </select>
-      </label>
+        </SelectField>
+      </div>
 
-      {actionError && !action && <p className="text-sm text-red-700">{actionError}</p>}
+      {actionError && !action && <Alert tone="danger">{actionError}</Alert>}
 
-      {action && (
-        <section className="flex flex-col gap-3 rounded border border-slate-300 bg-white p-4 text-sm">
-          <p className="font-medium text-slate-900">
-            {action.invoice.school_name} — {action.invoice.number ?? "devis"} ({periodLabel(action.invoice.period_months)},{" "}
-            {action.invoice.student_count} élèves)
-          </p>
-          {action.kind === "quote" && (
-            <label className="flex flex-col gap-1">
-              Montant du devis (FCFA entiers)
-              <input
+      {/* Phase 4 A (2026-11-24) — l'action se fait dans la fenêtre commune, à côté de la facture choisie,
+          au lieu d'un panneau ouvert au-dessus du tableau. Même logique et mêmes contrôles qu'avant. */}
+      <Modal
+        open={action !== null}
+        onClose={() => {
+          if (!busy) setAction(null);
+        }}
+        title={action?.kind === "quote" ? "Chiffrer le devis" : action?.kind === "pay" ? "Enregistrer le paiement" : "Annuler la facture"}
+      >
+        {action && (
+          <form
+            className="flex flex-col gap-4 text-sm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            <p className="font-medium text-slate-900">
+              {action.invoice.school_name} — {action.invoice.number ?? "devis"} ({periodLabel(action.invoice.period_months)},{" "}
+              {action.invoice.student_count} élèves)
+            </p>
+            {action.kind === "quote" && (
+              <TextField
+                label="Montant du devis (FCFA entiers)"
                 inputMode="numeric"
                 value={action.amount}
+                data-autofocus
                 onChange={(e) => setAction({ ...action, amount: e.target.value.replace(/[^\d]/g, "") })}
-                className="w-48 rounded border border-slate-300 px-2 py-1"
               />
-            </label>
-          )}
-          {action.kind === "pay" && (
-            <>
-              <p>
-                Montant reçu : <strong>{formatApiAmount(action.invoice.total_amount ?? "0", action.invoice.currency)}</strong>{" "}
-                (montant exact de la facture).
-              </p>
-              <label className="flex flex-col gap-1">
-                Moyen de paiement
-                <select
+            )}
+            {action.kind === "pay" && (
+              <>
+                <p className="text-slate-700">
+                  Montant reçu : <strong>{formatApiAmount(action.invoice.total_amount ?? "0", action.invoice.currency)}</strong>{" "}
+                  (montant exact de la facture).
+                </p>
+                <SelectField
+                  label="Moyen de paiement"
                   value={action.method}
                   onChange={(e) => setAction({ ...action, method: e.target.value as ManualPaymentMethod })}
-                  className="w-56 rounded border border-slate-300 px-2 py-1"
                 >
                   {METHODS.map((method) => (
                     <option key={method} value={method}>
                       {MANUAL_METHOD_LABELS[method]}
                     </option>
                   ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1">
-                Référence (n° de virement, de transaction…)
-                <input
+                </SelectField>
+                <TextField
+                  label="Référence (n° de virement, de transaction…)"
                   value={action.reference}
                   maxLength={255}
+                  data-autofocus
                   onChange={(e) => setAction({ ...action, reference: e.target.value })}
-                  className="w-72 rounded border border-slate-300 px-2 py-1"
                 />
-              </label>
-            </>
-          )}
-          {action.kind === "cancel" && (
-            <label className="flex flex-col gap-1">
-              Motif de l&apos;annulation
-              <input
+              </>
+            )}
+            {action.kind === "cancel" && (
+              <TextField
+                label="Motif de l'annulation"
                 value={action.reason}
                 maxLength={500}
+                data-autofocus
                 onChange={(e) => setAction({ ...action, reason: e.target.value })}
-                className="w-96 max-w-full rounded border border-slate-300 px-2 py-1"
               />
-            </label>
-          )}
-          {actionError && <p className="text-red-700">{actionError}</p>}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={submit}
-              className="rounded bg-slate-900 px-3 py-2 font-medium text-white disabled:opacity-50"
-            >
-              Confirmer
-            </button>
-            <button type="button" disabled={busy} onClick={() => setAction(null)} className="rounded border border-slate-300 px-3 py-2">
-              Fermer
-            </button>
-          </div>
-        </section>
-      )}
+            )}
+            {actionError && <Alert tone="danger">{actionError}</Alert>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="secondary" disabled={busy} onClick={() => setAction(null)}>
+                Fermer
+              </Button>
+              <Button type="submit" variant={action.kind === "cancel" ? "danger" : "primary"} disabled={busy}>
+                {busy ? "Un instant..." : "Confirmer"}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </PlatformListPage>
   );
 }
