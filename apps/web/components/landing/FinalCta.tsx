@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ScrollReveal } from "@/components/landing/ScrollReveal";
-import { MessageSquareIcon, PhoneIcon } from "@/components/landing/icons";
-import { CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
+import { MailIcon, MessageSquareIcon, PhoneIcon } from "@/components/landing/icons";
+import { CONTACT_EMAIL, CONTACT_EMAIL_LINK, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
 
 export function FinalCta() {
   return (
@@ -14,8 +14,8 @@ export function FinalCta() {
         <ScrollReveal>
           <h2 className="text-3xl font-bold text-white sm:text-4xl">Prêt à connecter votre établissement ?</h2>
           <p className="mt-4 text-lg text-slate-300">
-            Écrivez-nous sur WhatsApp ou appelez-nous : nous créons l&apos;espace de votre école et répondons à vos
-            questions. Le premier trimestre est offert.
+            Écrivez-nous sur WhatsApp ou par e-mail, ou appelez-nous : nous créons l&apos;espace de votre école et
+            répondons à vos questions. Le premier trimestre est offert.
           </p>
 
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
@@ -36,6 +36,14 @@ export function FinalCta() {
               Appeler le {CONTACT_PHONE_DISPLAY}
             </a>
           </div>
+
+          <a
+            href={CONTACT_EMAIL_LINK}
+            className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 break-all text-sm font-semibold text-white underline-offset-4 hover:underline"
+          >
+            <MailIcon className="h-5 w-5 shrink-0" />
+            {CONTACT_EMAIL}
+          </a>
 
           <p className="mt-6 text-sm text-slate-400">
             Déjà client ?{" "}

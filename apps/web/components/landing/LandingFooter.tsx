@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
-import { CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
+import { CONTACT_EMAIL, CONTACT_EMAIL_LINK, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
 
 // Aucun lien social : aucun compte social réel n'existe encore pour ce projet — mieux vaut n'en
-// afficher aucun que d'inventer une URL. Seuls contacts publics : WhatsApp et appel (2026-11-16).
+// afficher aucun que d'inventer une URL. Contacts publics : WhatsApp et appel (2026-11-16), e-mail (2026-11-24).
 const COLUMNS = [
   {
     title: "Produit",
@@ -26,6 +26,7 @@ const COLUMNS = [
     links: [
       { label: "WhatsApp", href: whatsappLink() },
       { label: CONTACT_PHONE_DISPLAY, href: CONTACT_PHONE_LINK },
+      { label: CONTACT_EMAIL, href: CONTACT_EMAIL_LINK },
     ],
   },
 ];
@@ -65,7 +66,7 @@ export function LandingFooter() {
                         {link.label}
                       </Link>
                     ) : (
-                      <a href={link.href} className="text-sm text-slate-500 transition hover:text-brand-blue">
+                      <a href={link.href} className="break-all text-sm text-slate-500 transition hover:text-brand-blue">
                         {link.label}
                       </a>
                     )}
