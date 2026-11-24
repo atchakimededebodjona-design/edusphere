@@ -102,8 +102,13 @@ async def test_rate_limit_isolated_between_accounts(client: AsyncClient) -> None
     assert ok_b.status_code == 200
 
 
-# --- 8 — absence de fuite d'information (compte réel vs inexistant : réponse identique) --------
-async def test_no_account_existence_leak_via_rate_limit(client: AsyncClient) -> None:
+# --- 8 — compte réel vs inexistant : même statut et même comptage ------------------------------
+# 2026-11-24 — le MESSAGE dit désormais si le compte existe (« Compte inexistant » contre « Mot de
+# passe incorrect », choix produit : voir app/modules/auth/service.py). Le statut, lui, reste 401
+# dans les deux cas, pour que le comptage des échecs reste le même.
+async def test_real_and_unknown_account_get_the_same_status(client: AsyncClient) -> None:
+    from app.modules.auth.service import UNKNOWN_ACCOUNT_DETAIL, WRONG_PASSWORD_DETAIL
+
     data = await register_school(client, "ratelimitnoleak")
     real_email = data["user"]["email"]
     fake_email = unique_email("doesnotexist2")
@@ -113,7 +118,8 @@ async def test_no_account_existence_leak_via_rate_limit(client: AsyncClient) -> 
     real_response = await client.post("/api/v1/auth/login", json={"email": real_email, "password": "wrong-password"})
     fake_response = await client.post("/api/v1/auth/login", json={"email": fake_email, "password": "wrong-password"})
     assert real_response.status_code == fake_response.status_code == 401
-    assert real_response.json()["detail"] == fake_response.json()["detail"]
+    assert real_response.json()["detail"] == WRONG_PASSWORD_DETAIL
+    assert fake_response.json()["detail"] == UNKNOWN_ACCOUNT_DETAIL
 
 
 # --- Régression : succès normal réinitialise le compteur ---------------------------------------

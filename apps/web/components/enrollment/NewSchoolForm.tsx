@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ApiError } from "@/lib/api/client";
 import { passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
 import type { SchoolAddPayload, SchoolAdded } from "@/lib/platform/client";
@@ -217,9 +218,8 @@ export function NewSchoolForm({
           <>
             <label className="flex flex-col gap-1 text-sm text-slate-700">
               Mot de passe initial de l&apos;administrateur
-              <input
+              <PasswordInput
                 className={input}
-                type="password"
                 autoComplete="new-password"
                 value={form.adminPassword}
                 onChange={set("adminPassword")}
@@ -227,9 +227,9 @@ export function NewSchoolForm({
             </label>
             <label className="flex flex-col gap-1 text-sm text-slate-700">
               Confirmation du mot de passe de l&apos;administrateur
-              <input
+              <PasswordInput
+                toggleLabel="Afficher la confirmation"
                 className={input}
-                type="password"
                 autoComplete="new-password"
                 value={form.adminPasswordConfirm}
                 onChange={set("adminPasswordConfirm")}

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ApiError } from "@/lib/api/client";
 import { PASSWORD_MIN_LENGTH, passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
 import {
@@ -296,8 +297,7 @@ export function OrganizationRegistrationForm() {
           </Field>
           <span className="hidden sm:block" aria-hidden="true" />
           <Field label="Mot de passe initial" error={errors.adminPassword}>
-            <input
-              type="password"
+            <PasswordInput
               className={inputClass}
               value={form.adminPassword}
               onChange={update("adminPassword")}
@@ -307,8 +307,8 @@ export function OrganizationRegistrationForm() {
             />
           </Field>
           <Field label="Confirmation du mot de passe" error={errors.adminPasswordConfirm}>
-            <input
-              type="password"
+            <PasswordInput
+              toggleLabel="Afficher la confirmation"
               className={inputClass}
               value={form.adminPasswordConfirm}
               onChange={update("adminPasswordConfirm")}

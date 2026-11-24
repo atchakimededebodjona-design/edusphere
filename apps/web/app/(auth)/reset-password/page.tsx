@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ApiError, resetPassword } from "@/lib/auth/client";
 import {
   PASSWORD_MAX_LENGTH,
@@ -73,8 +74,7 @@ function ResetPasswordForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
-      <input
-        type="password"
+      <PasswordInput
         placeholder={`Nouveau mot de passe (${PASSWORD_RULE_HINT})`}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
@@ -84,8 +84,8 @@ function ResetPasswordForm() {
         autoComplete="new-password"
         className="rounded border border-slate-300 px-3 py-2"
       />
-      <input
-        type="password"
+      <PasswordInput
+        toggleLabel="Afficher la confirmation"
         placeholder="Confirmer le mot de passe"
         value={confirm}
         onChange={(e) => setConfirm(e.target.value)}

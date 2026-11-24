@@ -6,7 +6,15 @@ import { PhotoThumb } from "@/components/photos/PhotoThumb";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/useAuth";
 import { staffPhoto } from "@/lib/photos/client";
-import { ASSIGNABLE_ROLES, users, type RoleCode, type UserCreateResponse, type UserWithRoles } from "@/lib/users/client";
+import {
+  ASSIGNABLE_ROLES,
+  SCHOOL_ADMIN_ONLY_ROLES,
+  isSchoolAdminOf,
+  users,
+  type RoleCode,
+  type UserCreateResponse,
+  type UserWithRoles,
+} from "@/lib/users/client";
 
 const ROLE_LABELS: Record<string, string> = Object.fromEntries(ASSIGNABLE_ROLES.map((r) => [r.value, r.label]));
 
@@ -18,8 +26,14 @@ const initialForm = {
 };
 
 export default function UsersPage() {
-  const { currentSchoolId, permissions, user: currentUser } = useAuth();
+  const { currentSchoolId, currentOrganizationId, permissions, roles, user: currentUser } = useAuth();
   const canManage = permissions.includes("users.manage");
+  // 2026-11-24 — parents et élèves : administrateur de l'école uniquement (lib/users/client.ts).
+  const isSchoolAdminHere = isSchoolAdminOf(roles, currentOrganizationId, currentSchoolId);
+  const creatableRoles = ASSIGNABLE_ROLES.filter((r) => isSchoolAdminHere || !SCHOOL_ADMIN_ONLY_ROLES.has(r.value));
+  // Le rôle actuel d'une ligne reste affiché dans son sélecteur, même s'il ne fait plus partie des choix.
+  const rowRoleOptions = (current: string) =>
+    ASSIGNABLE_ROLES.filter((r) => r.value === current || creatableRoles.includes(r));
 
   const [items, setItems] = useState<UserWithRoles[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -210,7 +224,7 @@ export default function UsersPage() {
                                   onChange={(e) => handleRoleChange(u.user.id, e.target.value as RoleCode)}
                                   className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-50"
                                 >
-                                  {ASSIGNABLE_ROLES.map((r) => (
+                                  {rowRoleOptions(schoolScopedRoles[0].role_code).map((r) => (
                                     <option key={r.value} value={r.value}>
                                       {r.label}
                                     </option>
@@ -336,13 +350,18 @@ export default function UsersPage() {
               onChange={(e) => setForm((prev) => ({ ...prev, role_code: e.target.value as RoleCode }))}
               className="rounded border border-slate-300 px-3 py-2 text-sm"
             >
-              {ASSIGNABLE_ROLES.map((r) => (
+              {creatableRoles.map((r) => (
                 <option key={r.value} value={r.value}>
                   {r.label}
                 </option>
               ))}
             </select>
           </div>
+          {!isSchoolAdminHere && (
+            <p className="text-xs text-slate-600">
+              Les comptes des parents et des élèves sont créés par l&apos;administrateur de l&apos;école.
+            </p>
+          )}
           <button
             type="submit"
             disabled={creating}

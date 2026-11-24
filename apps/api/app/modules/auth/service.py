@@ -25,11 +25,25 @@ from app.modules.users.models import User
 
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
 
-# Phase 13 (HIGH #2 — canal de fuite temporelle) : hash bcrypt précalculé une seule fois, au
-# chargement du module. `authenticate()` l'utilise pour payer un coût bcrypt identique que le
-# compte existe ou non, afin que la latence de réponse ne révèle plus l'existence d'un email. Le
-# mot de passe d'origine n'a aucune importance — ce hash n'est jamais comparé à une vraie entrée
-# utilisateur avec l'intention de réussir.
+# 2026-11-24 — décision produit : l'écran de connexion dit pourquoi elle échoue. Seuls les comptes
+# déjà enregistrés sur la plateforme (créés par l'administration, jamais par inscription libre)
+# peuvent se connecter ; une adresse inconnue reçoit « Compte inexistant ». Ce choix remplace le
+# message unique de la Phase 13 (HIGH #2), qui cachait volontairement l'existence d'un compte : il
+# devient possible de vérifier qu'une adresse a un compte. Ce qui freine les essais en masse reste
+# la limitation de débit (app/core/rate_limit.py) : 5 échecs par adresse en 5 minutes, 50 échecs par
+# adresse IP en 15 minutes, une adresse inconnue comptant comme un échec. Le statut reste 401 dans
+# tous les cas, donc le comptage de app/modules/auth/router.py::login est inchangé.
+UNKNOWN_ACCOUNT_DETAIL = (
+    "Compte inexistant. Vérifiez l'adresse email : les comptes sont créés par l'administration de l'école."
+)
+WRONG_PASSWORD_DETAIL = "Mot de passe incorrect."
+# Annoncé seulement avec le BON mot de passe : un tiers qui ne le connaît pas lit « Mot de passe
+# incorrect » et n'apprend pas que le compte est désactivé.
+INACTIVE_ACCOUNT_DETAIL = "Ce compte est désactivé. Contactez l'administration de votre école."
+
+# Phase 13 : hash bcrypt précalculé une seule fois, au chargement du module. `authenticate()` le
+# vérifie pour une adresse inconnue : chaque essai coûte le même travail, que le compte existe ou
+# non. Le mot de passe d'origine n'a aucune importance : ce hash n'est jamais censé correspondre.
 _DUMMY_PASSWORD_HASH = hash_password("edusphere-timing-mitigation-placeholder")
 
 
@@ -37,19 +51,17 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User:
     result = await db.execute(select(User).where(User.email == email.lower()))
     user = result.scalar_one_or_none()
 
-    invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-
-    if user is None or not user.is_active:
-        # Phase 13 (HIGH #2) : coût bcrypt payé même quand il n'y a rien à vérifier, pour que
-        # cette branche prenne un temps comparable à un mot de passe invalide sur un compte actif
-        # ci-dessous — sans ce travail, un compte inexistant (ou désactivé) répondait nettement
-        # plus vite, ce qui constituait un oracle d'énumération de comptes malgré le message
-        # générique déjà en place.
+    if user is None:
+        # Un compte supprimé par la plateforme arrive aussi ici : son adresse a été effacée
+        # (platform/accounts.py::delete_account).
         verify_password(password, _DUMMY_PASSWORD_HASH)
-        raise invalid
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UNKNOWN_ACCOUNT_DETAIL)
 
     if not verify_password(password, user.hashed_password):
-        raise invalid
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=WRONG_PASSWORD_DETAIL)
+
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INACTIVE_ACCOUNT_DETAIL)
 
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()

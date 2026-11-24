@@ -54,6 +54,37 @@ MODIFY_REFUSED_DETAIL = "This account cannot be modified from this school"
 # réponse contrôlée, aucun état partiel, aucun email envoyé.
 CONCURRENT_CONFLICT_DETAIL = "This account or role assignment was modified concurrently; please retry"
 
+# 2026-11-24 — décision produit : les comptes des parents et des élèves sont créés par
+# l'administrateur de l'école uniquement, c'est-à-dire un compte qui détient le rôle SCHOOL_ADMIN de
+# CETTE école, ou de toute son organisation. Le droit `users.manage` global d'un compte plateforme
+# (SUPER_ADMIN) ne suffit plus pour ces deux rôles ; les autres rôles ne changent pas.
+SCHOOL_ADMIN_ONLY_ROLE_CODES = frozenset({"PARENT", "STUDENT"})
+SCHOOL_ADMIN_ONLY_DETAIL = "Seul l'administrateur de l'école crée les comptes des parents et des élèves."
+
+
+async def _ensure_school_admin_for_family_role(
+    db: AsyncSession, actor_id: uuid.UUID, school: School, role_code: str
+) -> None:
+    """Refus 403 si `role_code` est PARENT ou STUDENT et que l'acteur n'est pas administrateur de
+    cette école (rôle SCHOOL_ADMIN scopé à l'école, ou à toute l'organisation). Les lignes
+    `user_roles` de l'acteur sont toujours lisibles sous son propre contexte RLS (même lecture que
+    `_actor_manage_scope`)."""
+    if role_code not in SCHOOL_ADMIN_ONLY_ROLE_CODES:
+        return
+    result = await db.execute(
+        select(UserRole.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(
+            UserRole.user_id == actor_id,
+            Role.code == "SCHOOL_ADMIN",
+            UserRole.organization_id == school.organization_id,
+            or_(UserRole.school_id.is_(None), UserRole.school_id == school.id),
+        )
+        .limit(1)
+    )
+    if result.first() is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SCHOOL_ADMIN_ONLY_DETAIL)
+
 
 
 
@@ -168,6 +199,7 @@ async def create_or_attach_user(
     role = role_result.scalar_one_or_none()
     if role is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role code")
+    await _ensure_school_admin_for_family_role(db, current_user_id, school, payload.role_code)
 
     normalized_email = normalize_email(str(payload.email))
     existing_result = await db.execute(select(User).where(User.email == normalized_email))
@@ -334,6 +366,7 @@ async def update_user_in_school(
             role = role_result.scalar_one_or_none()
             if role is None:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role code")
+            await _ensure_school_admin_for_family_role(db, current_user_id, school, payload.role_code)
 
             # PR #14 — code(s) précédent(s) capturé AVANT suppression, pour le résumé d'audit ci-dessous.
             previous_codes_result = await db.execute(
