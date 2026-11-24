@@ -109,7 +109,7 @@ function TeacherAssignmentEditor({
       value={selectedTeacherId}
       onChange={(e) => setSelectedTeacherId(e.target.value)}
       required
-      className="rounded border border-slate-300 px-1.5 py-0.5"
+      className="block min-h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
       aria-label="Enseignant"
     >
       <option value="">Aucun enseignant</option>
@@ -127,10 +127,10 @@ function TeacherAssignmentEditor({
         editingId === a.id ? (
           <form key={a.id} onSubmit={(e) => handleUpdate(a.id, e)} className="flex items-center gap-2">
             {teacherSelect}
-            <button type="submit" disabled={busy} className="rounded bg-slate-900 px-2 py-0.5 text-white disabled:opacity-50">
+            <button type="submit" disabled={busy} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
               Enregistrer
             </button>
-            <button type="button" onClick={stopEdit} disabled={busy} className="text-slate-600 underline">
+            <button type="button" onClick={stopEdit} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
               Annuler
             </button>
           </form>
@@ -139,10 +139,10 @@ function TeacherAssignmentEditor({
             <span>Enseignant : {teacherName(a.user_id)}</span>
             {canManage && (
               <span className="flex gap-2">
-                <button type="button" onClick={() => startEdit(a)} disabled={busy} className="text-slate-700 underline">
+                <button type="button" onClick={() => startEdit(a)} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                   Modifier
                 </button>
-                <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="text-red-700 underline">
+                <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                   Retirer
                 </button>
               </span>
@@ -150,7 +150,7 @@ function TeacherAssignmentEditor({
           </div>
         ),
       )}
-      {forThisSubject.length === 0 && <span className="text-slate-400">Aucun enseignant affecté.</span>}
+      {forThisSubject.length === 0 && <span className="text-slate-600">Aucun enseignant affecté.</span>}
       {canManage && forThisSubject.length === 0 && teachers.length === 0 && (
         <span className="text-amber-700">
           Aucun enseignant actif rattaché à cette école : créez un utilisateur avec le rôle Enseignant.
@@ -159,7 +159,7 @@ function TeacherAssignmentEditor({
       {canManage && forThisSubject.length === 0 && teachers.length > 0 && (
         <form onSubmit={handleAssign} className="flex items-center gap-2">
           {teacherSelect}
-          <button type="submit" disabled={busy || !selectedTeacherId} className="rounded bg-slate-900 px-2 py-0.5 text-white disabled:opacity-50">
+          <button type="submit" disabled={busy || !selectedTeacherId} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
             Affecter
           </button>
         </form>
@@ -245,22 +245,22 @@ export function ClassSubjectsEditor({
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClassSubjects} />;
-  if (attached === null) return <p className="text-sm text-slate-400">Chargement des matières...</p>;
+  if (attached === null) return <p className="text-sm text-slate-600">Chargement des matières...</p>;
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-900">Matières de {schoolClass.name}</h3>
+      <h3 className="text-base font-bold text-slate-900">Matières de {schoolClass.name}</h3>
       <ul className="flex flex-col gap-1">
         {attached.map((a) => {
           const subject = subjects.find((s) => s.id === a.subject_id);
           return (
-            <li key={a.id} className="rounded border border-slate-200 px-3 py-1.5 text-sm">
+            <li key={a.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
               <div className="flex items-center justify-between">
                 <span>
                   {subject?.name ?? a.subject_id} — coefficient {a.coefficient}
                 </span>
                 {canManage && (
-                  <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="text-xs text-red-700 underline">
+                  <button type="button" onClick={() => handleRemove(a.id)} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                     Retirer
                   </button>
                 )}
@@ -277,17 +277,17 @@ export function ClassSubjectsEditor({
             </li>
           );
         })}
-        {attached.length === 0 && <li className="text-sm text-slate-400">Aucune matière attachée.</li>}
+        {attached.length === 0 && <li className="text-sm text-slate-600">Aucune matière attachée.</li>}
       </ul>
       {canManage && available.length > 0 && (
         <form onSubmit={handleAdd} className="flex items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Matière
             <select
               value={subjectId}
               onChange={(e) => setSubjectId(e.target.value)}
               required
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             >
               <option value="">—</option>
               {available.map((s) => (
@@ -297,7 +297,7 @@ export function ClassSubjectsEditor({
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Coefficient
             <input
               type="number"
@@ -305,15 +305,15 @@ export function ClassSubjectsEditor({
               step="0.5"
               value={coefficient}
               onChange={(e) => setCoefficient(e.target.value)}
-              className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 !w-24"
             />
           </label>
-          <button type="submit" disabled={busy} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+          <button type="submit" disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
             Ajouter
           </button>
         </form>
       )}
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
     </div>
   );
 }
@@ -381,16 +381,16 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
   if (years === null || levels === null || subjects === null || classes === null) {
-    return <p className="text-sm text-slate-400">Chargement...</p>;
+    return <p className="text-sm text-slate-600">Chargement...</p>;
   }
 
   if (years.length === 0) {
-    return <p className="text-sm text-slate-500">Créez d&apos;abord une année scolaire dans l&apos;onglet « Années ».</p>;
+    return <p className="text-sm text-slate-600">Créez d&apos;abord une année scolaire dans l&apos;onglet « Années ».</p>;
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <label className="flex w-fit flex-col gap-1 text-xs text-slate-600">
+      <label className="flex flex-col gap-1 text-sm font-medium text-slate-800 w-full sm:w-72">
         Année scolaire
         <select
           value={selectedYearId}
@@ -398,7 +398,7 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
             setSelectedYearId(e.target.value);
             setSelectedClassId(null);
           }}
-          className="rounded border border-slate-300 px-2 py-1 text-sm"
+          className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
         >
           {years.map((y) => (
             <option key={y.id} value={y.id}>
@@ -408,13 +408,13 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
         </select>
       </label>
 
-      <div className="overflow-x-auto rounded border border-slate-200">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50">
             <tr>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Nom</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Niveau</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Capacité</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Nom</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Niveau</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Capacité</th>
               <th className="w-24" />
             </tr>
           </thead>
@@ -428,7 +428,7 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
                   <button
                     type="button"
                     onClick={() => setSelectedClassId(c.id)}
-                    className="text-xs text-slate-700 underline"
+                    className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Voir les matières
                   </button>
@@ -437,7 +437,7 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
             ))}
             {classesForYear.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={4} className="px-3 py-4 text-center text-slate-600">
                   Aucune classe pour cette année.
                 </td>
               </tr>
@@ -447,23 +447,23 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
       </div>
 
       {canManage && (
-        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Nom
             <input
               value={form.name}
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
               required
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Niveau
             <select
               value={form.education_level_id}
               onChange={(e) => setForm((prev) => ({ ...prev, education_level_id: e.target.value }))}
               required
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             >
               <option value="">—</option>
               {levels.map((l) => (
@@ -473,21 +473,21 @@ export function ClassesPanel({ schoolId, canManage }: { schoolId: string; canMan
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Capacité
             <input
               type="number"
               value={form.capacity}
               onChange={(e) => setForm((prev) => ({ ...prev, capacity: e.target.value }))}
-              className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 !w-28"
             />
           </label>
-          <button type="submit" disabled={creating} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+          <button type="submit" disabled={creating} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
             {creating ? "Ajout..." : "Ajouter"}
           </button>
         </form>
       )}
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
       {selectedClass && (
         <ClassSubjectsEditor schoolId={schoolId} schoolClass={selectedClass} subjects={subjects} canManage={canManage} />

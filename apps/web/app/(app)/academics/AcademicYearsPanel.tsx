@@ -1,6 +1,7 @@
 "use client";
 
 import { ResourceCrudPanel, type FieldSpec, type FieldValues } from "@/components/crud/ResourceCrudPanel";
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { academicTerms, academicYears, type AcademicTerm, type AcademicYear } from "@/lib/academics/client";
 import { useAsyncData } from "@/lib/api/useAsyncData";
@@ -22,7 +23,7 @@ const TERM_FIELDS: FieldSpec<AcademicTerm>[] = [
 function YearTermsPanel({ year, canManage }: { year: AcademicYear; canManage: boolean }) {
   const list = useAsyncData(() => academicTerms.list(year.id), [year.id]);
 
-  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement des périodes...</p>;
+  if (list.isLoading) return <TableSkeleton rows={2} />;
   if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
 
   return (
@@ -60,7 +61,7 @@ function YearTermsPanel({ year, canManage }: { year: AcademicYear; canManage: bo
 export function AcademicYearsPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
   const list = useAsyncData(() => academicYears.list(schoolId), [schoolId]);
 
-  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.isLoading) return <TableSkeleton rows={3} />;
   if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
 
   return (

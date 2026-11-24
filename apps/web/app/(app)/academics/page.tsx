@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ResourceCrudPanel, type FieldSpec } from "@/components/crud/ResourceCrudPanel";
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { PageHeader } from "@/components/ui/Surface";
+import { TabPanel, Tabs } from "@/components/ui/Tabs";
 import { educationLevels, rooms, subjects, type EducationLevel, type Room, type Subject } from "@/lib/academics/client";
 import { useAsyncData } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -26,7 +29,7 @@ const ROOM_FIELDS: FieldSpec<Room>[] = [
 
 function EducationLevelsPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
   const list = useAsyncData(() => educationLevels.list(schoolId), [schoolId]);
-  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.isLoading) return <TableSkeleton rows={3} />;
   if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   return (
     <div className="flex flex-col gap-3">
@@ -58,7 +61,7 @@ function EducationLevelsPanel({ schoolId, canManage }: { schoolId: string; canMa
 
 function SubjectsPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
   const list = useAsyncData(() => subjects.list(schoolId), [schoolId]);
-  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.isLoading) return <TableSkeleton rows={3} />;
   if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   return (
     <div className="flex flex-col gap-3">
@@ -79,7 +82,7 @@ function SubjectsPanel({ schoolId, canManage }: { schoolId: string; canManage: b
 
 function RoomsPanel({ schoolId, canManage }: { schoolId: string; canManage: boolean }) {
   const list = useAsyncData(() => rooms.list(schoolId), [schoolId]);
-  if (list.isLoading) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (list.isLoading) return <TableSkeleton rows={3} />;
   if (list.data === null) return <ErrorRetry message={list.error ?? "Une erreur est survenue."} onRetry={list.retry} />;
   return (
     <div className="flex flex-col gap-3">
@@ -102,40 +105,39 @@ function RoomsPanel({ schoolId, canManage }: { schoolId: string; canManage: bool
   );
 }
 
-const TABS = ["Années", "Niveaux", "Matières", "Salles", "Classes"] as const;
-type Tab = (typeof TABS)[number];
+const TABS = [
+  { key: "years", label: "Années" },
+  { key: "levels", label: "Niveaux" },
+  { key: "subjects", label: "Matières" },
+  { key: "rooms", label: "Salles" },
+  { key: "classes", label: "Classes" },
+] as const;
+type Tab = (typeof TABS)[number]["key"];
 
 export default function AcademicsPage() {
   const { currentSchoolId, permissions } = useAuth();
   const canManage = permissions.includes("academics.manage");
-  const [tab, setTab] = useState<Tab>("Années");
+  const [tab, setTab] = useState<Tab>("years");
+  const tabsId = useId();
 
-  if (!currentSchoolId) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (!currentSchoolId) return <TableSkeleton />;
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-bold text-slate-900">Configuration académique</h1>
-
-      <div className="flex gap-1 border-b border-slate-200">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium ${
-              tab === t ? "border-b-2 border-slate-900 text-slate-900" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Configuration académique"
+        description="Années et périodes, niveaux, matières, salles et classes de l'école."
+      />
+      <div>
+        <Tabs id={tabsId} label="Configuration académique" tabs={[...TABS]} value={tab} onChange={setTab} />
+        <TabPanel id={tabsId} active={tab}>
+          {tab === "years" && <AcademicYearsPanel schoolId={currentSchoolId} canManage={canManage} />}
+          {tab === "levels" && <EducationLevelsPanel schoolId={currentSchoolId} canManage={canManage} />}
+          {tab === "subjects" && <SubjectsPanel schoolId={currentSchoolId} canManage={canManage} />}
+          {tab === "rooms" && <RoomsPanel schoolId={currentSchoolId} canManage={canManage} />}
+          {tab === "classes" && <ClassesPanel schoolId={currentSchoolId} canManage={canManage} />}
+        </TabPanel>
       </div>
-
-      {tab === "Années" && <AcademicYearsPanel schoolId={currentSchoolId} canManage={canManage} />}
-      {tab === "Niveaux" && <EducationLevelsPanel schoolId={currentSchoolId} canManage={canManage} />}
-      {tab === "Matières" && <SubjectsPanel schoolId={currentSchoolId} canManage={canManage} />}
-      {tab === "Salles" && <RoomsPanel schoolId={currentSchoolId} canManage={canManage} />}
-      {tab === "Classes" && <ClassesPanel schoolId={currentSchoolId} canManage={canManage} />}
     </div>
   );
 }

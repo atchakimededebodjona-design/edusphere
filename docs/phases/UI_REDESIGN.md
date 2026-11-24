@@ -18,7 +18,7 @@
 | 0 | Fondations : jetons, polices, icônes, composants de base | Livrée avec la phase 1 |
 | 1 | Enveloppes et navigation, accueil selon le rôle (caisse) | Livrée, validée sur téléphone le 2026-11-23 |
 | 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | Livrée (voir plus bas) |
-| 3 | Écrans de gestion. Lot A : élèves, paiements, frais en retard, utilisateurs, notifications. Lot B : barèmes de frais, fiche élève, bulletins, annonces, école, académique | Lot A livré (voir plus bas), lot B à faire |
+| 3 | Écrans de gestion. Lot A : élèves, paiements, frais en retard, utilisateurs, notifications. Lot B : barèmes de frais, fiche élève, bulletins, annonces, école, académique | Lots A et B livrés (voir plus bas) |
 | 4 | Plateforme, partenaire, assistant, réinscriptions, pages publiques | À faire |
 | 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | À faire |
 
@@ -289,3 +289,96 @@ Ils demandent Docker et la CI ne les lance pas ; ils n'ont pas été exécutés.
   - caisse hors connexion et reçu provisoire : 36 ;
   - consultation hors connexion : 13 ;
   - proposition de notifications : 9.
+
+## Phase 3, lot B — écrans de gestion (2026-11-24)
+
+**Règle inchangée** : mêmes appels à l'API, mêmes permissions, mêmes `data-testid`. Seule la présentation change.
+
+- **`ResourceCrudPanel`** (`components/crud/`), le panneau « liste + ajout + modification en ligne » partagé par les frais et l'académique :
+  - il repose sur le tableau commun (`DataTable`), donc chaque ligne devient une carte sur téléphone ;
+  - les dates s'affichent en français et les cases à cocher en « Oui / Non » ;
+  - en modification, chaque champ porte son nom (« Nom », « Début »…) pour les lecteurs d'écran ;
+  - le formulaire d'ajout a des libellés visibles ;
+  - le bouton de détail (flèche) annonce s'il est ouvert (`aria-expanded`).
+- **Frais scolaires** :
+  - onglets communs (`Tabs`), accessibles au clavier ;
+  - les barèmes affichent le montant en francs, la portée en français (« Toute l'école », « Classe : CM1 A »), l'échéance et une pastille « Facultatif » ;
+  - « Générer les frais élèves » affiche son résultat dans la ligne ;
+  - le formulaire « Nouveau barème » a des libellés visibles.
+- **Académique** : onglets communs. Années, niveaux, matières et salles passent par `ResourceCrudPanel`. Les classes et les affectations des enseignants gardent leur logique ; seuls leurs styles ont été remplacés par ceux du système commun.
+- **Bulletins** :
+  - onglets communs, « Génération & suivi » en premier ;
+  - filtres dans une carte, statut en pastille (« Brouillon », « Publié ») ;
+  - modèles avec la pastille « Par défaut » et un champ « Nom du modèle » qui a un libellé.
+- **Annonces** :
+  - formulaire en carte, avec un compteur de caractères ;
+  - les classes deviennent des cases faciles à toucher ;
+  - la confirmation et les erreurs s'affichent en alertes communes ;
+  - l'historique est daté en français.
+  - Le repère `announcement-audience-hint` et les libellés des champs sont inchangés.
+- **École** :
+  - champs avec libellés au lieu de simples textes indicatifs, avec des exemples pour le fuseau horaire et la devise ;
+  - logo dans une carte ;
+  - le bouton « Changer le logo » est maintenant atteignable au clavier : le champ de fichier est masqué visuellement (`sr-only`) au lieu d'être retiré (`hidden`).
+- **Fiche élève** :
+  - lien de retour en bouton ;
+  - statut en pastille ;
+  - chaque partie (carte d'identité, tuteurs, inscriptions, documents, situation financière) dans sa carte ;
+  - champs de 44 px, boutons du système commun, texte secondaire lisible.
+  - Les `data-testid` utilisés par les tests e2e sont inchangés.
+  - **Situation financière**, reprise entièrement (`StudentFinancialSummary`) :
+    - totaux en cartes, montants en francs ;
+    - échéances, modes et statuts en français (« Partiellement payé », « Virement », « Annulé ») ;
+    - frais et historique dans le tableau commun, donc en cartes sur téléphone. Avant, le tableau sortait de l'écran ;
+    - **l'annulation passe par une fenêtre de l'application** avec un motif obligatoire, au lieu de `window.prompt`. Un refus de l'API est maintenant affiché ; avant, il passait inaperçu (promesse non gérée) ;
+    - le reçu s'ouvre comme à la caisse (`openReceipt`).
+  - **Tuteurs** : le formulaire « Nouveau tuteur » a des libellés visibles (« Nom complet », « Lien avec l'élève », « Téléphone », « Email »).
+  - **Photo** (`PassportPhotoPicker`, aussi utilisé par l'écran « Utilisateurs » et le profil de l'enseignant) : boutons du système commun, en bleu au lieu de noir.
+- **Outil de travail** : pour les gros composants (`ClassesPanel`, `GenerationPanel`, `StudentGuardians`, `StudentDocuments`, `StudentEnrollments`, `StudentFinancialSummary`, `StudentPhoto`), seules les valeurs EXACTES de `className` ont été remplacées par celles du système commun. Ni le texte, ni la logique, ni les repères de test n'ont changé.
+
+## Vérifications de la phase 3, lot B (2026-11-24)
+
+- **Site** : vérification des types, analyse du code, build de production.
+- **Écrans du lot B** : build de production, **vraie API** sur PostgreSQL, Chromium, sur ordinateur (1366 px) et sur téléphone (360 px). **136 vérifications réussies** :
+  - **frais** :
+    - onglets au clavier ;
+    - ajout d'une catégorie ;
+    - barème en francs, portée et échéance en français ;
+    - « Générer les frais élèves » ;
+    - création d'un barème limité à une classe ;
+  - **académique** :
+    - année en cours ;
+    - détail des périodes (`aria-expanded`) ;
+    - modification avec champs nommés ;
+    - ajout d'un niveau, liste des classes ;
+  - **bulletins** : onglets, modèle de départ, création d'un modèle « Par défaut » ;
+  - **annonces** :
+    - compteur de caractères, aide sur les destinataires ;
+    - publication impossible sans classe ;
+    - cases de classe de 40 px au moins ;
+    - publication confirmée, historique daté en français ;
+  - **école** : champs avec libellés, enregistrement, logo atteignable au clavier ;
+  - **fiche élève** :
+    - sections en cartes, statut en pastille ;
+    - situation financière en francs et en français ;
+    - annulation d'un paiement par la fenêtre, avec motif affiché et frais repassé « Non payé », sans boîte du navigateur ;
+    - libellés du formulaire des tuteurs ;
+    - bouton photo en bleu ;
+    - enregistrement de la carte d'identité ;
+  - **partout** :
+    - pas de défilement horizontal, aucun champ ni bouton hors de l'écran ;
+    - aucun texte en gris clair ;
+    - aucune erreur JavaScript ou CSP, aucun refus 403 nouveau.
+- **Non-régression** :
+  - lot A : 143 ;
+  - phase 2 : 95 ;
+  - phase 1 : 105 ;
+  - hors connexion :
+    - appel et notes : 24 ;
+    - coupure : 5 ;
+    - bandeaux : 8 ;
+    - connexion sans internet : 26 ;
+    - base locale : 3 ;
+    - caisse : 36 ;
+    - consultation : 13 ;
+    - notifications : 9.

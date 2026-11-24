@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { ApiError } from "@/lib/api/client";
+import { Button } from "@/components/ui/Button";
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { TextField } from "@/components/ui/Field";
+import { Alert, Card, PageHeader, SectionTitle } from "@/components/ui/Surface";
 import {
   getSchool,
   getSchoolLogoBlobUrl,
@@ -113,103 +117,71 @@ export default function SchoolSettingsPage() {
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadSchool} />;
-  if (!school) return <p className="text-slate-500">Chargement...</p>;
+  if (!school) return <TableSkeleton rows={4} />;
 
   return (
-    <div className="flex max-w-xl flex-col gap-6">
-      <h1 className="text-2xl font-bold text-slate-900">Paramètres de l&apos;école</h1>
+    <div className="flex max-w-3xl flex-col gap-6">
+      <PageHeader title="Paramètres de l'école" description="Le nom et le logo apparaissent dans le menu, sur les reçus et sur les bulletins." />
 
-      <div className="flex items-center gap-4">
-        {logoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={logoUrl} alt="Logo de l'école" className="h-16 w-16 rounded object-contain" />
-        ) : (
-          <div className="flex h-16 w-16 items-center justify-center rounded bg-slate-200 text-xs text-slate-500">
-            Aucun logo
-          </div>
-        )}
-        {canManage && (
-          <div className="flex flex-col gap-1">
-            <label
-              className={`w-fit rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 ${
-                logoUploading ? "cursor-wait opacity-60" : "cursor-pointer hover:bg-slate-100"
-              }`}
-            >
-              {logoUploading ? "Envoi en cours..." : "Changer le logo"}
-              <input
-                type="file"
-                accept={LOGO_MIME_TYPES.join(",")}
-                onChange={handleLogoChange}
-                disabled={logoUploading}
-                className="hidden"
-              />
-            </label>
-            <p className="text-xs text-slate-500">JPEG, PNG ou WebP, 2 Mio au maximum.</p>
-          </div>
-        )}
-      </div>
-      {logoError && (
-        <p role="alert" className="-mt-3 text-sm text-red-700">
-          {logoError}
-        </p>
-      )}
+      <Card className="flex flex-col gap-3">
+        <SectionTitle title="Logo" />
+        <div className="flex flex-wrap items-center gap-4">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="Logo de l'école" className="h-20 w-20 rounded-lg border border-slate-200 bg-white object-contain p-1" />
+          ) : (
+            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center text-xs text-slate-600">
+              Aucun logo
+            </div>
+          )}
+          {canManage && (
+            <div className="flex flex-col gap-1">
+              <label
+                className={`inline-flex min-h-11 w-fit items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-600 sm:min-h-10 ${
+                  logoUploading ? "cursor-wait opacity-60" : "cursor-pointer hover:bg-slate-50"
+                }`}
+              >
+                {logoUploading ? "Envoi en cours..." : "Changer le logo"}
+                <input
+                  type="file"
+                  accept={LOGO_MIME_TYPES.join(",")}
+                  onChange={handleLogoChange}
+                  disabled={logoUploading}
+                  className="sr-only"
+                />
+              </label>
+              <p className="text-xs text-slate-600">JPEG, PNG ou WebP, 2 Mio au maximum.</p>
+            </div>
+          )}
+        </div>
+        {logoError && <Alert tone="danger">{logoError}</Alert>}
+      </Card>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <input
-          placeholder="Nom de l'école"
-          value={form.name ?? ""}
-          onChange={update("name")}
-          disabled={!canManage}
-          required
-          className="rounded border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        />
-        <input
-          placeholder="Adresse"
-          value={form.address ?? ""}
-          onChange={update("address")}
-          disabled={!canManage}
-          className="rounded border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        />
-        <input
-          placeholder="Téléphone"
-          value={form.phone ?? ""}
-          onChange={update("phone")}
-          disabled={!canManage}
-          className="rounded border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          value={form.email ?? ""}
-          onChange={update("email")}
-          disabled={!canManage}
-          className="rounded border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        />
-        <input
-          placeholder="Fuseau horaire"
-          value={form.timezone ?? ""}
-          onChange={update("timezone")}
-          disabled={!canManage}
-          className="rounded border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        />
-        <input
-          placeholder="Devise"
-          value={form.currency ?? ""}
-          onChange={update("currency")}
-          disabled={!canManage}
-          className="rounded border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        />
-        {canManage && (
-          <button
-            type="submit"
-            disabled={saveStatus === "saving"}
-            className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            {saveStatus === "saving" ? "Enregistrement..." : "Enregistrer"}
-          </button>
-        )}
-        {saveStatus === "saved" && <p className="text-sm text-green-700">Modifications enregistrées.</p>}
-        {error && <p className="text-sm text-red-700">{error}</p>}
+      <form onSubmit={handleSubmit}>
+        <Card className="flex flex-col gap-4">
+          <SectionTitle title="Coordonnées" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField label="Nom de l'école" value={form.name ?? ""} onChange={update("name")} disabled={!canManage} required />
+            <TextField label="Adresse" value={form.address ?? ""} onChange={update("address")} disabled={!canManage} />
+            <TextField label="Téléphone" type="tel" value={form.phone ?? ""} onChange={update("phone")} disabled={!canManage} />
+            <TextField label="Email" type="email" value={form.email ?? ""} onChange={update("email")} disabled={!canManage} />
+            <TextField
+              label="Fuseau horaire"
+              value={form.timezone ?? ""}
+              onChange={update("timezone")}
+              disabled={!canManage}
+              hint="Exemple : Africa/Lome"
+            />
+            <TextField label="Devise" value={form.currency ?? ""} onChange={update("currency")} disabled={!canManage} hint="Exemple : XOF (franc CFA)" />
+          </div>
+          {canManage && (
+            <Button type="submit" disabled={saveStatus === "saving"} className="self-start">
+              {saveStatus === "saving" ? "Enregistrement..." : "Enregistrer"}
+            </Button>
+          )}
+          {saveStatus === "saved" && <Alert tone="success">Modifications enregistrées.</Alert>}
+          {error && <Alert tone="danger">{error}</Alert>}
+        </Card>
       </form>
     </div>
   );

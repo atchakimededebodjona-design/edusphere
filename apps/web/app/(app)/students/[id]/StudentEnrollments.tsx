@@ -70,17 +70,17 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
-  if (classes === null || years === null || items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (classes === null || years === null || items === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   const className = (classIdValue: string) => classes.find((c) => c.id === classIdValue)?.name ?? "—";
   const yearName = (yearId: string) => years.find((y) => y.id === yearId)?.name ?? "—";
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <h2 className="text-lg font-semibold text-slate-900">Inscriptions</h2>
+    <section className="flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+      <h2 className="text-lg font-bold text-slate-900">Inscriptions</h2>
 
       {items.length === 0 ? (
-        <p className="text-sm text-slate-400" data-testid="enrollments-empty">
+        <p className="text-sm text-slate-600" data-testid="enrollments-empty">
           Aucune inscription.
         </p>
       ) : (
@@ -89,7 +89,7 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
           <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[640px] text-left text-sm" data-testid="enrollments-table">
               <thead>
-                <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                <tr className="border-b border-slate-200 text-xs uppercase text-slate-600">
                   <th className="px-3 py-2 font-medium">Classe</th>
                   <th className="px-3 py-2 font-medium">Année scolaire</th>
                   <th className="px-3 py-2 font-medium">Date d&apos;inscription</th>
@@ -116,7 +116,7 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
                           value={e.status}
                           onChange={(ev) => handleStatusChange(e.id, ev.target.value as EnrollmentStatus)}
                           disabled={busy}
-                          className="rounded border border-slate-300 px-2 py-1 text-xs"
+                          className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {Object.entries(STATUS_LABELS).map(([value, label]) => (
                             <option key={value} value={value}>
@@ -134,10 +134,10 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
 
           <div className="flex flex-col gap-2 sm:hidden">
             {items.map((e) => (
-              <div key={e.id} className="rounded border border-slate-200 p-3 text-sm" data-testid="enrollment-card">
+              <div key={e.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm" data-testid="enrollment-card">
                 <p className="font-medium text-slate-900">{className(e.class_id)}</p>
-                <p className="text-slate-500">{yearName(e.academic_year_id)}</p>
-                <p className="text-slate-500">Inscrit le {formatDateFR(e.enrollment_date)}</p>
+                <p className="text-slate-600">{yearName(e.academic_year_id)}</p>
+                <p className="text-slate-600">Inscrit le {formatDateFR(e.enrollment_date)}</p>
                 {canManage ? (
                   <label className="mt-2 flex flex-col gap-1 text-xs text-slate-600">
                     Statut
@@ -145,7 +145,7 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
                       value={e.status}
                       onChange={(ev) => handleStatusChange(e.id, ev.target.value as EnrollmentStatus)}
                       disabled={busy}
-                      className="rounded border border-slate-300 px-2 py-1 text-sm"
+                      className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                     >
                       {Object.entries(STATUS_LABELS).map(([value, label]) => (
                         <option key={value} value={value}>
@@ -155,7 +155,7 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
                     </select>
                   </label>
                 ) : (
-                  <p className="mt-1 text-xs text-slate-500">{STATUS_LABELS[e.status]}</p>
+                  <p className="mt-1 text-xs text-slate-600">{STATUS_LABELS[e.status]}</p>
                 )}
               </div>
             ))}
@@ -164,14 +164,14 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
       )}
 
       {canManage && (
-        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Classe
             <select
               value={classId}
               onChange={(e) => setClassId(e.target.value)}
               required
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             >
               <option value="">—</option>
               {classes.map((c) => (
@@ -181,26 +181,26 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Date d&apos;inscription
             <input
               type="date"
               value={enrollmentDate}
               onChange={(e) => setEnrollmentDate(e.target.value)}
               required
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             />
           </label>
-          <button type="submit" disabled={busy} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+          <button type="submit" disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
             Inscrire
           </button>
         </form>
       )}
       {error && (
-        <p className="text-sm text-red-700" data-testid="enrollment-error">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" data-testid="enrollment-error">
           {error}
         </p>
       )}
-    </div>
+    </section>
   );
 }

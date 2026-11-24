@@ -161,10 +161,10 @@ function GuardianLinkPanel({
   const createFormValid = createForm.full_name.trim().length > 0 && EMAIL_PATTERN.test(createForm.email.trim());
 
   return (
-    <div className="mt-2 flex flex-col gap-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-sm">
+    <div className="mt-2 flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
       <p className="font-medium text-slate-700">Lier « {guardian.full_name} » à un compte parent</p>
 
-      {parentUsersLoading && <p className="text-xs text-slate-400">Chargement des comptes parent...</p>}
+      {parentUsersLoading && <p className="text-xs text-slate-600">Chargement des comptes parent...</p>}
       {parentUsersError && <p className="text-xs text-red-700">{parentUsersError}</p>}
 
       {showModeToggle && (
@@ -189,7 +189,7 @@ function GuardianLinkPanel({
       {accountsReady && effectiveMode === "existing" && (
         <>
           {parentOptions.length === 0 && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-600">
               Aucun compte parent disponible dans cette école
               {canCreateParentAccount ? " — utilisez « Créer un nouveau compte parent »." : "."}
             </p>
@@ -197,12 +197,12 @@ function GuardianLinkPanel({
 
           {parentOptions.length > 0 && !confirming && (
             <>
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
+              <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                 Sélectionner un compte parent
                 <select
                   value={selectedUserId}
                   onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                  className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                 >
                   <option value="">—</option>
                   {parentOptions.map((u) => (
@@ -217,11 +217,11 @@ function GuardianLinkPanel({
                   type="button"
                   onClick={() => setConfirming(true)}
                   disabled={!selectedUserId}
-                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Lier le compte
                 </button>
-                <button type="button" onClick={onCancel} className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100">
+                <button type="button" onClick={onCancel} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                   Annuler
                 </button>
               </div>
@@ -238,7 +238,7 @@ function GuardianLinkPanel({
                   type="button"
                   onClick={() => void handleConfirm()}
                   disabled={linking}
-                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {linking ? "Liaison..." : "Confirmer la liaison"}
                 </button>
@@ -246,7 +246,7 @@ function GuardianLinkPanel({
                   type="button"
                   onClick={() => setConfirming(false)}
                   disabled={linking}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Annuler
                 </button>
@@ -262,43 +262,43 @@ function GuardianLinkPanel({
         <>
           {!pendingUser && (
             <form onSubmit={(e) => void handleCreateAndLink(e)} className="flex flex-col gap-2">
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-600">
                 Un compte parent (rôle PARENT) sera créé et lié à ce tuteur. Un email de bienvenue
                 permettant de définir le mot de passe sera envoyé automatiquement à l&apos;adresse
                 indiquée.
               </p>
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
+              <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                 Nom complet
                 <input
                   value={createForm.full_name}
                   onChange={(e) => setCreateForm((prev) => ({ ...prev, full_name: e.target.value }))}
                   required
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                  className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
+              <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                 Email
                 <input
                   type="email"
                   value={createForm.email}
                   onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
                   required
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                  className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
+              <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                 Téléphone
                 <input
                   value={createForm.phone}
                   onChange={(e) => setCreateForm((prev) => ({ ...prev, phone: e.target.value }))}
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                  className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </label>
               <div className="flex gap-2">
                 <button
                   type="submit"
                   disabled={createBusy || !createFormValid}
-                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {createPhase === "creating"
                     ? "Création du compte..."
@@ -310,7 +310,7 @@ function GuardianLinkPanel({
                   type="button"
                   onClick={onCancel}
                   disabled={createBusy}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Annuler
                 </button>
@@ -319,7 +319,7 @@ function GuardianLinkPanel({
           )}
 
           {pendingUser && (
-            <div className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-2">
+            <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
               <p className="text-xs text-amber-900">
                 Le compte parent <strong>{pendingUser.email}</strong> a été créé mais n&apos;a pas
                 pu être lié à ce tuteur.
@@ -329,7 +329,7 @@ function GuardianLinkPanel({
                   type="button"
                   onClick={() => void handleRetryLink()}
                   disabled={createBusy}
-                  className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {createPhase === "linking" ? "Association du compte..." : "Réessayer la liaison"}
                 </button>
@@ -337,7 +337,7 @@ function GuardianLinkPanel({
                   type="button"
                   onClick={onCancel}
                   disabled={createBusy}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Fermer
                 </button>
@@ -522,11 +522,11 @@ export function StudentGuardians({
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
-  if (directory === null || links === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (directory === null || links === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   return (
-    <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold text-slate-900">Tuteurs</h2>
+    <section className="flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+      <h2 className="text-lg font-bold text-slate-900">Tuteurs</h2>
       <ul className="flex flex-col gap-1">
         {links.map((link) => {
           const guardian = directory.find((g) => g.id === link.guardian_id);
@@ -534,7 +534,7 @@ export function StudentGuardians({
             ? (parentUsers ?? []).find((u) => u.user.id === guardian.user_id)
             : null;
           return (
-            <li key={link.id} className="rounded border border-slate-200 px-3 py-1.5 text-sm">
+            <li key={link.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
                   {guardian?.full_name ?? link.guardian_id} — {guardian ? RELATIONSHIP_LABELS[guardian.relationship_type] : ""}
@@ -543,23 +543,23 @@ export function StudentGuardians({
                 </span>
                 <div className="flex items-center gap-2">
                   {guardian?.user_id ? (
-                    <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">
+                    <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
                       Compte parent lié{linkedParent && ` (${linkedParent.user.email})`}
                     </span>
                   ) : (
-                    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">Sans compte</span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">Sans compte</span>
                   )}
                   {canLinkParentAccount && guardian && !guardian.user_id && (
                     <button
                       type="button"
                       onClick={() => handleOpenLinkPanel(guardian.id)}
-                      className="text-xs text-slate-700 underline"
+                      className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Lier à un compte parent
                     </button>
                   )}
                   {canManage && (
-                    <button type="button" onClick={() => handleDetach(link.id)} disabled={busy} className="text-xs text-red-700 underline">
+                    <button type="button" onClick={() => handleDetach(link.id)} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                       Détacher
                     </button>
                   )}
@@ -581,20 +581,20 @@ export function StudentGuardians({
             </li>
           );
         })}
-        {links.length === 0 && <li className="text-sm text-slate-400">Aucun tuteur rattaché.</li>}
+        {links.length === 0 && <li className="text-sm text-slate-600">Aucun tuteur rattaché.</li>}
       </ul>
 
       {canManage && (
         <div className="flex flex-col gap-3">
           {available.length > 0 && (
             <form onSubmit={handleAttachExisting} className="flex items-end gap-3">
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
+              <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                 Rattacher un tuteur existant
                 <select
                   value={selectedGuardianId}
                   onChange={(e) => setSelectedGuardianId(e.target.value)}
                   required
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                  className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                 >
                   <option value="">—</option>
                   {available.map((g) => (
@@ -604,25 +604,30 @@ export function StudentGuardians({
                   ))}
                 </select>
               </label>
-              <button type="submit" disabled={busy} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+              <button type="submit" disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
                 Rattacher
               </button>
             </form>
           )}
 
-          <form onSubmit={handleCreateAndAttach} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
-            <span className="w-full text-xs font-medium text-slate-600">Nouveau tuteur</span>
+          <form onSubmit={handleCreateAndAttach} className="grid items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 sm:p-5">
+            <span className="text-base font-bold text-slate-900 sm:col-span-2">Nouveau tuteur</span>
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+              Nom complet
             <input
               placeholder="Nom complet"
               value={newGuardian.full_name}
               onChange={(e) => setNewGuardian((prev) => ({ ...prev, full_name: e.target.value }))}
               required
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             />
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+              Lien avec l&apos;élève
             <select
               value={newGuardian.relationship_type}
               onChange={(e) => setNewGuardian((prev) => ({ ...prev, relationship_type: e.target.value as GuardianRelationship }))}
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             >
               {Object.entries(RELATIONSHIP_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>
@@ -630,34 +635,47 @@ export function StudentGuardians({
                 </option>
               ))}
             </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+              Téléphone
             <input
+              type="tel"
               placeholder="Téléphone"
               value={newGuardian.phone}
               onChange={(e) => setNewGuardian((prev) => ({ ...prev, phone: e.target.value }))}
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             />
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+              Email
             <input
               type="email"
               placeholder="Email"
               value={newGuardian.email}
               onChange={(e) => setNewGuardian((prev) => ({ ...prev, email: e.target.value }))}
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             />
-            <label className="flex items-center gap-1 text-xs text-slate-600">
+            </label>
+            <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
               <input
                 type="checkbox"
+                className="h-5 w-5 rounded border-slate-400 accent-primary-600"
                 checked={newGuardian.is_emergency_contact}
                 onChange={(e) => setNewGuardian((prev) => ({ ...prev, is_emergency_contact: e.target.checked }))}
               />
               Contact d&apos;urgence
             </label>
-            <button type="submit" disabled={busy} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+            <button type="submit" disabled={busy} className="sm:col-span-2 sm:justify-self-start inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
               Créer et rattacher
             </button>
           </form>
         </div>
       )}
-      {error && <p className="text-sm text-red-700">{error}</p>}
-    </div>
+      {error && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
