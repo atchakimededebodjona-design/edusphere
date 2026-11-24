@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ApiError } from "@/lib/api/client";
+import { AFRICAN_COUNTRIES } from "@/lib/geo/africanCountries";
 import { PASSWORD_MIN_LENGTH, passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
 import {
   createPlatformOrganization,
@@ -244,8 +245,15 @@ export function OrganizationRegistrationForm() {
           <Field label="Slug" error={errors.orgSlug}>
             <input className={inputClass} value={form.orgSlug} onChange={update("orgSlug")} required />
           </Field>
-          <Field label="Pays (code)" error={errors.orgCountry}>
-            <input className={inputClass} value={form.orgCountry} onChange={update("orgCountry")} maxLength={2} required />
+          <Field label="Pays" error={errors.orgCountry}>
+            {/* 2026-11-24 — liste des pays d'Afrique au lieu d'un code à taper ; l'API reçoit le même code (TG…). */}
+            <select className={inputClass} value={form.orgCountry} onChange={update("orgCountry")} required>
+            {AFRICAN_COUNTRIES.map((country) => (
+              <option key={country.code} value={country.code}>
+                {country.name}
+              </option>
+            ))}
+            </select>
           </Field>
           <Field label="Fuseau horaire" error={errors.orgTimezone}>
             <input className={inputClass} value={form.orgTimezone} onChange={update("orgTimezone")} required />
