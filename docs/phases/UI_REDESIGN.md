@@ -19,7 +19,7 @@
 | 1 | Enveloppes et navigation, accueil selon le rôle (caisse) | Livrée, validée sur téléphone le 2026-11-23 |
 | 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | Livrée (voir plus bas) |
 | 3 | Écrans de gestion. Lot A : élèves, paiements, frais en retard, utilisateurs, notifications. Lot B : barèmes de frais, fiche élève, bulletins, annonces, école, académique | Lots A et B livrés (voir plus bas) |
-| 4 | A : plateforme et partenaire. B : assistant, réinscriptions, journal d'audit. C : pages publiques et mot de passe | A et B livrées (voir plus bas), C à faire |
+| 4 | A : plateforme et partenaire. B : assistant, réinscriptions, journal d'audit. C : pages publiques et mot de passe | A, B et C livrées (voir plus bas) |
 | 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | À faire |
 
 ## Phase 0 — fondations
@@ -450,3 +450,47 @@ Ils demandent Docker et la CI ne les lance pas ; ils n'ont pas été exécutés.
   - phase 4 A : 100 ;
   - phase 2 : 95 ;
   - phase 1 : 105.
+
+## Phase 4, partie C — pages d'accès et pages publiques (2026-11-24)
+
+**Règle inchangée** : mêmes appels à l'API, mêmes textes, mêmes textes indicatifs et mêmes boutons (`password-reset`, `login-rules`, connexion sans internet).
+
+- **`AuthFrame`** (`components/auth/AuthFrame.tsx`) : le cadre de la page de connexion (panneau de marque navy avec le logo, formulaire à droite ou en dessous sur téléphone) est extrait tel quel, avec les styles de champ, de libellé et de bouton des pages d'accès (`authInputClass`, `authLabelClass`, `authButtonClass`, 44 px de haut).
+- **Connexion** : même rendu, sur `AuthFrame`. Les erreurs s'affichent en alerte encadrée, et le texte secondaire est lisible (contraste AA).
+- **Mot de passe oublié** et **Définir votre mot de passe** :
+  - même cadre que la connexion, champs avec libellés ;
+  - message de confirmation encadré en vert, erreurs en alertes ;
+  - sans jeton, la page propose un lien vers « Mot de passe oublié ».
+  - le refus d'un lien périmé arrivait en anglais (« Invalid or expired reset token ») : il s'affiche maintenant en français et renvoie vers « Mot de passe oublié ».
+- **Vérification de bulletin** (`/verify/[code]`, ouverte par le QR code) :
+  - même cadre ;
+  - résultat dans une carte, avec l'école, l'élève, la classe, la période, la moyenne et le rang ;
+  - statut en pastille (« Publié », « Brouillon (non publié) »).
+- **Test e2e du dépôt aligné** : `password-reset` attendait encore le texte indicatif « Nouveau mot de passe (8 caractères min.) ». Or la règle est de 12 caractères depuis la revue de sécurité (`e4cdffb`), donc ce test était périmé avant la refonte. Il vérifie maintenant le début du texte, puis le message français du lien périmé.
+- **Page hors connexion** (servie par le service worker) : fond et bouton de la marque, 44 px de haut. Elle reste une page statique, sans donnée.
+
+## Vérifications de la phase 4, partie C (2026-11-24)
+
+- **Site** : vérification des types, analyse du code, build de production.
+- **Pages d'accès et publiques** : build de production, **vraie API**, sur ordinateur et sur téléphone. **52 vérifications réussies** :
+  - cadre de la marque sur la connexion, le mot de passe oublié et la vérification ;
+  - textes indicatifs gardés ;
+  - boutons « Afficher le mot de passe » et « Afficher la confirmation » ;
+  - erreur de connexion en alerte ;
+  - message générique du mot de passe oublié et retour à la connexion ;
+  - mots de passe différents, lien périmé signalé en français, lien manquant ;
+  - code de bulletin inconnu ;
+  - page hors connexion avec un bouton de la marque de 44 px ;
+  - pas de défilement horizontal, texte du formulaire lisible, aucune erreur JavaScript ou CSP.
+- **Non-régression** :
+  - règles de connexion : 52 ;
+  - enveloppes (phase 1) : 105 ;
+  - hors connexion :
+    - connexion sans internet : 26 ;
+    - appel et notes : 24 ;
+    - coupure : 5 ;
+    - bandeaux : 8 ;
+    - base locale : 3 ;
+    - caisse : 36 ;
+    - consultation : 13 ;
+    - notifications : 9.

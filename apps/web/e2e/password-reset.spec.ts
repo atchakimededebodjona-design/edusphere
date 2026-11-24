@@ -18,6 +18,10 @@ async function registerSchool(page: Page, slugPrefix: string) {
   return { email: tenant.orgAdminEmail, password: tenant.password };
 }
 
+// Le texte indicatif suit la règle du mot de passe (lib/auth/passwordRule.ts : 12 caractères minimum
+// depuis la revue de sécurité) ; seul son début est vérifié, pour ne pas dépendre du chiffre.
+const NEW_PASSWORD_PLACEHOLDER = /^Nouveau mot de passe/;
+
 test("mot de passe oublié : message générique, jamais de fuite d'existence de compte", async ({ page }) => {
   const { email } = await registerSchool(page, "pwforgot");
   await page.goto("/login");
@@ -38,11 +42,12 @@ test("mot de passe oublié : message générique, jamais de fuite d'existence de
 
 test("lien de réinitialisation invalide : message clair, pas de plantage", async ({ page }) => {
   await page.goto("/reset-password?token=un-jeton-qui-n-existe-pas");
-  await page.getByPlaceholder("Nouveau mot de passe (8 caractères min.)").fill("NouveauPass123");
+  await page.getByPlaceholder(NEW_PASSWORD_PLACEHOLDER).fill("NouveauPass123");
   await page.getByPlaceholder("Confirmer le mot de passe").fill("NouveauPass123");
   await page.getByRole("button", { name: "Définir le mot de passe" }).click();
 
-  await expect(page.getByText("Invalid or expired reset token")).toBeVisible();
+  // Refus du jeton traduit en français (phase 4 C de la refonte).
+  await expect(page.getByText(/Ce lien n'est plus valable/)).toBeVisible();
 });
 
 test("réinitialisation réelle via l'UI : lien reçu -> nouveau mot de passe -> connexion", async ({ page, request }) => {
@@ -58,7 +63,7 @@ test("réinitialisation réelle via l'UI : lien reçu -> nouveau mot de passe ->
   expect(token).toBeTruthy();
 
   await page.goto(`/reset-password?token=${token}`);
-  await page.getByPlaceholder("Nouveau mot de passe (8 caractères min.)").fill("BrandNewPassword1");
+  await page.getByPlaceholder(NEW_PASSWORD_PLACEHOLDER).fill("BrandNewPassword1");
   await page.getByPlaceholder("Confirmer le mot de passe").fill("BrandNewPassword1");
   await page.getByRole("button", { name: "Définir le mot de passe" }).click();
 
@@ -81,7 +86,7 @@ test("les deux mots de passe doivent correspondre", async ({ page, request }) =>
   const { dev_token: token } = await forgotResponse.json();
 
   await page.goto(`/reset-password?token=${token}`);
-  await page.getByPlaceholder("Nouveau mot de passe (8 caractères min.)").fill("PasswordA123");
+  await page.getByPlaceholder(NEW_PASSWORD_PLACEHOLDER).fill("PasswordA123");
   await page.getByPlaceholder("Confirmer le mot de passe").fill("PasswordB456");
   await page.getByRole("button", { name: "Définir le mot de passe" }).click();
 

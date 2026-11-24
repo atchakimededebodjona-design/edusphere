@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { AuthFrame, authButtonClass, authInputClass, authLabelClass } from "@/components/auth/AuthFrame";
 import { ApiError, forgotPassword } from "@/lib/auth/client";
 
 export default function ForgotPasswordPage() {
@@ -25,40 +26,47 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-50 p-8">
-      <h1 className="text-2xl font-bold text-slate-900">Mot de passe oublié</h1>
+    <AuthFrame
+      title="Mot de passe oublié"
+      footer={
+        <Link href="/login" className="inline-flex min-h-11 items-center text-sm font-medium text-brand-blue hover:underline">
+          Retour à la connexion
+        </Link>
+      }
+    >
       {status === "sent" ? (
-        <p className="max-w-sm text-center text-sm text-slate-600">
+        <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           Si un compte existe pour cette adresse, un email contenant un lien de réinitialisation
           vient d&apos;être envoyé.
         </p>
       ) : (
-        <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
-          <p className="text-sm text-slate-500">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <p className="text-sm text-slate-600">
             Indiquez votre adresse email : si un compte existe, vous recevrez un lien pour définir
             un nouveau mot de passe.
           </p>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="rounded border border-slate-300 px-3 py-2"
-          />
-          <button
-            type="submit"
-            disabled={status === "loading"}
-            className="rounded bg-slate-900 px-3 py-2 text-white disabled:opacity-50"
-          >
+          <label className={authLabelClass}>
+            Email
+            <input
+              type="email"
+              placeholder="Email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className={authInputClass}
+            />
+          </label>
+          <button type="submit" disabled={status === "loading"} className={authButtonClass}>
             {status === "loading" ? "Envoi..." : "Envoyer le lien"}
           </button>
-          {error && <p className="text-sm text-red-700">{error}</p>}
+          {error && (
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {error}
+            </p>
+          )}
         </form>
       )}
-      <Link href="/login" className="text-sm text-slate-600 underline">
-        Retour à la connexion
-      </Link>
-    </main>
+    </AuthFrame>
   );
 }
