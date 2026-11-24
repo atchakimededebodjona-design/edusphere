@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useEffect, useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { describeTeacherError, teacherApi, type TeacherAnnouncement } from "@/lib/teacher/client";
@@ -22,18 +23,18 @@ export default function TeacherAnnouncementsPage() {
   }, []);
 
   if (error) return <ErrorRetry message={error} onRetry={load} />;
-  if (items === null) return <p className="text-sm text-slate-400">Chargement des annonces...</p>;
+  if (items === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold text-slate-900">Annonces</h1>
-      {items.length === 0 && <p className="text-sm text-slate-500">Aucune annonce pour le moment.</p>}
+      {items.length === 0 && <p className="text-sm text-slate-600">Aucune annonce pour le moment.</p>}
       <ul className="flex flex-col gap-2">
         {items.map((n) => (
           <li key={n.id} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
             <p className={n.read ? "text-slate-600" : "font-medium text-slate-900"}>{n.title}</p>
             <p className="text-slate-600">{n.body}</p>
-            <p className="mt-1 text-xs text-slate-400">{new Date(n.created_at).toLocaleDateString("fr-FR")}</p>
+            <p className="mt-1 text-xs text-slate-600">{new Date(n.created_at).toLocaleDateString("fr-FR")}</p>
           </li>
         ))}
       </ul>

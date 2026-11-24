@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useState } from "react";
 import { academicTerms, schoolClasses, type AcademicTerm, type SchoolClass } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
@@ -59,14 +60,14 @@ export function AttendanceStatsPanel({ schoolId }: { schoolId: string }) {
   }, [selectedClassId, selectedTermId]);
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClasses} />;
-  if (classes === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (classes === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap gap-3">
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Classe
-          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm">
+          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500">
             <option value="">—</option>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
@@ -75,13 +76,13 @@ export function AttendanceStatsPanel({ schoolId }: { schoolId: string }) {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Période
           <select
             value={selectedTermId}
             onChange={(e) => setSelectedTermId(e.target.value)}
             disabled={!terms}
-            className="rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">—</option>
             {terms?.map((t) => (
@@ -92,22 +93,22 @@ export function AttendanceStatsPanel({ schoolId }: { schoolId: string }) {
           </select>
         </label>
       </div>
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
       {selectedClassId && selectedTermId && (
         statistics === null || roster === null ? (
-          <p className="text-sm text-slate-400">Chargement...</p>
+          <p className="text-sm text-slate-600">Chargement...</p>
         ) : (
-          <div className="overflow-x-auto rounded border border-slate-200">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Élève</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Présents</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Absents</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Retards</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Absences justifiées</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Taux de présence</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Élève</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Présents</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Absents</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Retards</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Absences justifiées</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Taux de présence</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -131,7 +132,7 @@ export function AttendanceStatsPanel({ schoolId }: { schoolId: string }) {
                   })}
                 {roster.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-4 text-center text-slate-400">
+                    <td colSpan={6} className="px-3 py-4 text-center text-slate-600">
                       Aucun élève inscrit dans cette classe.
                     </td>
                   </tr>

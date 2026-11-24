@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClassSubjectsEditor } from "@/app/(app)/academics/ClassesPanel";
@@ -73,7 +74,7 @@ export function StepYear({
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (years === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (years === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -191,7 +192,7 @@ export function StepTerms({ yearId }: { yearId: string }) {
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (terms === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (terms === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -298,7 +299,7 @@ export function StepLevels({ schoolId }: { schoolId: string }) {
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (levels === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (levels === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -378,7 +379,7 @@ export function StepSubjects({ schoolId }: { schoolId: string }) {
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (subjects === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (subjects === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -469,7 +470,7 @@ export function StepClasses({ schoolId, yearId }: { schoolId: string; yearId: st
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (levels === null || classes === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (levels === null || classes === null) return <TableSkeleton rows={3} />;
 
   if (levels.length === 0) {
     return (
@@ -560,7 +561,7 @@ export function StepAssignments({ schoolId, yearId }: { schoolId: string; yearId
   const selectedClass = classesForYear.find((c) => c.id === selectedClassId) ?? null;
 
   if (loadError) return <StepError message={loadError} />;
-  if (classes === null || subjects === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (classes === null || subjects === null) return <TableSkeleton rows={3} />;
 
   if (classesForYear.length === 0) {
     return (

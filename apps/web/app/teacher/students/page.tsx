@@ -41,15 +41,16 @@ function TeacherStudentsPageContent() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold text-slate-900">Mes élèves</h1>
-      <div className="flex flex-wrap gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <input
           type="search"
+          aria-label="Rechercher un élève"
           placeholder="Rechercher un élève"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
         />
-        <select value={classId} onChange={(e) => setClassId(e.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm">
+        <select aria-label="Classe" value={classId} onChange={(e) => setClassId(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500">
           <option value="">Toutes mes classes</option>
           {classes.map((c) => (
             <option key={c.id} value={c.id}>
@@ -60,8 +61,8 @@ function TeacherStudentsPageContent() {
       </div>
 
       {error && <ErrorRetry message={error} onRetry={() => setReloadKey((k) => k + 1)} />}
-      {!error && students === null && <p className="text-sm text-slate-400">Chargement des élèves...</p>}
-      {students && students.length === 0 && <p className="text-sm text-slate-500">Aucun élève trouvé.</p>}
+      {!error && students === null && <p className="text-sm text-slate-600">Chargement des élèves...</p>}
+      {students && students.length === 0 && <p className="text-sm text-slate-600">Aucun élève trouvé.</p>}
       {students && students.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -92,11 +93,11 @@ function TeacherStudentsPageContent() {
                   <td className="px-3 py-2">
                     {s.last_name} {s.first_name}
                     {/* Téléphone : le matricule passe sous le nom (colonne masquée). */}
-                    <span className="block text-xs text-slate-500 sm:hidden">{s.matricule}</span>
+                    <span className="block text-xs text-slate-600 sm:hidden">{s.matricule}</span>
                   </td>
                   <td className="px-3 py-2">{s.class_name}</td>
                   <td className="px-3 py-2 text-right">
-                    <Link href={`/teacher/students/${s.id}`} className="text-slate-900 underline">
+                    <Link href={`/teacher/students/${s.id}`} className="font-medium text-primary-700 underline underline-offset-2 hover:text-primary-800">
                       Fiche
                     </Link>
                   </td>
@@ -112,7 +113,7 @@ function TeacherStudentsPageContent() {
 
 export default function TeacherStudentsPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-slate-400">Chargement...</p>}>
+    <Suspense fallback={<p className="text-sm text-slate-600">Chargement...</p>}>
       <TeacherStudentsPageContent />
     </Suspense>
   );

@@ -104,31 +104,57 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
     }
   }
 
-  const input = "rounded border border-slate-300 px-3 py-2 text-sm";
+  const input =
+    "block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500";
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-      <h2 className="font-semibold text-slate-900">Inscrire une nouvelle école</h2>
+      <h2 className="text-lg font-bold text-slate-900">Inscrire une nouvelle école</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <input className={input} placeholder="Nom de l'organisation" value={form.orgName} onChange={set("orgName")} />
-        <input className={input} placeholder="Identifiant (ex. groupe-scolaire-x)" value={form.orgSlug} onChange={set("orgSlug")} />
-        <input className={input} placeholder="Pays (ex. TG)" value={form.orgCountry} onChange={set("orgCountry")} />
-        <input className={input} placeholder="Nom de l'école" value={form.schoolName} onChange={set("schoolName")} />
-        <input className={input} placeholder="Nom de l'administrateur" value={form.adminFullName} onChange={set("adminFullName")} />
-        <input className={input} type="email" placeholder="Email de l'administrateur" value={form.adminEmail} onChange={set("adminEmail")} />
-        <PasswordInput
-          className={input}
-          autoComplete="new-password"
-          placeholder={`Mot de passe initial (${PASSWORD_RULE_HINT})`}
-          value={form.adminPassword}
-          onChange={set("adminPassword")}
-        />
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+          Organisation
+          <input className={input} placeholder="Nom de l'organisation" value={form.orgName} onChange={set("orgName")} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+          Identifiant de l&apos;organisation
+          <input className={input} placeholder="Identifiant (ex. groupe-scolaire-x)" value={form.orgSlug} onChange={set("orgSlug")} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+          Pays
+          <input className={input} placeholder="Pays (ex. TG)" value={form.orgCountry} onChange={set("orgCountry")} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+          École
+          <input className={input} placeholder="Nom de l'école" value={form.schoolName} onChange={set("schoolName")} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+          Administrateur
+          <input className={input} placeholder="Nom de l'administrateur" value={form.adminFullName} onChange={set("adminFullName")} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+          Email de l&apos;administrateur
+          <input className={input} type="email" placeholder="Email de l'administrateur" value={form.adminEmail} onChange={set("adminEmail")} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+          Mot de passe initial
+          <PasswordInput
+            className={input}
+            autoComplete="new-password"
+            placeholder={`Mot de passe initial (${PASSWORD_RULE_HINT})`}
+            value={form.adminPassword}
+            onChange={set("adminPassword")}
+          />
+        </label>
       </div>
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
       )}
-      {success && <p className="text-sm text-emerald-700">{success}</p>}
+      {success && (
+        <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {success}
+        </p>
+      )}
       <div>
         <button
           type="submit"

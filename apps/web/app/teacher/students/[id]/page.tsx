@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -27,7 +28,7 @@ export default function TeacherStudentDetailPage() {
   }, [load]);
 
   if (error) return <ErrorRetry message={error} onRetry={load} />;
-  if (!data) return <p className="text-sm text-slate-400">Chargement de la fiche...</p>;
+  if (!data) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -43,15 +44,15 @@ export default function TeacherStudentDetailPage() {
         </h1>
       </div>
       <dl className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-2">
-        <dt className="text-slate-500">Matricule</dt>
+        <dt className="text-slate-600">Matricule</dt>
         <dd>{data.matricule}</dd>
-        <dt className="text-slate-500">Statut</dt>
+        <dt className="text-slate-600">Statut</dt>
         <dd>{data.status}</dd>
-        <dt className="text-slate-500">Classes</dt>
+        <dt className="text-slate-600">Classes</dt>
         <dd>{data.classes.map((c) => c.class_name).join(", ") || "—"}</dd>
       </dl>
-      <p className="text-xs text-slate-400">Fiche en lecture seule.</p>
-      <Link href="/teacher/students" className="text-sm text-slate-900 underline">
+      <p className="text-xs text-slate-600">Fiche en lecture seule.</p>
+      <Link href="/teacher/students" className="text-sm font-medium text-primary-700 underline underline-offset-2 hover:text-primary-800">
         Retour à mes élèves
       </Link>
     </div>

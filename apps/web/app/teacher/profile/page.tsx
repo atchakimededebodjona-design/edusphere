@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useEffect, useState } from "react";
 import { PassportPhotoPicker } from "@/components/photos/PassportPhotoPicker";
 import { PhotoThumb } from "@/components/photos/PhotoThumb";
@@ -46,7 +47,7 @@ export default function TeacherProfilePage() {
   }
 
   if (error) return <ErrorRetry message={error} onRetry={load} />;
-  if (!me) return <p className="text-sm text-slate-400">Chargement du profil...</p>;
+  if (!me) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -55,28 +56,28 @@ export default function TeacherProfilePage() {
       <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-start">
         <PhotoThumb path={photo.path} version={photo.version} name={me.full_name} size="lg" testId="my-photo" />
         <div className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-slate-900">Photo d&apos;identité</h2>
-          <p className="text-xs text-slate-500">
+          <h2 className="text-base font-bold text-slate-900">Photo d&apos;identité</h2>
+          <p className="text-xs text-slate-600">
             Format passeport. Avec l&apos;appareil photo, placez votre visage dans l&apos;ovale, de face, sur un fond clair.
           </p>
           <PassportPhotoPicker capture="user" onPhoto={(file) => myPhoto.upload(file)} />
           {photo.path &&
             (confirmingRemove ? (
               <span className="flex items-center gap-3 text-sm">
-                <button type="button" onClick={() => void removePhoto()} className="font-medium text-red-700 underline">
+                <button type="button" onClick={() => void removePhoto()} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                   Confirmer le retrait
                 </button>
-                <button type="button" onClick={() => setConfirmingRemove(false)} className="text-slate-600 underline">
+                <button type="button" onClick={() => setConfirmingRemove(false)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                   Annuler
                 </button>
               </span>
             ) : (
-              <button type="button" onClick={() => setConfirmingRemove(true)} className="self-start text-sm text-red-700 underline">
+              <button type="button" onClick={() => setConfirmingRemove(true)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 self-start">
                 Retirer ma photo
               </button>
             ))}
           {removeError && (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {removeError}
             </p>
           )}
@@ -84,18 +85,18 @@ export default function TeacherProfilePage() {
       </section>
 
       <dl className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-2">
-        <dt className="text-slate-500">Nom</dt>
+        <dt className="text-slate-600">Nom</dt>
         <dd>{me.full_name}</dd>
-        <dt className="text-slate-500">Email</dt>
+        <dt className="text-slate-600">Email</dt>
         <dd>{me.email}</dd>
-        <dt className="text-slate-500">Téléphone</dt>
+        <dt className="text-slate-600">Téléphone</dt>
         <dd>{me.phone ?? "—"}</dd>
-        <dt className="text-slate-500">École</dt>
+        <dt className="text-slate-600">École</dt>
         <dd>{me.schools.map((s) => s.name).join(", ") || "—"}</dd>
-        <dt className="text-slate-500">Rôle</dt>
+        <dt className="text-slate-600">Rôle</dt>
         <dd>Enseignant</dd>
       </dl>
-      <p className="text-xs text-slate-400">Pour modifier vos autres informations, contactez l&apos;administration de l&apos;école.</p>
+      <p className="text-xs text-slate-600">Pour modifier vos autres informations, contactez l&apos;administration de l&apos;école.</p>
     </div>
   );
 }

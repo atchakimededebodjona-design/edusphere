@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, classSubjects, schoolClasses, subjects as subjectsClient, type AcademicTerm, type ClassSubject, type SchoolClass, type Subject } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
@@ -64,14 +65,14 @@ function AppreciationCell({
         }}
         disabled={!canManage || saving}
         placeholder="Appréciation"
-        className="w-full rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+        className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
       />
       {canManage && isDirty && (
         <button
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="w-fit rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+          className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 w-fit"
         >
           {saving ? "Enregistrement..." : "Enregistrer"}
         </button>
@@ -194,14 +195,14 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClassesSubjectsTypes} />;
-  if (classes === null || subjects === null || types === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (classes === null || subjects === null || types === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap gap-3">
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Classe
-          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm">
+          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500">
             <option value="">—</option>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
@@ -210,13 +211,13 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Matière
           <select
             value={selectedClassSubjectId}
             onChange={(e) => setSelectedClassSubjectId(e.target.value)}
             disabled={!classSubjectOptions}
-            className="rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">—</option>
             {classSubjectOptions?.map((cs) => (
@@ -226,13 +227,13 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Période
           <select
             value={selectedTermId}
             onChange={(e) => setSelectedTermId(e.target.value)}
             disabled={!terms}
-            className="rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">—</option>
             {terms?.map((t) => (
@@ -243,18 +244,18 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
           </select>
         </label>
       </div>
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
       {selectedClassSubjectId && selectedTermId && (
         <>
           <div className="flex flex-col gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Évaluations</h2>
             {assessmentList === null ? (
-              <p className="text-sm text-slate-400">Chargement...</p>
+              <p className="text-sm text-slate-600">Chargement...</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {assessmentList.map((a) => (
-                  <li key={a.id} className="rounded border border-slate-200">
+                  <li key={a.id} className="rounded-xl border border-slate-200 bg-white">
                     <button
                       type="button"
                       onClick={() => setExpandedAssessmentId(expandedAssessmentId === a.id ? null : a.id)}
@@ -263,7 +264,7 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
                       <span>
                         {expandedAssessmentId === a.id ? "▾" : "▸"} {a.name} — {a.assessment_date}
                       </span>
-                      <span className="text-xs text-slate-500">/{a.max_score}</span>
+                      <span className="text-xs text-slate-600">/{a.max_score}</span>
                     </button>
                     {expandedAssessmentId === a.id && roster && (
                       <div className="border-t border-slate-200 p-3">
@@ -272,28 +273,28 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
                     )}
                   </li>
                 ))}
-                {assessmentList.length === 0 && <li className="text-sm text-slate-400">Aucune évaluation pour cette sélection.</li>}
+                {assessmentList.length === 0 && <li className="text-sm text-slate-600">Aucune évaluation pour cette sélection.</li>}
               </ul>
             )}
 
             {canManage && (
-              <form onSubmit={handleCreateAssessment} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
+              <form onSubmit={handleCreateAssessment} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                   Nom
                   <input
                     value={form.name}
                     onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                     required
-                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                   Type
                   <select
                     value={form.assessment_type_id}
                     onChange={(e) => setForm((prev) => ({ ...prev, assessment_type_id: e.target.value }))}
                     required
-                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                   >
                     <option value="">—</option>
                     {types.map((t) => (
@@ -303,36 +304,36 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
                     ))}
                   </select>
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                   Note max
                   <input
                     type="number"
                     value={form.max_score}
                     onChange={(e) => setForm((prev) => ({ ...prev, max_score: e.target.value }))}
-                    className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 !w-24"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                   Coefficient
                   <input
                     type="number"
                     step="0.5"
                     value={form.weight}
                     onChange={(e) => setForm((prev) => ({ ...prev, weight: e.target.value }))}
-                    className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 !w-24"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                   Date
                   <input
                     type="date"
                     value={form.assessment_date}
                     onChange={(e) => setForm((prev) => ({ ...prev, assessment_date: e.target.value }))}
                     required
-                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </label>
-                <button type="submit" disabled={creating} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+                <button type="submit" disabled={creating} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
                   {creating ? "Ajout..." : "Ajouter"}
                 </button>
               </form>
@@ -342,16 +343,16 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
           <div className="flex flex-col gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Moyennes &amp; appréciations</h2>
             {averages === null ? (
-              <p className="text-sm text-slate-400">Chargement...</p>
+              <p className="text-sm text-slate-600">Chargement...</p>
             ) : (
-              <div className="overflow-x-auto rounded border border-slate-200">
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                 <table className="min-w-full divide-y divide-slate-200 text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600">Élève</th>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600">Moyenne</th>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600">Rang</th>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600">Appréciation</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Élève</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Moyenne</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Rang</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Appréciation</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -372,7 +373,7 @@ export function GradeBookPanel({ schoolId, canManage }: { schoolId: string; canM
                                 onSaved={(updated) => setAverages((prev) => ({ ...prev, [student.id]: updated }))}
                               />
                             ) : (
-                              <span className="text-xs text-slate-400">Pas encore de notes</span>
+                              <span className="text-xs text-slate-600">Pas encore de notes</span>
                             )}
                           </td>
                         </tr>

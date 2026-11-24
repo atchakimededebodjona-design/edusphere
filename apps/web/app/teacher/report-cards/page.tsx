@@ -46,21 +46,21 @@ function TeacherReportCardsPageContent() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold text-slate-900">Bulletins publiés</h1>
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
       {classes && classes.length > 0 && (
-        <select value={classId} onChange={(e) => setClassId(e.target.value)} className="w-fit rounded border border-slate-300 px-3 py-2 text-sm">
+        <select aria-label="Classe" value={classId} onChange={(e) => setClassId(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 sm:!w-72">
           {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       )}
-      {classes && classes.length === 0 && <p className="text-sm text-slate-500">Aucune classe ne vous est affectée.</p>}
-      {cards === null && !error && classId && <p className="text-sm text-slate-400">Chargement des bulletins...</p>}
-      {cards && cards.length === 0 && <p className="text-sm text-slate-500">Aucun bulletin publié pour cette classe.</p>}
+      {classes && classes.length === 0 && <p className="text-sm text-slate-600">Aucune classe ne vous est affectée.</p>}
+      {cards === null && !error && classId && <p className="text-sm text-slate-600">Chargement des bulletins...</p>}
+      {cards && cards.length === 0 && <p className="text-sm text-slate-600">Aucun bulletin publié pour cette classe.</p>}
       {cards && cards.length > 0 && (
         <ul className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm">
           {cards.map((c) => (
             <li key={c.id} className="flex items-center justify-between gap-3">
               <span>{c.student_name}</span>
-              <button type="button" onClick={() => download(c)} className="text-slate-900 underline">Télécharger le PDF</button>
+              <button type="button" onClick={() => download(c)} className="font-medium text-primary-700 underline underline-offset-2 hover:text-primary-800">Télécharger le PDF</button>
             </li>
           ))}
         </ul>
@@ -71,7 +71,7 @@ function TeacherReportCardsPageContent() {
 
 export default function TeacherReportCardsPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-slate-400">Chargement...</p>}>
+    <Suspense fallback={<p className="text-sm text-slate-600">Chargement...</p>}>
       <TeacherReportCardsPageContent />
     </Suspense>
   );

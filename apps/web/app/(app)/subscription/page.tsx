@@ -63,7 +63,7 @@ export default function SubscriptionPage() {
   );
 
   if (!currentSchoolId) {
-    return <p className="text-sm text-slate-500">Sélectionnez une école pour voir son abonnement.</p>;
+    return <p className="text-sm text-slate-600">Sélectionnez une école pour voir son abonnement.</p>;
   }
 
   async function confirmChoice() {
@@ -105,7 +105,7 @@ export default function SubscriptionPage() {
       </div>
 
       {error && <ErrorRetry message={error} onRetry={retry} />}
-      {isLoading && !error && <p className="text-sm text-slate-400">Chargement...</p>}
+      {isLoading && !error && <p className="text-sm text-slate-600">Chargement...</p>}
 
       {sub && (
         <>
@@ -137,25 +137,25 @@ export default function SubscriptionPage() {
               sont figés sur la facture au moment de l&apos;émission.
             </p>
             {sub.quote_required ? (
-              <p className="rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+              <p className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
                 Plus de 1 000 élèves actifs : tarif adapté. Choisissez une durée pour demander un devis à EduLinkage.
               </p>
             ) : (
               !sub.grid_available && (
-                <p className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
                   Les tarifs ne sont pas encore publiés.
                 </p>
               )
             )}
             <div className="grid gap-3 sm:grid-cols-3">
               {sub.offers.map((offer) => (
-                <div key={offer.period_months} className="flex flex-col gap-2 rounded border border-slate-200 bg-white p-4">
+                <div key={offer.period_months} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
                   <p className="font-medium text-slate-900">{periodLabel(offer.period_months)}</p>
                   <p className="text-xl font-semibold text-slate-900">
                     {offer.total_amount ? formatApiAmount(offer.total_amount, sub.currency) : sub.quote_required ? "Sur devis" : "—"}
                   </p>
                   {offer.total_amount && offer.supplement_amount && Number(offer.supplement_amount) > 0 && (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-600">
                       Forfait de base {formatApiAmount(offer.base_amount ?? "0", sub.currency)} + supplément{" "}
                       {formatApiAmount(offer.supplement_amount, sub.currency)}
                     </p>
@@ -167,7 +167,7 @@ export default function SubscriptionPage() {
                         setActionError(null);
                         setChoice({ months: offer.period_months, key: schoolSubscription.newIdempotencyKey() });
                       }}
-                      className="mt-auto rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 mt-auto"
                     >
                       {sub.quote_required ? "Demander un devis" : sub.state === "NONE" ? "S'abonner" : "Renouveler"}
                     </button>
@@ -176,24 +176,24 @@ export default function SubscriptionPage() {
               ))}
             </div>
             {!canPay && (
-              <p className="text-xs text-slate-500">Seul l&apos;administrateur de l&apos;école peut émettre une facture.</p>
+              <p className="text-xs text-slate-600">Seul l&apos;administrateur de l&apos;école peut émettre une facture.</p>
             )}
           </section>
 
           {choice && (
-            <section className="flex flex-col gap-3 rounded border border-slate-300 bg-white p-4">
+            <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
               <p className="text-sm text-slate-800">
                 Confirmer {sub.quote_required ? "la demande de devis" : "l'émission de la facture"} pour{" "}
                 <strong>{periodLabel(choice.months)}</strong> ? L&apos;effectif de {sub.active_student_count} élève
                 {sub.active_student_count > 1 ? "s" : ""} actif{sub.active_student_count > 1 ? "s" : ""} et le prix seront figés.
               </p>
-              {actionError && <p className="text-sm text-red-700">{actionError}</p>}
+              {actionError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>}
               <div className="flex gap-2">
                 <button
                   type="button"
                   disabled={submitting}
                   onClick={confirmChoice}
-                  className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
                 >
                   {submitting ? "Émission..." : "Confirmer"}
                 </button>
@@ -201,7 +201,7 @@ export default function SubscriptionPage() {
                   type="button"
                   disabled={submitting}
                   onClick={() => setChoice(null)}
-                  className="rounded border border-slate-300 px-3 py-2 text-sm"
+                  className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                 >
                   Annuler
                 </button>
@@ -210,13 +210,13 @@ export default function SubscriptionPage() {
           )}
 
           {paidNotice && !sub.open_invoice && (
-            <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
               Paiement confirmé : l&apos;abonnement est à jour et le reçu est disponible ci-dessous.
             </p>
           )}
 
           {sub.open_invoice && (
-            <section className="flex flex-col gap-2 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <section className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">
                 {sub.open_invoice.status === "QUOTE_REQUIRED"
                   ? "Demande de devis en cours"
@@ -244,16 +244,16 @@ export default function SubscriptionPage() {
 
           <section className="flex flex-col gap-2">
             <h2 className="text-lg font-semibold text-slate-900">Factures</h2>
-            {actionError && !choice && <p className="text-sm text-red-700">{actionError}</p>}
+            {actionError && !choice && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>}
             {data.invoices.length === 0 ? (
-              <p className="text-sm text-slate-500">Aucune facture.</p>
+              <p className="text-sm text-slate-600">Aucune facture.</p>
             ) : (
-              <div className="overflow-x-auto rounded border border-slate-200">
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                 <table className="min-w-full divide-y divide-slate-200 text-sm">
                   <thead className="bg-slate-50">
                     <tr>
                       {["Numéro", "Durée", "Effectif", "Montant", "Statut", "Émise le", "Reçu"].map((h) => (
-                        <th key={h} className="px-3 py-2 text-left font-medium text-slate-600">
+                        <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                           {h}
                         </th>
                       ))}
@@ -272,7 +272,7 @@ export default function SubscriptionPage() {
                         <td className="px-3 py-2">{invoice.issued_at ? formatDateFR(invoice.issued_at) : "—"}</td>
                         <td className="px-3 py-2">
                           {invoice.status === "PAID" ? (
-                            <button type="button" onClick={() => openReceipt(invoice.id)} className="text-sky-700 underline">
+                            <button type="button" onClick={() => openReceipt(invoice.id)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                               Télécharger
                             </button>
                           ) : (

@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
@@ -522,7 +523,7 @@ export function StudentGuardians({
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
-  if (directory === null || links === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (directory === null || links === null) return <TableSkeleton rows={3} />;
 
   return (
     <section className="flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">

@@ -12,6 +12,16 @@
   }
 }
 
+/* Refonte, phase 5 (2026-11-24) — champs de date et d'heure : Chrome place le focus dans leurs sous-champs
+   (jour, mois, année), si bien que le champ lui-même ne prend pas :focus et que l'anneau de focus des
+   champs communs (focus:ring) n'apparaissait pas. :focus-within le rétablit, au clavier comme au doigt. */
+input[type="date"]:focus-within,
+input[type="time"]:focus-within,
+input[type="datetime-local"]:focus-within {
+  outline: 2px solid #1565d8;
+  outline-offset: 1px;
+}
+
 /* Refonte, phase 1 — contenu des espaces connectés (components/shell/ShellFrame.tsx) : sur téléphone, le
    bas de la page reste dégagé de la barre de navigation fixée en bas (sa hauteur réelle est publiée dans
    --bottom-nav-height par components/shell/MobileTabBar.tsx). */

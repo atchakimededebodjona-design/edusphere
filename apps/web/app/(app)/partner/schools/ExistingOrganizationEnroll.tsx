@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { ExistingSchoolsList, NewSchoolForm, schoolAddedMessage } from "@/components/enrollment/NewSchoolForm";
@@ -16,7 +17,7 @@ export function ExistingOrganizationEnroll({ onEnrolled }: { onEnrolled: () => v
   const [selectedId, setSelectedId] = useState<string>("");
 
   if (error) return <ErrorRetry message={error} onRetry={retry} />;
-  if (isLoading || !data) return <p className="text-sm text-slate-600">Chargement de vos organisations...</p>;
+  if (isLoading || !data) return <TableSkeleton rows={3} />;
   if (data.length === 0) {
     return (
       <p className="text-sm text-slate-600">

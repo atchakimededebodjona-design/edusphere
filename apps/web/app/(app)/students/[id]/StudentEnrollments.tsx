@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useState } from "react";
 import { academicYears, schoolClasses, type AcademicYear, type SchoolClass } from "@/lib/academics/client";
 import { ApiError } from "@/lib/api/client";
@@ -70,7 +71,7 @@ export function StudentEnrollments({ studentId, schoolId, canManage }: { student
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadAll} />;
-  if (classes === null || years === null || items === null) return <p className="text-sm text-slate-600">Chargement...</p>;
+  if (classes === null || years === null || items === null) return <TableSkeleton rows={3} />;
 
   const className = (classIdValue: string) => classes.find((c) => c.id === classIdValue)?.name ?? "—";
   const yearName = (yearId: string) => years.find((y) => y.id === yearId)?.name ?? "—";

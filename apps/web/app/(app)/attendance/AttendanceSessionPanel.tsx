@@ -1,5 +1,6 @@
 "use client";
 
+import { TableSkeleton } from "@/components/ui/DataTable";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { academicTerms, schoolClasses, type AcademicTerm, type SchoolClass } from "@/lib/academics/client";
 import {
@@ -178,14 +179,14 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadClasses} />;
-  if (classes === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (classes === null) return <TableSkeleton rows={3} />;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Classe
-          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm">
+          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500">
             <option value="">—</option>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
@@ -194,13 +195,13 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Période
           <select
             value={selectedTermId}
             onChange={(e) => setSelectedTermId(e.target.value)}
             disabled={!terms}
-            className="rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">—</option>
             {terms?.map((t) => (
@@ -210,13 +211,13 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Date
           <input
             type="date"
             value={sessionDate}
             onChange={(e) => setSessionDate(e.target.value)}
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           />
         </label>
       </div>
@@ -224,14 +225,14 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
       {selectedClassId && selectedTermId && sessionDate && (
         <div className="flex flex-col gap-4">
           {sessionsForDay === null ? (
-            <p className="text-sm text-slate-400">Chargement des sessions...</p>
+            <p className="text-sm text-slate-600">Chargement des sessions...</p>
           ) : sessionsForDay.length === 0 ? (
             canManage && (
               <button
                 type="button"
                 onClick={handleCreateSession}
                 disabled={creatingSession}
-                className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 w-fit"
               >
                 {creatingSession ? "Création..." : "Faire l'appel"}
               </button>
@@ -239,12 +240,12 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
           ) : (
             <div className="flex flex-wrap items-center gap-3">
               {sessionsForDay.length > 1 && (
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
                   Session
                   <select
                     value={selectedSessionId}
                     onChange={(e) => setSelectedSessionId(e.target.value)}
-                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                   >
                     <option value="">—</option>
                     {sessionsForDay.map((s, i) => (
@@ -256,7 +257,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
                 </label>
               )}
               {canManage && sessionsForDay.length === 0 && (
-                <button type="button" onClick={handleCreateSession} disabled={creatingSession} className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+                <button type="button" onClick={handleCreateSession} disabled={creatingSession} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
                   Nouvelle session
                 </button>
               )}
@@ -274,7 +275,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
                     type="button"
                     onClick={handleToggleLock}
                     disabled={togglingLock}
-                    className="rounded border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {togglingLock ? "..." : selectedSession.locked ? "Déverrouiller" : "Verrouiller"}
                   </button>
@@ -282,16 +283,16 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
               </div>
 
               {existingRecords === null || roster === null ? (
-                <p className="text-sm text-slate-400">Chargement des présences...</p>
+                <p className="text-sm text-slate-600">Chargement des présences...</p>
               ) : (
-                <div className="overflow-x-auto rounded border border-slate-200">
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                   <table className="min-w-full divide-y divide-slate-200 text-sm">
                     <thead className="bg-slate-50">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium text-slate-600">Élève</th>
-                        <th className="px-3 py-2 text-left font-medium text-slate-600">Statut</th>
-                        <th className="px-3 py-2 text-left font-medium text-slate-600">Justifié</th>
-                        <th className="px-3 py-2 text-left font-medium text-slate-600">Motif</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Élève</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Statut</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Justifié</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Motif</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -307,7 +308,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
                                 value={value.status}
                                 onChange={(e) => updateValue(student.id, { status: e.target.value as AttendanceStatusValue })}
                                 disabled={!canManage}
-                                className="rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+                                className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                               >
                                 {(Object.keys(STATUS_LABELS) as AttendanceStatusValue[]).map((s) => (
                                   <option key={s} value={s}>
@@ -330,7 +331,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
                                 onChange={(e) => updateValue(student.id, { reason: e.target.value })}
                                 disabled={!canManage}
                                 placeholder="Motif (optionnel)"
-                                className="w-full rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+                                className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                               />
                             </td>
                           </tr>
@@ -338,7 +339,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
                       })}
                       {sortedRoster.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
+                          <td colSpan={4} className="px-3 py-4 text-center text-slate-600">
                             Aucun élève inscrit dans cette classe.
                           </td>
                         </tr>
@@ -353,7 +354,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
                   type="button"
                   onClick={handleSave}
                   disabled={saving || selectedSession.locked}
-                  className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 w-fit"
                 >
                   {saving ? "Enregistrement..." : "Enregistrer l'appel"}
                 </button>
@@ -363,7 +364,7 @@ export function AttendanceSessionPanel({ schoolId, canManage }: { schoolId: stri
           )}
         </div>
       )}
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
     </div>
   );
 }
