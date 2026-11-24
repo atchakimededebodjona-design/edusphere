@@ -7,6 +7,7 @@ import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { toErrorMessage, useAsyncData } from "@/lib/api/useAsyncData";
 import { PASSWORD_RULE_HINT, passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
+import { AFRICAN_COUNTRIES } from "@/lib/geo/africanCountries";
 import { enrollPartnerSchool, listPartnerSchools } from "@/lib/partners/client";
 import { ExistingOrganizationEnroll } from "./ExistingOrganizationEnroll";
 
@@ -56,7 +57,7 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const set = (key: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (key: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }));
 
   async function handleSubmit(event: React.FormEvent) {
@@ -120,7 +121,14 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
         </label>
         <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Pays
-          <input className={input} placeholder="Pays (ex. TG)" value={form.orgCountry} onChange={set("orgCountry")} />
+          {/* 2026-11-24 — liste des pays d'Afrique au lieu d'un code à taper ; l'API reçoit le même code (TG…). */}
+          <select className={input} value={form.orgCountry} onChange={set("orgCountry")}>
+            {AFRICAN_COUNTRIES.map((country) => (
+              <option key={country.code} value={country.code}>
+                {country.name}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           École

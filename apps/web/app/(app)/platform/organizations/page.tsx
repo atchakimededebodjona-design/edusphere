@@ -1,6 +1,7 @@
 "use client";
 
 import { listPlatformOrganizations, type PlatformOrganization } from "@/lib/platform/client";
+import { countryName } from "@/lib/geo/africanCountries";
 import { formatDate, PlatformListPage } from "../PlatformListPage";
 
 export default function PlatformOrganizationsPage() {
@@ -13,7 +14,7 @@ export default function PlatformOrganizationsPage() {
       columns={[
         { header: "Nom", render: (org) => org.name },
         { header: "Identifiant", render: (org) => org.slug },
-        { header: "Pays", render: (org) => org.country_code },
+        { header: "Pays", render: (org) => countryName(org.country_code) },
         { header: "Créée le", render: (org) => formatDate(org.created_at) },
       ]}
     />
