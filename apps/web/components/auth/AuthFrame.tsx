@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { BrandFull, BrandSymbol } from "@/components/branding/BrandLogo";
 
@@ -57,6 +58,17 @@ export function AuthFrame({
           {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
           <div className="mt-8">{children}</div>
           {footer && <div className="mt-6">{footer}</div>}
+          <p className="mt-10 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+            <Link href="/confidentialite" className="inline-flex min-h-6 items-center hover:text-brand-blue hover:underline">
+              Confidentialité
+            </Link>
+            <Link href="/cgu" className="inline-flex min-h-6 items-center hover:text-brand-blue hover:underline">
+              Conditions d&apos;utilisation
+            </Link>
+            <Link href="/cgv" className="inline-flex min-h-6 items-center hover:text-brand-blue hover:underline">
+              Conditions de vente
+            </Link>
+          </p>
         </div>
       </div>
     </main>

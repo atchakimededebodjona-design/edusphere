@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { bodyFont, displayFont } from "./fonts";
+import { AnalyticsConsent } from "@/components/consent/AnalyticsConsent";
 import { PwaSupport } from "@/components/pwa/PwaSupport";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 
@@ -35,6 +36,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <PwaSupport />
+          <AnalyticsConsent />
         </AuthProvider>
       </body>
     </html>
