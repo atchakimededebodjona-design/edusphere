@@ -35,7 +35,7 @@ export default function NewOrganizationPage() {
   }, []);
 
   if (!allowed) {
-    return <p className="text-sm text-slate-400">Vérification des droits...</p>;
+    return <p className="text-sm text-slate-600">Vérification des droits...</p>;
   }
 
   return (

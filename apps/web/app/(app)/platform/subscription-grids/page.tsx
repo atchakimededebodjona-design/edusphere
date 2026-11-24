@@ -159,22 +159,22 @@ export default function SubscriptionGridsPage() {
         <button
           type="button"
           onClick={startNew}
-          className="self-start rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 self-start"
         >
           Nouvelle grille (brouillon)
         </button>
       )}
 
-      {actionError && <p className="text-sm text-red-700">{actionError}</p>}
+      {actionError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>}
 
       {editor && (
-        <section className="flex flex-col gap-3 rounded border border-slate-300 bg-white p-4">
+        <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <label className="flex flex-col gap-1 text-sm">
             Libellé
             <input
               value={editor.label}
               onChange={(e) => setEditor({ ...editor, label: e.target.value })}
-              className="rounded border border-slate-300 px-2 py-1"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
               maxLength={120}
             />
           </label>
@@ -205,7 +205,7 @@ export default function SubscriptionGridsPage() {
                             );
                             setEditor({ ...editor, periods });
                           }}
-                          className="w-32 rounded border border-slate-300 px-2 py-1"
+                          className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 !w-32"
                         />
                       </td>
                     ))}
@@ -219,11 +219,11 @@ export default function SubscriptionGridsPage() {
               type="button"
               disabled={busy}
               onClick={saveEditor}
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               Enregistrer le brouillon
             </button>
-            <button type="button" disabled={busy} onClick={() => setEditor(null)} className="rounded border border-slate-300 px-3 py-2 text-sm">
+            <button type="button" disabled={busy} onClick={() => setEditor(null)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500">
               Annuler
             </button>
           </div>
@@ -231,15 +231,15 @@ export default function SubscriptionGridsPage() {
       )}
 
       {error && <ErrorRetry message={error} onRetry={retry} />}
-      {isLoading && !error && <p className="text-sm text-slate-400">Chargement...</p>}
-      {data && data.length === 0 && <p className="text-sm text-slate-500">Aucune grille : les écoles ne peuvent pas encore s&apos;abonner.</p>}
+      {isLoading && !error && <p className="text-sm text-slate-600">Chargement...</p>}
+      {data && data.length === 0 && <p className="text-sm text-slate-600">Aucune grille : les écoles ne peuvent pas encore s&apos;abonner.</p>}
 
       {data?.map((grid) => (
-        <section key={grid.id} className="flex flex-col gap-2 rounded border border-slate-200 bg-white p-4">
+        <section key={grid.id} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold text-slate-900">{grid.label}</p>
-            <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{STATUS_LABELS[grid.status]}</span>
-            <span className="text-xs text-slate-500">
+            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">{STATUS_LABELS[grid.status]}</span>
+            <span className="text-xs text-slate-600">
               Créée le {formatDateFR(grid.created_at)}
               {grid.activated_at && ` — activée le ${formatDateFR(grid.activated_at)}`}
               {grid.archived_at && ` — archivée le ${formatDateFR(grid.archived_at)}`}
@@ -272,14 +272,14 @@ export default function SubscriptionGridsPage() {
             </table>
           </div>
           {grid.periods.some((p) => p.supplement_tier_4 === null) && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-600">
               Grille antérieure au 15/11/2026 : sa tranche « 501 à 750 » couvrait alors 501 à 1 000 élèves, et elle ne chiffre pas
               751 à 1 000 élèves.
             </p>
           )}
           {canManage && grid.status === "DRAFT" && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={busy} onClick={() => startEdit(grid)} className="rounded border border-slate-300 px-3 py-1 text-sm">
+              <button type="button" disabled={busy} onClick={() => startEdit(grid)} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                 Modifier
               </button>
               {confirmActivate === grid.id ? (
@@ -292,11 +292,11 @@ export default function SubscriptionGridsPage() {
                     type="button"
                     disabled={busy}
                     onClick={() => run(() => platformSubscriptions.activateGrid(grid.id), () => setConfirmActivate(null))}
-                    className="rounded bg-slate-900 px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Confirmer l&apos;activation
                   </button>
-                  <button type="button" onClick={() => setConfirmActivate(null)} className="rounded border border-slate-300 px-3 py-1 text-sm">
+                  <button type="button" onClick={() => setConfirmActivate(null)} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                     Annuler
                   </button>
                 </>
@@ -305,7 +305,7 @@ export default function SubscriptionGridsPage() {
                   type="button"
                   disabled={busy}
                   onClick={() => setConfirmActivate(grid.id)}
-                  className="rounded bg-slate-900 px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Activer
                 </button>

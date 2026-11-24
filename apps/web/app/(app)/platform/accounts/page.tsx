@@ -1,5 +1,7 @@
 "use client";
 
+import { DataTable, Pager, TableSkeleton } from "@/components/ui/DataTable";
+import { Badge, EmptyState } from "@/components/ui/Surface";
 import { useEffect, useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { toErrorMessage, useAsyncData } from "@/lib/api/useAsyncData";
@@ -77,9 +79,9 @@ export default function PlatformAccountsPage() {
 
   function actions(account: PlatformAccount) {
     if (account.deleted_at) return null;
-    if (account.id === user?.id) return <span className="text-xs text-slate-400">Votre compte</span>;
+    if (account.id === user?.id) return <span className="text-xs text-slate-600">Votre compte</span>;
     if (account.role_codes.some((code) => PLATFORM_ROLES.includes(code))) {
-      return <span className="text-xs text-slate-400">Compte plateforme</span>;
+      return <span className="text-xs text-slate-600">Compte plateforme</span>;
     }
     const partner = account.role_codes.includes("PARTNER_ADMIN");
     return (
@@ -96,16 +98,16 @@ export default function PlatformAccountsPage() {
                     `Compte de ${account.full_name} désactivé : il ne peut plus se connecter.`,
                   )
                 }
-                className="font-medium text-amber-800 underline disabled:opacity-50"
+                className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-amber-800 hover:bg-amber-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Confirmer la désactivation
               </button>
-              <button type="button" onClick={() => setConfirmingDeactivate(null)} className="text-slate-600 underline">
+              <button type="button" onClick={() => setConfirmingDeactivate(null)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                 Annuler
               </button>
             </span>
           ) : (
-            <button type="button" onClick={() => setConfirmingDeactivate(account.id)} className="text-amber-800 underline">
+            <button type="button" onClick={() => setConfirmingDeactivate(account.id)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-amber-800 hover:bg-amber-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
               Désactiver
             </button>
           )
@@ -119,13 +121,13 @@ export default function PlatformAccountsPage() {
                 `Compte de ${account.full_name} réactivé : il peut de nouveau se connecter.`,
               )
             }
-            className="text-emerald-800 underline disabled:opacity-50"
+            className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Réactiver
           </button>
         )}
         {!partner && (
-          <button type="button" onClick={() => startDelete(account)} className="text-red-700 underline">
+          <button type="button" onClick={() => startDelete(account)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
             Supprimer
           </button>
         )}
@@ -150,16 +152,16 @@ export default function PlatformAccountsPage() {
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Rechercher un nom ou un email"
         aria-label="Rechercher un compte"
-        className="w-full max-w-md rounded border border-slate-300 px-3 py-2 text-sm"
+        className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 max-w-md"
       />
 
       {notice && (
-        <p role="status" className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           {notice}
         </p>
       )}
       {actionError && (
-        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {actionError}
         </p>
       )}
@@ -187,7 +189,7 @@ export default function PlatformAccountsPage() {
               onChange={(event) => setConfirmEmail(event.target.value)}
               autoComplete="off"
               spellCheck={false}
-              className="w-full max-w-md rounded border border-red-300 bg-white px-3 py-2"
+              className="block w-full min-h-11 rounded-lg border border-red-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 max-w-md"
             />
           </label>
           <div className="flex flex-wrap gap-3">
@@ -200,11 +202,11 @@ export default function PlatformAccountsPage() {
                   `Compte de ${deleting.full_name} supprimé définitivement.`,
                 )
               }
-              className="rounded bg-red-700 px-3 py-2 font-medium text-white hover:bg-red-800 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-red-700 px-4 text-sm font-medium text-white hover:bg-red-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               {busy ? "Suppression..." : "Supprimer définitivement"}
             </button>
-            <button type="button" onClick={() => setDeleting(null)} className="px-2 py-2 text-slate-700 underline">
+            <button type="button" onClick={() => setDeleting(null)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
               Annuler
             </button>
           </div>
@@ -212,74 +214,49 @@ export default function PlatformAccountsPage() {
       )}
 
       {error && <ErrorRetry message={error} onRetry={retry} />}
-      {isLoading && !error && <p className="text-sm text-slate-400">Chargement...</p>}
+      {isLoading && !error && <TableSkeleton />}
 
       {data && (
         <>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-600" aria-live="polite">
             {data.total} résultat{data.total > 1 ? "s" : ""}
             {isRefreshing && " — actualisation..."}
           </p>
-          {data.items.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucun compte.</p>
-          ) : (
-            <div className="overflow-x-auto rounded border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    {["Nom", "Email", "Rôles", "Statut", "Créé le", ...(canManage ? ["Actions"] : [])].map((header) => (
-                      <th key={header} className="px-3 py-2 text-left font-medium text-slate-600">
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {data.items.map((account) => (
-                    <tr key={account.id} data-testid={`account-${account.id}`}>
-                      <td className="px-3 py-2 text-slate-700">{account.full_name}</td>
-                      <td className="px-3 py-2 text-slate-700">{account.deleted_at ? "—" : account.email}</td>
-                      <td className="px-3 py-2 text-slate-700">{account.role_codes.join(", ") || "—"}</td>
-                      <td className="px-3 py-2">
-                        {account.deleted_at ? (
-                          <span className="text-slate-500">Supprimé le {formatDate(account.deleted_at)}</span>
-                        ) : account.is_active ? (
-                          <span className="text-emerald-800">Actif</span>
-                        ) : (
-                          <span className="font-medium text-amber-800">Désactivé</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{formatDate(account.created_at)}</td>
-                      {canManage && <td className="px-3 py-2">{actions(account)}</td>}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {data.total_pages > 1 && (
-            <div className="flex items-center gap-3 text-sm">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
-              >
-                Précédent
-              </button>
-              <span className="text-slate-600">
-                Page {data.page} / {data.total_pages}
-              </span>
-              <button
-                type="button"
-                disabled={page >= data.total_pages}
-                onClick={() => setPage((p) => p + 1)}
-                className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
-              >
-                Suivant
-              </button>
-            </div>
-          )}
+          <DataTable
+            caption="Comptes"
+            rows={data.items}
+            rowKey={(account) => account.id}
+            rowTestId={(account) => `account-${account.id}`}
+            rowTone={(account) => (account.deleted_at ? "muted" : undefined)}
+            empty={<EmptyState icon="users" title="Aucun compte." />}
+            columns={[
+              { key: "name", header: "Nom", mobile: "title", cell: (account) => account.full_name },
+              {
+                key: "email",
+                header: "Email",
+                mobile: "full",
+                cell: (account) => <span className="break-all">{account.deleted_at ? "—" : account.email}</span>,
+              },
+              { key: "roles", header: "Rôles", cell: (account) => account.role_codes.join(", ") || "—" },
+              {
+                key: "status",
+                header: "Statut",
+                cell: (account) =>
+                  account.deleted_at ? (
+                    <Badge tone="neutral">Supprimé le {formatDate(account.deleted_at)}</Badge>
+                  ) : account.is_active ? (
+                    <Badge tone="success">Actif</Badge>
+                  ) : (
+                    <Badge tone="warning">Désactivé</Badge>
+                  ),
+              },
+              { key: "created", header: "Créé le", cell: (account) => formatDate(account.created_at) },
+              ...(canManage
+                ? [{ key: "actions", header: "Actions", mobile: "full" as const, cell: (account: (typeof data.items)[number]) => actions(account) }]
+                : []),
+            ]}
+          />
+          <Pager page={data.page} totalPages={data.total_pages} onPage={(next) => setPage(Math.max(1, next))} />
         </>
       )}
     </div>

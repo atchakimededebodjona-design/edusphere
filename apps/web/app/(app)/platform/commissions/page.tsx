@@ -108,7 +108,7 @@ export default function PlatformCommissionsPage() {
               setPage(1);
               setSelected(new Set());
             }}
-            className="rounded border border-slate-300 px-2 py-1"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">Tous</option>
             {STATUSES.map((code) => (
@@ -127,7 +127,7 @@ export default function PlatformCommissionsPage() {
               setPage(1);
               setSelected(new Set());
             }}
-            className="rounded border border-slate-300 px-2 py-1"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             <option value="">Tous</option>
             {partners.data?.items.map((partner) => (
@@ -147,10 +147,10 @@ export default function PlatformCommissionsPage() {
         </p>
       )}
 
-      {actionError && <p className="text-sm text-red-700">{actionError}</p>}
+      {actionError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>}
 
       {canManage && selected.size > 0 && (
-        <section className="flex flex-wrap items-end gap-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm">
+        <section className="flex flex-wrap items-end gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
           <p className="w-full text-emerald-900">
             {selected.size} commission{selected.size > 1 ? "s" : ""} sélectionnée{selected.size > 1 ? "s" : ""} :{" "}
             <strong>{formatApiAmount(String(selectedTotal), "XOF")}</strong>
@@ -158,7 +158,7 @@ export default function PlatformCommissionsPage() {
           </p>
           <label className="flex flex-col gap-1">
             Moyen
-            <select value={method} onChange={(e) => setMethod(e.target.value as SettlementMethod)} className="rounded border border-slate-300 px-2 py-1">
+            <select value={method} onChange={(e) => setMethod(e.target.value as SettlementMethod)} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500">
               {METHODS.map((code) => (
                 <option key={code} value={code}>
                   {SETTLEMENT_METHOD_LABELS[code]}
@@ -168,25 +168,25 @@ export default function PlatformCommissionsPage() {
           </label>
           <label className="flex flex-col gap-1">
             Référence du versement
-            <input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={255} className="w-64 rounded border border-slate-300 px-2 py-1" />
+            <input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={255} className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 sm:!w-64" />
           </label>
-          <button type="button" disabled={busy} onClick={settle} className="rounded bg-slate-900 px-3 py-2 font-medium text-white disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={settle} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10">
             Marquer comme versées
           </button>
         </section>
       )}
 
       {error && <ErrorRetry message={error} onRetry={retry} />}
-      {isLoading && !error && <p className="text-sm text-slate-400">Chargement...</p>}
-      {data && data.items.length === 0 && <p className="text-sm text-slate-500">Aucune commission.</p>}
+      {isLoading && !error && <p className="text-sm text-slate-600">Chargement...</p>}
+      {data && data.items.length === 0 && <p className="text-sm text-slate-600">Aucune commission.</p>}
 
       {data && data.items.length > 0 && (
-        <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50">
               <tr>
                 {["", "Date", "Partenaire", "École", "Facture", "HT", "Taux", "Commission", "Statut", ""].map((h, i) => (
-                  <th key={i} className="px-3 py-2 text-left font-medium text-slate-600">
+                  <th key={i} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                     {h}
                   </th>
                 ))}
@@ -212,12 +212,12 @@ export default function PlatformCommissionsPage() {
                   <td className="px-3 py-2">
                     {COMMISSION_STATUS_LABELS[item.status]}
                     {item.status === "PAID" && item.settlement_method && (
-                      <span className="block text-xs text-slate-500">
+                      <span className="block text-xs text-slate-600">
                         {SETTLEMENT_METHOD_LABELS[item.settlement_method]} — {item.settlement_reference}
                         {item.paid_at && `, le ${formatDateFR(item.paid_at)}`}
                       </span>
                     )}
-                    {item.status === "CANCELLED" && <span className="block text-xs text-slate-500">{item.cancel_reason}</span>}
+                    {item.status === "CANCELLED" && <span className="block text-xs text-slate-600">{item.cancel_reason}</span>}
                   </td>
                   <td className="px-3 py-2">
                     {canManage && item.status === "DUE" &&
@@ -227,7 +227,7 @@ export default function PlatformCommissionsPage() {
                             value={cancelling.reason}
                             onChange={(e) => setCancelling({ id: item.id, reason: e.target.value })}
                             placeholder="Motif"
-                            className="w-40 rounded border border-slate-300 px-2 py-1"
+                            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500 !w-40"
                           />
                           <button
                             type="button"
@@ -239,13 +239,13 @@ export default function PlatformCommissionsPage() {
                                 setCancelling(null);
                               })
                             }
-                            className="text-red-700 underline disabled:opacity-50"
+                            className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Confirmer
                           </button>
                         </span>
                       ) : (
-                        <button type="button" onClick={() => setCancelling({ id: item.id, reason: "" })} className="text-red-700 underline">
+                        <button type="button" onClick={() => setCancelling({ id: item.id, reason: "" })} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
                           Annuler
                         </button>
                       ))}
@@ -259,7 +259,7 @@ export default function PlatformCommissionsPage() {
 
       {data && data.total_pages > 1 && (
         <div className="flex items-center gap-3 text-sm">
-          <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50">
+          <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
             Précédente
           </button>
           <span>
@@ -269,7 +269,7 @@ export default function PlatformCommissionsPage() {
             type="button"
             disabled={page >= data.total_pages}
             onClick={() => setPage(page + 1)}
-            className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50"
+            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Suivante
           </button>
