@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "@/components/ui/Icon";
 import { ApiError } from "@/lib/api/client";
 import { students, type StudentImportReport } from "@/lib/students/client";
 
@@ -30,18 +31,20 @@ export function StudentImportForm({ schoolId, onImported }: { schoolId: string; 
   }
 
   return (
-    <div className="rounded border border-dashed border-slate-300 p-4">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="text-sm font-semibold text-slate-900"
+        aria-expanded={open}
+        className="flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-base font-bold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 sm:min-h-10"
       >
-        {open ? "▾" : "▸"} Importer des élèves (CSV/Excel)
+        <Icon name={open ? "chevronDown" : "chevronRight"} className="h-5 w-5 shrink-0 text-slate-600" />
+        Importer des élèves (CSV/Excel)
       </button>
 
       {open && (
         <div className="mt-3 flex flex-col gap-3">
-          <p className="text-xs text-slate-500">
+          <p className="text-sm text-slate-600">
             Colonnes requises : <code>matricule</code>, <code>first_name</code>, <code>last_name</code>,{" "}
             <code>date_of_birth</code> (AAAA-MM-JJ), <code>sex</code> (M/F). Les élèves déjà présents (même
             matricule, ou même prénom/nom/date de naissance) sont ignorés sans erreur.
@@ -52,45 +55,49 @@ export function StudentImportForm({ schoolId, onImported }: { schoolId: string; 
               accept=".csv,.xlsx"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               required
-              className="text-sm"
+              className="min-w-0 text-sm text-slate-700 file:mr-3 file:min-h-10 file:cursor-pointer file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:font-medium file:text-primary-800 hover:file:bg-primary-100"
             />
             <button
               type="submit"
               disabled={importing || !file}
-              className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               {importing ? "Import..." : "Importer"}
             </button>
           </form>
 
-          {error && <p className="text-sm text-red-700">{error}</p>}
+          {error && (
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {error}
+            </p>
+          )}
 
           {report && (
-            <div className="flex flex-col gap-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+            <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
               <p>
                 {report.total_rows} ligne(s) — <strong>{report.created} créé(s)</strong>,{" "}
                 {report.duplicates_skipped} doublon(s) ignoré(s), {report.errors.length} erreur(s).
               </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <div className="rounded border border-slate-200 bg-white p-2 text-center">
+                <div className="rounded-lg border border-slate-200 bg-white p-2 text-center">
                   <p className="text-lg font-bold text-slate-900">{report.total_rows}</p>
-                  <p className="text-xs text-slate-500">Total</p>
+                  <p className="text-xs text-slate-600">Total</p>
                 </div>
-                <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-center">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
                   <p className="text-lg font-bold text-emerald-700">{report.created}</p>
                   <p className="text-xs text-emerald-700">Créés</p>
                 </div>
-                <div className="rounded border border-amber-200 bg-amber-50 p-2 text-center">
-                  <p className="text-lg font-bold text-amber-700">{report.duplicates_skipped}</p>
-                  <p className="text-xs text-amber-700">Doublons</p>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center">
+                  <p className="text-lg font-bold text-amber-800">{report.duplicates_skipped}</p>
+                  <p className="text-xs text-amber-800">Doublons</p>
                 </div>
-                <div className="rounded border border-red-200 bg-red-50 p-2 text-center">
+                <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-center">
                   <p className="text-lg font-bold text-red-700">{report.errors.length}</p>
                   <p className="text-xs text-red-700">Erreurs</p>
                 </div>
               </div>
               {report.created > 0 && (
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-600">
                   Les élèves importés ne sont pas automatiquement inscrits dans une classe : utilisez
                   « Inscriptions » sur la fiche de chaque élève, ou le module Académique.
                 </p>

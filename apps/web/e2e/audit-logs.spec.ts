@@ -34,7 +34,8 @@ test("désactivation d'un utilisateur : l'événement apparaît dans le journal 
   const row = page.locator("tr", { hasText: teacher.email });
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: "Désactiver" }).click();
-  await row.getByRole("button", { name: "Oui" }).click();
+  // Phase 3 de la refonte : confirmation dans une fenêtre commune.
+  await page.getByRole("dialog", { name: "Désactiver ce compte ?" }).getByRole("button", { name: "Désactiver" }).click();
   await expect(row.getByText("Inactif")).toBeVisible();
 
   await page.goto("/audit-logs");

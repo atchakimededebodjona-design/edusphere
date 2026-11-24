@@ -1,16 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DataTable, Pager, TableSkeleton, type Column } from "@/components/ui/DataTable";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { Badge, EmptyState, PageHeader, type Tone } from "@/components/ui/Surface";
 import { toErrorMessage } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
+import { formatApiAmount } from "@/lib/fees/allocation";
 import {
   overdueFees,
   type OverdueContactChannel,
   type OverdueFeeGuardianContact,
+  type OverdueFeeItem,
   type OverdueFeesPage,
   type ReminderStage,
 } from "@/lib/fees/client";
+import { formatDateFR } from "@/lib/format/date";
 
 const PAGE_SIZE = 20;
 
@@ -29,15 +34,16 @@ const STATUS_LABELS: Record<OverdueContactChannel, string> = {
   NO_CHANNEL: "Aucun canal",
 };
 
-const STATUS_STYLES: Record<OverdueContactChannel, string> = {
-  IN_APP_SENT: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  EMAIL_ATTEMPTED: "bg-slate-100 text-slate-700 border-slate-200",
-  EMAIL_TRANSPORT_ACCEPTED: "bg-amber-50 text-amber-700 border-amber-200",
-  EMAIL_TRANSPORT_FAILED: "bg-red-50 text-red-700 border-red-200",
-  SMS_ATTEMPTED: "bg-slate-100 text-slate-700 border-slate-200",
-  SMS_TRANSPORT_ACCEPTED: "bg-amber-50 text-amber-700 border-amber-200",
-  SMS_TRANSPORT_FAILED: "bg-red-50 text-red-700 border-red-200",
-  NO_CHANNEL: "bg-red-50 text-red-700 border-red-200",
+// Phase 3 (2026-11-24) — mêmes teintes qu'avant, en pastilles communes.
+const STATUS_TONES: Record<OverdueContactChannel, Tone> = {
+  IN_APP_SENT: "success",
+  EMAIL_ATTEMPTED: "neutral",
+  EMAIL_TRANSPORT_ACCEPTED: "warning",
+  EMAIL_TRANSPORT_FAILED: "danger",
+  SMS_ATTEMPTED: "neutral",
+  SMS_TRANSPORT_ACCEPTED: "warning",
+  SMS_TRANSPORT_FAILED: "danger",
+  NO_CHANNEL: "danger",
 };
 
 // PR #15 — cadence de relance (voir fees/models.py::REMINDER_STAGES).
@@ -67,22 +73,19 @@ function GuardianContact({ guardian, dueDate }: { guardian: OverdueFeeGuardianCo
   const next = nextReminderDate(dueDate, guardian.reminder_stage);
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-slate-700">
-        {guardian.full_name}
-        {guardian.email && <span className="text-slate-400"> — {guardian.email}</span>}
+      <span className="break-words text-slate-800">
+        <span className="font-medium">{guardian.full_name}</span>
+        {guardian.email && <span className="text-slate-600"> — {guardian.email}</span>}
       </span>
       <div className="flex flex-wrap gap-1">
         {guardian.statuses.map((status) => (
-          <span
-            key={status}
-            className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${STATUS_STYLES[status]}`}
-          >
+          <Badge key={status} tone={STATUS_TONES[status]}>
             {STATUS_LABELS[status]}
-          </span>
+          </Badge>
         ))}
       </div>
       {guardian.reminder_stage && (
-        <span className="text-[11px] text-slate-500">
+        <span className="text-xs text-slate-600">
           {STAGE_LABELS[guardian.reminder_stage]}
           {guardian.last_reminder_at && ` — dernière relance le ${formatDate(guardian.last_reminder_at)}`}
           {next && ` — prochaine relance le ${new Date(next).toLocaleDateString("fr-FR")}`}
@@ -91,6 +94,51 @@ function GuardianContact({ guardian, dueDate }: { guardian: OverdueFeeGuardianCo
     </div>
   );
 }
+
+const COLUMNS: Column<OverdueFeeItem>[] = [
+  {
+    key: "student",
+    header: "Élève",
+    mobile: "title",
+    cell: (item) => (
+      <div className="min-w-0">
+        <p className="font-medium text-slate-900">
+          {item.student_first_name} {item.student_last_name}
+        </p>
+        <p className="text-xs font-normal text-slate-600">{item.student_matricule}</p>
+      </div>
+    ),
+  },
+  { key: "fee", header: "Frais", cell: (item) => item.fee_schedule_name },
+  { key: "due", header: "Échéance", cell: (item) => formatDateFR(item.due_date) },
+  {
+    key: "late",
+    header: "Retard",
+    align: "right",
+    cell: (item) => <Badge tone={item.overdue_days >= 30 ? "danger" : "warning"}>{item.overdue_days} j</Badge>,
+  },
+  {
+    key: "remaining",
+    header: "Montant restant",
+    align: "right",
+    cell: (item) => <span className="font-semibold text-slate-900">{formatApiAmount(item.remaining_balance, item.currency)}</span>,
+  },
+  {
+    key: "guardians",
+    header: "Contact tuteurs",
+    mobile: "full",
+    cell: (item) =>
+      item.guardians.length === 0 ? (
+        <span className="text-slate-600">Aucun tuteur rattaché</span>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {item.guardians.map((guardian) => (
+            <GuardianContact key={guardian.guardian_id} guardian={guardian} dueDate={item.due_date} />
+          ))}
+        </div>
+      ),
+  },
+];
 
 export default function OverdueFeesPageView() {
   const { currentSchoolId } = useAuth();
@@ -117,90 +165,30 @@ export default function OverdueFeesPageView() {
     return <ErrorRetry message={loadError} onRetry={() => currentSchoolId && void reload(currentSchoolId, page)} />;
   }
 
-  if (!currentSchoolId || data === null) {
-    return <p className="text-sm text-slate-500">Chargement...</p>;
-  }
-
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Frais en retard</h1>
-        <p className="text-sm text-slate-500">
-          {data.total} frais en retard{data.total > 0 ? ` — page ${data.page} / ${data.total_pages}` : ""}
-        </p>
-      </div>
+      <PageHeader
+        title="Frais en retard"
+        description={
+          data === null
+            ? "Frais dont l'échéance est passée, avec le suivi des relances envoyées aux tuteurs."
+            : `${data.total} frais en retard${data.total > 0 ? ` — page ${data.page} / ${data.total_pages}` : ""}`
+        }
+      />
 
-      <div className="overflow-x-auto rounded border border-slate-200">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Élève</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Frais</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Échéance</th>
-              <th className="px-3 py-2 text-right font-medium text-slate-600">Retard</th>
-              <th className="px-3 py-2 text-right font-medium text-slate-600">Montant restant</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Contact tuteurs</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {data.items.map((item) => (
-              <tr key={item.student_fee_id}>
-                <td className="px-3 py-2">
-                  {item.student_first_name} {item.student_last_name}
-                  <div className="text-xs text-slate-400">{item.student_matricule}</div>
-                </td>
-                <td className="px-3 py-2">{item.fee_schedule_name}</td>
-                <td className="px-3 py-2">{item.due_date}</td>
-                <td className="px-3 py-2 text-right">{item.overdue_days} j</td>
-                <td className="px-3 py-2 text-right">
-                  {item.remaining_balance} {item.currency}
-                </td>
-                <td className="px-3 py-2">
-                  {item.guardians.length === 0 ? (
-                    <span className="text-slate-400">Aucun tuteur rattaché</span>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {item.guardians.map((guardian) => (
-                        <GuardianContact key={guardian.guardian_id} guardian={guardian} dueDate={item.due_date} />
-                      ))}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {data.items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-3 py-4 text-center text-slate-400">
-                  Aucun frais en retard.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {data.total_pages > 1 && (
-        <div className="flex items-center justify-center gap-3 text-sm">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-            className="rounded border border-slate-300 px-3 py-1 text-slate-700 disabled:opacity-40"
-          >
-            Précédent
-          </button>
-          <span className="text-slate-500">
-            Page {data.page} / {data.total_pages}
-          </span>
-          <button
-            type="button"
-            disabled={page >= data.total_pages}
-            onClick={() => setPage((p) => p + 1)}
-            className="rounded border border-slate-300 px-3 py-1 text-slate-700 disabled:opacity-40"
-          >
-            Suivant
-          </button>
-        </div>
+      {!currentSchoolId || data === null ? (
+        <TableSkeleton />
+      ) : (
+        <>
+          <DataTable
+            caption="Frais en retard"
+            columns={COLUMNS}
+            rows={data.items}
+            rowKey={(item) => item.student_fee_id}
+            empty={<EmptyState icon="checkSquare" title="Aucun frais en retard." description="Toutes les échéances passées sont réglées." />}
+          />
+          <Pager page={data.page} totalPages={data.total_pages} onPage={setPage} />
+        </>
       )}
     </div>
   );

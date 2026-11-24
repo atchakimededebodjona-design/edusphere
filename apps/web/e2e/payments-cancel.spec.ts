@@ -52,7 +52,6 @@ async function setup(request: APIRequestContext, prefix: string): Promise<Fixtur
 
 async function openPayments(page: Page, fixture: Fixture) {
   await loginInBrowser(page, fixture.desk.tenant.orgAdminEmail, fixture.desk.tenant.password);
-  page.on("dialog", (dialog) => void dialog.accept("Erreur de saisie"));
   await page.goto("/payments");
   await expect(page.getByRole("heading", { name: "Paiements" })).toBeVisible();
 }
@@ -61,15 +60,23 @@ const row = (page: Page, receipt: string) => page.locator("tr", { hasText: recei
 const cancelButton = (page: Page, receipt: string) => row(page, receipt).getByRole("button", { name: /Annul/ });
 const totalPaid = (page: Page) => page.locator("div", { has: page.getByText("Total encaissé", { exact: true }) }).last();
 const cancelError = (page: Page) => page.getByTestId("payment-cancel-error");
+// Phase 3 de la refonte (2026-11-24) : le motif se saisit dans une fenêtre de l'application, plus dans
+// la boîte `window.prompt` du navigateur.
+const cancelDialog = (page: Page) => page.getByRole("dialog", { name: "Annuler le paiement" });
+async function confirmCancel(page: Page, receipt: string) {
+  await cancelButton(page, receipt).click();
+  await cancelDialog(page).getByLabel("Motif de l'annulation").fill("Erreur de saisie");
+  await cancelDialog(page).getByRole("button", { name: "Confirmer l'annulation" }).click();
+}
 
 test("annulation réussie : comportement existant, liste et totaux relus", async ({ page }) => {
   const fixture = await setup(page.context().request, "pcancelok");
   await openPayments(page, fixture);
-  await expect(totalPaid(page)).toContainText("67000.00"); // 60 000 (amorce) + 5 000 + 2 000
-  await cancelButton(page, fixture.freeReceipt).click();
-  await expect(row(page, fixture.freeReceipt)).toContainText("CANCELLED");
+  await expect(totalPaid(page)).toContainText("67 000"); // 60 000 (amorce) + 5 000 + 2 000
+  await confirmCancel(page, fixture.freeReceipt);
+  await expect(row(page, fixture.freeReceipt)).toContainText("Annulé");
   await expect(cancelButton(page, fixture.freeReceipt)).toHaveCount(0);
-  await expect(totalPaid(page)).toContainText("65000.00");
+  await expect(totalPaid(page)).toContainText("65 000");
   await expect(cancelError(page)).toHaveCount(0);
 });
 
@@ -81,22 +88,22 @@ test("409 réel (session clôturée) : message métier, paiement et totaux incha
     if (request.method() === "GET" && /\/api\/v1\/(payments\?|fees\/summary)/.test(request.url())) reloads.push(request.url());
   });
   const response = page.waitForResponse((r) => r.url().includes("/cancel") && r.request().method() === "POST");
-  await cancelButton(page, fixture.closedReceipt).click();
+  await confirmCancel(page, fixture.closedReceipt);
   expect((await response).status()).toBe(409);
 
   await expect(cancelError(page)).toContainText(`Reçu ${fixture.closedReceipt}`);
   await expect(cancelError(page)).toContainText(
     "Annulation impossible : ce paiement appartient à une session de caisse déjà clôturée.",
   );
-  await expect(row(page, fixture.closedReceipt)).toContainText("COMPLETED");
+  await expect(row(page, fixture.closedReceipt)).toContainText("Enregistré");
   await expect(cancelButton(page, fixture.closedReceipt)).toBeEnabled();
   await expect(cancelButton(page, fixture.closedReceipt)).toHaveText("Annuler");
-  await expect(totalPaid(page)).toContainText("67000.00");
+  await expect(totalPaid(page)).toContainText("67 000");
   expect(reloads).toEqual([]); // jamais de rechargement présentant l'annulation comme faite
 
   // Après rechargement complet, le paiement est toujours enregistré (le backend n'a rien changé).
   await page.reload();
-  await expect(row(page, fixture.closedReceipt)).toContainText("COMPLETED");
+  await expect(row(page, fixture.closedReceipt)).toContainText("Enregistré");
   await expect(cancelError(page)).toHaveCount(0); // bandeau non persistant
 });
 
@@ -104,9 +111,9 @@ test("409 sans message exploitable : message de repli", async ({ page }) => {
   const fixture = await setup(page.context().request, "pcancel409b");
   await openPayments(page, fixture);
   await page.route("**/api/v1/payments/*/cancel", (route) => route.fulfill({ status: 409, contentType: "text/plain", body: "" }));
-  await cancelButton(page, fixture.freeReceipt).click();
+  await confirmCancel(page, fixture.freeReceipt);
   await expect(cancelError(page)).toContainText("Annulation impossible : la session de caisse est clôturée.");
-  await expect(row(page, fixture.freeReceipt)).toContainText("COMPLETED");
+  await expect(row(page, fixture.freeReceipt)).toContainText("Enregistré");
   await expect(cancelButton(page, fixture.freeReceipt)).toBeEnabled();
 });
 
@@ -116,11 +123,11 @@ test("autre erreur HTTP (500) : message adapté, sans faux succès ni détail te
   await page.route("**/api/v1/payments/*/cancel", (route) =>
     route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Traceback: db secret" }) }),
   );
-  await cancelButton(page, fixture.freeReceipt).click();
+  await confirmCancel(page, fixture.freeReceipt);
   await expect(cancelError(page)).toContainText("Erreur serveur : l'annulation n'a pas été effectuée. Réessayez plus tard.");
   await expect(cancelError(page)).not.toContainText("Traceback");
-  await expect(row(page, fixture.freeReceipt)).toContainText("COMPLETED");
-  await expect(totalPaid(page)).toContainText("67000.00");
+  await expect(row(page, fixture.freeReceipt)).toContainText("Enregistré");
+  await expect(totalPaid(page)).toContainText("67 000");
   await expect(cancelButton(page, fixture.freeReceipt)).toBeEnabled();
 });
 
@@ -128,19 +135,19 @@ test("erreur réseau : message adapté et bouton de nouveau utilisable", async (
   const fixture = await setup(page.context().request, "pcancelnet");
   await openPayments(page, fixture);
   await page.route("**/api/v1/payments/*/cancel", (route) => route.abort("failed"));
-  await cancelButton(page, fixture.freeReceipt).click();
+  await confirmCancel(page, fixture.freeReceipt);
   await expect(cancelError(page)).toContainText(
     "La requête d'annulation n'a pas pu aboutir (problème de connexion). Vérifiez l'état du paiement avant de réessayer.",
   );
   await expect(cancelButton(page, fixture.freeReceipt)).toBeEnabled();
-  await expect(row(page, fixture.freeReceipt)).toContainText("COMPLETED");
+  await expect(row(page, fixture.freeReceipt)).toContainText("Enregistré");
 
   // Le bandeau se ferme ; une nouvelle tentative (réseau rétabli) aboutit normalement.
   await page.getByRole("button", { name: "Fermer" }).click();
   await expect(cancelError(page)).toHaveCount(0);
   await page.unroute("**/api/v1/payments/*/cancel");
-  await cancelButton(page, fixture.freeReceipt).click();
-  await expect(row(page, fixture.freeReceipt)).toContainText("CANCELLED");
+  await confirmCancel(page, fixture.freeReceipt);
+  await expect(row(page, fixture.freeReceipt)).toContainText("Annulé");
 });
 
 test("double clic : une seule requête d'annulation, bouton désactivé pendant l'envoi puis réactivé", async ({ page }) => {
@@ -156,8 +163,10 @@ test("double clic : une seule requête d'annulation, bouton désactivé pendant 
   });
 
   // Deux clics dans la même tâche, avant tout nouveau rendu : seule la garde du composant protège.
-  await row(page, fixture.freeReceipt)
-    .getByRole("button", { name: "Annuler" })
+  await cancelButton(page, fixture.freeReceipt).click();
+  await cancelDialog(page).getByLabel("Motif de l'annulation").fill("Erreur de saisie");
+  await cancelDialog(page)
+    .getByRole("button", { name: "Confirmer l'annulation" })
     .evaluate((button: HTMLButtonElement) => {
       button.click();
       button.click();
@@ -193,7 +202,7 @@ test("permissions : payments.cancel voit Annuler ; payments.manage seul ne le vo
   // CAISSIER (payments.manage sans payments.cancel) : aucun bouton Annuler, mais la liste, le reçu
   // et le lien Caisse (payments.manage) restent disponibles.
   await openPaymentsAs(page, fixture.desk.cashierEmail);
-  await expect(row(page, fixture.freeReceipt)).toContainText("COMPLETED");
+  await expect(row(page, fixture.freeReceipt)).toContainText("Enregistré");
   await expect(page.getByRole("button", { name: "Annuler" })).toHaveCount(0);
   await expect(row(page, fixture.freeReceipt).getByRole("button", { name: "Reçu" })).toBeVisible();
   await expect(page.getByRole("navigation").getByRole("link", { name: "Caisse", exact: true })).toBeVisible();
@@ -217,10 +226,10 @@ test("403 : message de permission insuffisante, sans faux succès ni rafraîchis
   await page.route("**/api/v1/payments/*/cancel", (route) =>
     route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ detail: "Not enough permissions" }) }),
   );
-  await cancelButton(page, fixture.freeReceipt).click();
+  await confirmCancel(page, fixture.freeReceipt);
   await expect(cancelError(page)).toContainText("Vous n'êtes pas autorisé à annuler ce paiement.");
-  await expect(row(page, fixture.freeReceipt)).toContainText("COMPLETED");
-  await expect(totalPaid(page)).toContainText("67000.00");
+  await expect(row(page, fixture.freeReceipt)).toContainText("Enregistré");
+  await expect(totalPaid(page)).toContainText("67 000");
   await expect(cancelButton(page, fixture.freeReceipt)).toBeEnabled();
   expect(reloads).toEqual([]);
 });

@@ -4,7 +4,9 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 
 // Refonte, phase 0 (2026-11-23) — boutons communs. Action principale en bleu de marque (fini le noir) ;
 // 44 px de haut sur téléphone (cible au doigt), 40 px à partir de sm. Focus toujours visible.
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+// Phase 3 (2026-11-24) : « quiet » (bleu) et « quietDanger » (rouge), boutons discrets colorés. Ajouter une
+// couleur de texte par `className` à « ghost » ne marchait pas : deux couleurs Tailwind en conflit.
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "quiet" | "quietDanger";
 export type ButtonSize = "sm" | "md";
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -12,6 +14,8 @@ const VARIANTS: Record<ButtonVariant, string> = {
   secondary: "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50",
   ghost: "text-slate-700 hover:bg-slate-100",
   danger: "bg-red-700 text-white hover:bg-red-800",
+  quiet: "text-primary-700 hover:bg-primary-50",
+  quietDanger: "text-red-700 hover:bg-red-50",
 };
 
 const SIZES: Record<ButtonSize, string> = {

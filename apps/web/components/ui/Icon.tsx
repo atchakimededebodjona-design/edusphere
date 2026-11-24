@@ -209,6 +209,16 @@ const PATHS = {
   close: <path d="M6 6l12 12M18 6 6 18" />,
   chevronDown: <path d="M6 9l6 6 6-6" />,
   chevronRight: <path d="M9 6l6 6-6 6" />,
+  // Phase 3 (2026-11-24) — pagination, recherche, ajout, téléchargement.
+  chevronLeft: <path d="M15 6l-6 6 6 6" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16 16l4.5 4.5" />
+    </>
+  ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  download: <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />,
   logout: (
     <>
       <path d="M14.5 4H18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3.5" />

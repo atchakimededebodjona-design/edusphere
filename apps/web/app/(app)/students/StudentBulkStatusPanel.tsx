@@ -49,17 +49,17 @@ export function StudentBulkStatusPanel({
   }
 
   return (
-    <div role="dialog" aria-label="Modifier en masse" className="flex flex-col gap-3 rounded border border-slate-300 bg-white p-4 shadow-sm">
-      <h2 className="text-sm font-semibold text-slate-900">
+    <div role="dialog" aria-label="Modifier en masse" className="flex flex-col gap-4 rounded-xl border border-primary-200 bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="text-base font-bold text-slate-900">
         Modifier en masse — {selectedIds.length} élève{selectedIds.length > 1 ? "s" : ""} sélectionné{selectedIds.length > 1 ? "s" : ""}
       </h2>
       <form onSubmit={handleApply} className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
           Nouveau statut
           <select
             value={targetStatus}
             onChange={(e) => setTargetStatus(e.target.value as StudentStatus)}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -68,19 +68,19 @@ export function StudentBulkStatusPanel({
             ))}
           </select>
         </label>
-        <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-xs text-slate-600">
+        <label className="flex flex-col gap-1 text-sm font-medium text-slate-800 min-w-0 flex-1 sm:min-w-[16rem]">
           Motif du changement de statut
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="Ex. Inscription nouvelle année"
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
           />
         </label>
         <button
           type="submit"
           disabled={busy}
-          className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
         >
           {busy ? "Application..." : "Appliquer"}
         </button>
@@ -88,7 +88,7 @@ export function StudentBulkStatusPanel({
           type="button"
           onClick={onClose}
           disabled={busy}
-          className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
         >
           Annuler
         </button>
