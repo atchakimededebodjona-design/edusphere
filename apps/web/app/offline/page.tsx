@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
 
-export const metadata: Metadata = { title: "Hors connexion — EduLinkage" };
+export const metadata: Metadata = { title: "Hors connexion", robots: { index: false, follow: false } };
 
 // Phase 32, lot 1 — servie par le service worker (sw/service-worker.js) quand une page n'a encore
 // jamais été ouverte avec internet sur cet appareil (fiche d'un élève, d'un enfant…). Page statique,

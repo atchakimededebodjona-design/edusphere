@@ -47,7 +47,7 @@ export function PricingSimulator({ pricing }: { pricing: PublicPricing }) {
           return (
             <div key={duration.months} className="flex items-baseline justify-between gap-4 py-3">
               <dt className="text-sm text-slate-600">
-                {duration.label} <span className="text-slate-400">({duration.months} mois)</span>
+                {duration.label} <span className="text-slate-600">({duration.months} mois)</span>
               </dt>
               <dd className="text-right text-base font-semibold text-brand-text">
                 {students === null ? "—" : price === null ? "Sur devis" : formatFcfa(price)}

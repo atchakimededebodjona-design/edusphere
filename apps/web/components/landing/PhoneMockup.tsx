@@ -21,7 +21,7 @@ export function PhoneMockup() {
           <div className="-mt-4 space-y-3 rounded-t-2xl bg-white px-4 pb-6 pt-4">
             <div className="rounded-xl border border-slate-100 p-3 shadow-sm">
               <p className="text-xs font-semibold text-brand-text">Ama K.</p>
-              <p className="text-[11px] text-slate-400">CM2 B</p>
+              <p className="text-[11px] text-slate-500">CM2 B</p>
               <div className="mt-2 flex items-center justify-between text-[11px]">
                 <span className="flex items-center gap-1 text-brand-blue">
                   <CheckCircleIcon className="h-3.5 w-3.5" />
@@ -37,7 +37,7 @@ export function PhoneMockup() {
                   <CreditCardIcon className="h-3.5 w-3.5 text-brand-cyan" />
                   Frais scolaires
                 </span>
-                <span className="text-[11px] text-slate-400">2/3 réglés</span>
+                <span className="text-[11px] text-slate-500">2/3 réglés</span>
               </div>
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                 <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-brand-blue to-brand-cyan" />

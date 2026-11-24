@@ -10,8 +10,11 @@ export const metadata: Metadata = {
   // vers "http://localhost:3000", même en production. N'affecte que la résolution d'assets ;
   // titre/description par défaut ci-dessous inchangés pour toutes les autres routes.
   metadataBase: new URL("https://edulinkage.com"),
-  title: "EduLinkage",
-  description: "Plateforme SaaS scolaire multi-tenant pour l'Afrique",
+  // 2026-11-24 — « Page — EduLinkage » pour toute page qui déclare son propre titre.
+  title: { default: "EduLinkage", template: "%s — EduLinkage" },
+  description:
+    "EduLinkage, la gestion scolaire pour l'Afrique : élèves, présences, notes, bulletins, frais et caisse, pour l'administration, les enseignants et les parents.",
+  applicationName: "EduLinkage",
   // Phase 32 — application installable : le manifeste vient de app/manifest.ts, l'icône iPhone de
   // app/apple-icon.png.
   appleWebApp: { capable: true, title: "EduLinkage", statusBarStyle: "default" },

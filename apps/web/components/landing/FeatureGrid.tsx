@@ -58,7 +58,7 @@ export function FeatureGrid() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-brand-text">{feature.title}</p>
-                    <p className="mt-1 text-sm leading-snug text-slate-500">{feature.text}</p>
+                    <p className="mt-1 text-sm leading-snug text-slate-600">{feature.text}</p>
                   </div>
                 </div>
               </ScrollReveal>
@@ -66,7 +66,7 @@ export function FeatureGrid() {
           })}
         </div>
 
-        <ScrollReveal delayMs={200} className="mt-8 flex items-center justify-center gap-2 text-sm text-slate-400">
+        <ScrollReveal delayMs={200} className="mt-8 flex items-center justify-center gap-2 text-center text-sm text-slate-600">
           <ShieldIcon className="h-4 w-4" />
           Toutes ces fonctionnalités sont en service aujourd&apos;hui, sur ordinateur comme sur téléphone.
         </ScrollReveal>

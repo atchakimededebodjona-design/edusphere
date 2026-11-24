@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { ScrollReveal } from "@/components/landing/ScrollReveal";
 import { MailIcon, MessageSquareIcon, PhoneIcon } from "@/components/landing/icons";
-import { CONTACT_EMAIL, CONTACT_EMAIL_LINK, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
+import { ProtectedEmail } from "@/components/landing/ProtectedEmail";
+import { CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
 
 export function FinalCta() {
   return (
@@ -37,13 +38,10 @@ export function FinalCta() {
             </a>
           </div>
 
-          <a
-            href={CONTACT_EMAIL_LINK}
+          <ProtectedEmail
             className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 break-all text-sm font-semibold text-white underline-offset-4 hover:underline"
-          >
-            <MailIcon className="h-5 w-5 shrink-0" />
-            {CONTACT_EMAIL}
-          </a>
+            icon={<MailIcon className="h-5 w-5 shrink-0" />}
+          />
 
           <p className="mt-6 text-sm text-slate-400">
             Déjà client ?{" "}
@@ -52,7 +50,7 @@ export function FinalCta() {
             </Link>
           </p>
 
-          <p className="mt-2 text-sm font-medium text-slate-500">Une école, des liens, un avenir.</p>
+          <p className="mt-2 text-sm font-medium text-slate-300">Une école, des liens, un avenir.</p>
         </ScrollReveal>
       </div>
     </section>
