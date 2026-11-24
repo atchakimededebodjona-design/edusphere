@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandFull, BrandSymbol } from "@/components/branding/BrandLogo";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ApiError } from "@/lib/auth/client";
 import { isParentOnlyAccount, isPartnerOnlyAccount, isTeacherOnlyAccount } from "@/lib/auth/roles";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -11,6 +12,15 @@ import { forgetAccount, listOfflineAccounts, type OfflineAccount } from "@/lib/o
 
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+// 2026-11-24 — l'API explique elle-même l'échec en français (« Compte inexistant », « Mot de passe
+// incorrect », compte désactivé : app/modules/auth/service.py). Seul le blocage après trop d'essais
+// arrive en anglais : il est traduit ici.
+function loginErrorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) return "Une erreur est survenue.";
+  if (err.status === 429) return "Trop d'essais de connexion. Patientez quelques minutes, puis réessayez.";
+  return err.message;
 }
 
 export default function LoginPage() {
@@ -56,7 +66,7 @@ export default function LoginPage() {
               : "/dashboard",
       );
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+      setError(loginErrorMessage(err));
       setStatus("error");
       refreshOfflineAccounts();
     }
@@ -108,8 +118,7 @@ export default function LoginPage() {
             </label>
             <label className="flex flex-col gap-1.5 text-sm font-medium text-brand-text">
               Mot de passe
-              <input
-                type="password"
+              <PasswordInput
                 placeholder="Mot de passe"
                 autoComplete="current-password"
                 value={password}

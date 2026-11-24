@@ -6,9 +6,10 @@ micro-benchmark local est trop bruité pour prouver quoi que ce soit de fiable s
 machine/CI, et ne doit jamais servir à affirmer qu'un timing leak est "résolu définitivement").
 Ils vérifient à la place les deux propriétés que le correctif garantit réellement :
 
-1. **Parité fonctionnelle** : les réponses externes (code HTTP, forme du corps) sont identiques
-   entre un compte inexistant et un compte existant avec un mauvais mot de passe (déjà vrai avant
-   cette phase, reconfirmé ici comme garde non-régression).
+1. **Parité de statut** : un compte inexistant et un mauvais mot de passe reçoivent tous deux un
+   401 (même comptage des échecs). Depuis le 2026-11-24, le MESSAGE les distingue, par choix
+   produit (« Compte inexistant » : voir app/modules/auth/service.py et test_login_account_rules.py).
+   Le mot de passe oublié, lui, garde une réponse identique.
 2. **Parité de travail effectué** : le même nombre d'opérations coûteuses (vérification bcrypt
    pour le login, génération+hachage de token pour forgot-password) est exécuté dans les deux
    branches — c'est la propriété que Phase 13 a réellement changée (avant, la branche "compte
@@ -22,7 +23,7 @@ from app.core.config import settings
 from tests.conftest import register_school, unique_email
 
 
-async def test_login_unknown_email_and_wrong_password_return_identical_response(client: AsyncClient) -> None:
+async def test_login_unknown_email_and_wrong_password_share_the_401_status(client: AsyncClient) -> None:
     data = await register_school(client, "timingshape")
     email = data["user"]["email"]
 
@@ -32,7 +33,8 @@ async def test_login_unknown_email_and_wrong_password_return_identical_response(
     wrong_password = await client.post("/api/v1/auth/login", json={"email": email, "password": "WrongPassword"})
 
     assert unknown.status_code == wrong_password.status_code == 401
-    assert unknown.json() == wrong_password.json()
+    assert unknown.json() == {"detail": auth_service_module.UNKNOWN_ACCOUNT_DETAIL}
+    assert wrong_password.json() == {"detail": auth_service_module.WRONG_PASSWORD_DETAIL}
 
 
 async def test_login_unknown_and_wrong_password_perform_the_same_number_of_bcrypt_verifications(

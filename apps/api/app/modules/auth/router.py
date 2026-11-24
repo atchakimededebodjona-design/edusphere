@@ -59,9 +59,10 @@ async def login(payload: LoginRequest, request: Request, db: DbSession) -> Token
         )
     except HTTPException as exc:
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-            # Même comptage que le compte existe ou non (cf. `authenticate()` — le 401 est
-            # identique dans les deux cas), donc le rate limiting ne révèle jamais d'information
-            # sur l'existence d'un compte.
+            # Même comptage que le compte existe ou non (le statut est 401 dans tous les cas, voir
+            # `authenticate()`) : une adresse inconnue consomme le même quota par adresse et par
+            # IP qu'un mauvais mot de passe. Depuis le 2026-11-24, le MESSAGE dit si le compte
+            # existe (choix produit) ; ce comptage est ce qui freine les vérifications en masse.
             await register_failed_login_attempt(payload.email)
             await register_failed_login_ip_attempt(ip)
         raise

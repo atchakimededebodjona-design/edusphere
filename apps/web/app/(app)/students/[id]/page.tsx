@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/client";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
 import { useAuth } from "@/lib/auth/useAuth";
 import { students, type Sex, type Student, type StudentStatus } from "@/lib/students/client";
+import { isSchoolAdminOf } from "@/lib/users/client";
 
 const STATUS_BADGE_LABELS: Record<StudentStatus, string> = {
   ACTIVE: "Actif",
@@ -51,7 +52,7 @@ const STATUS_OPTIONS: { value: StudentStatus; label: string }[] = [
 export default function StudentDetailPage() {
   const params = useParams<{ id: string }>();
   const studentId = params.id;
-  const { permissions } = useAuth();
+  const { permissions, roles, currentOrganizationId, currentSchoolId } = useAuth();
   const canManage = permissions.includes("students.manage");
   const canManageFees = permissions.includes("payments.manage");
   // Sprint 1.11 hotfix — "Lier à un compte parent" appelle en plus GET /users (users.list), qui
@@ -62,7 +63,10 @@ export default function StudentDetailPage() {
   // Sprint 1.12 — création d'un nouveau compte parent (POST /users) depuis ce même panneau :
   // exige en plus `users.manage` (distinct de `users.read`, qui ne couvre que la liste des
   // comptes existants) — même raisonnement que le hotfix Sprint 1.11 ci-dessus.
-  const canCreateParentAccount = canManage && permissions.includes("users.manage");
+  // 2026-11-24 — et seulement l'administrateur de l'école (SCHOOL_ADMIN de cette école ou de toute
+  // l'organisation) : même règle que l'API (users/service.py::_ensure_school_admin_for_family_role).
+  const canCreateParentAccount =
+    canManage && permissions.includes("users.manage") && isSchoolAdminOf(roles, currentOrganizationId, currentSchoolId);
 
   const [student, setStudent] = useState<Student | null>(null);
   const [form, setForm] = useState({

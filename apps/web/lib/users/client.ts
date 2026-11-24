@@ -43,6 +43,28 @@ export type UserWithRoles = {
   roles: RoleAssignment[];
 };
 
+/**
+ * 2026-11-24 — les comptes des parents et des élèves sont créés par l'administrateur de l'école
+ * uniquement. L'API applique la règle (apps/api/app/modules/users/service.py::
+ * _ensure_school_admin_for_family_role) ; l'interface s'en sert pour ne pas proposer un choix refusé.
+ */
+export const SCHOOL_ADMIN_ONLY_ROLES: ReadonlySet<RoleCode> = new Set<RoleCode>(["PARENT", "STUDENT"]);
+
+/** Le compte est-il administrateur (SCHOOL_ADMIN) de cette école, ou de toute son organisation ? */
+export function isSchoolAdminOf(
+  roles: RoleAssignment[],
+  organizationId: string | null,
+  schoolId: string | null,
+): boolean {
+  if (!organizationId || !schoolId) return false;
+  return roles.some(
+    (r) =>
+      r.role_code === "SCHOOL_ADMIN" &&
+      r.organization_id === organizationId &&
+      (r.school_id === null || r.school_id === schoolId),
+  );
+}
+
 export type UserCreateRequest = {
   email: string;
   full_name: string;

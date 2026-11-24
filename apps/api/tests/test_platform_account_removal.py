@@ -15,6 +15,7 @@ from app.db.session import AsyncSessionLocal
 from app.modules.academics.models import TeacherAssignment
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import UserSession
+from app.modules.auth.service import INACTIVE_ACCOUNT_DETAIL, UNKNOWN_ACCOUNT_DETAIL
 from app.modules.notifications.models import Notification, PushDevice
 from app.modules.platform.accounts import DELETED_ACCOUNT_NAME, DELETED_EMAIL_DOMAIN
 from app.modules.rbac.models import UserRole
@@ -113,6 +114,7 @@ async def test_deactivation_blocks_at_once_and_reactivation_restores(client: Asy
     assert (await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})).status_code == 401
     refused = await client.post("/api/v1/auth/login", json={"email": email, "password": "OtherPass123"})
     assert refused.status_code == 401
+    assert refused.json()["detail"] == INACTIVE_ACCOUNT_DETAIL  # 2026-11-24 : message explicite
     assert await _count(UserSession, UserSession.user_id == uuid.UUID(target), UserSession.revoked_at.is_(None)) == 0
     assert await _count(PushDevice, PushDevice.user_id == uuid.UUID(target)) == 0
 
@@ -222,6 +224,8 @@ async def test_delete_erases_personal_data_and_keeps_history(client: AsyncClient
     assert await _count(UserSession, UserSession.user_id == teacher_id) == 0
     old_login = await client.post("/api/v1/auth/login", json={"email": teacher["user"]["email"], "password": "OtherPass123"})
     assert old_login.status_code == 401
+    # 2026-11-24 : l'adresse a été effacée, le compte n'existe plus pour la connexion.
+    assert old_login.json()["detail"] == UNKNOWN_ACCOUNT_DETAIL
 
     # Parent : le tuteur reste dans le dossier de l'élève, sans compte.
     response = await client.post(

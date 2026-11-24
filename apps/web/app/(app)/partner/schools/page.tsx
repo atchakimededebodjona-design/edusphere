@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { toErrorMessage, useAsyncData } from "@/lib/api/useAsyncData";
 import { PASSWORD_RULE_HINT, passwordLengthProblem, translatePasswordRefusal } from "@/lib/auth/passwordRule";
 import { enrollPartnerSchool, listPartnerSchools } from "@/lib/partners/client";
@@ -112,9 +113,8 @@ function EnrollSchoolForm({ onEnrolled }: { onEnrolled: () => void }) {
         <input className={input} placeholder="Nom de l'école" value={form.schoolName} onChange={set("schoolName")} />
         <input className={input} placeholder="Nom de l'administrateur" value={form.adminFullName} onChange={set("adminFullName")} />
         <input className={input} type="email" placeholder="Email de l'administrateur" value={form.adminEmail} onChange={set("adminEmail")} />
-        <input
+        <PasswordInput
           className={input}
-          type="password"
           autoComplete="new-password"
           placeholder={`Mot de passe initial (${PASSWORD_RULE_HINT})`}
           value={form.adminPassword}
