@@ -316,11 +316,11 @@ export default function PromotionsPage() {
   }
 
   if (!canManage) {
-    return <p className="text-sm text-red-700">Vous n&apos;avez pas accès à cette fonctionnalité.</p>;
+    return <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">Vous n&apos;avez pas accès à cette fonctionnalité.</p>;
   }
   if (loadError) return <ErrorRetry message={loadError} onRetry={() => window.location.reload()} />;
   if (!currentSchoolId || years === null || classes === null) {
-    return <p className="text-sm text-slate-500">Chargement...</p>;
+    return <p className="text-sm text-slate-600">Chargement...</p>;
   }
 
   const stepIndex = (["years", "mapping", "students", "preview", "result"] as Step[]).indexOf(step);
@@ -329,7 +329,7 @@ export default function PromotionsPage() {
     <div className="flex w-full max-w-5xl min-w-0 flex-col gap-6">
       <h1 className="text-2xl font-bold text-slate-900">Réinscriptions / Promotions</h1>
 
-      <ol className="flex flex-wrap gap-2 text-xs text-slate-500" data-testid="promotion-steps">
+      <ol className="flex flex-wrap gap-2 text-xs text-slate-600" data-testid="promotion-steps">
         {["Années", "Mapping", "Élèves", "Aperçu", "Résultat"].map((label, i) => (
           <li
             key={label}
@@ -343,15 +343,15 @@ export default function PromotionsPage() {
       </ol>
 
       {step === "years" && (
-        <section className="flex flex-col gap-4 rounded border border-slate-200 p-4">
+        <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <h2 className="text-lg font-semibold text-slate-900">1. Année source → Année cible</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs text-slate-600">
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
               Année source
               <select
                 value={sourceYearId}
                 onChange={(e) => setSourceYearId(e.target.value)}
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
               >
                 <option value="">—</option>
                 {years.map((y) => (
@@ -361,12 +361,12 @@ export default function PromotionsPage() {
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-600">
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
               Année cible
               <select
                 value={targetYearId}
                 onChange={(e) => setTargetYearId(e.target.value)}
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
               >
                 <option value="">—</option>
                 {years
@@ -383,7 +383,7 @@ export default function PromotionsPage() {
             type="button"
             onClick={() => setStep("mapping")}
             disabled={!sourceYearId || !targetYearId || sourceYearId === targetYearId}
-            className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 w-fit"
             data-testid="promotion-years-next"
           >
             Suivant
@@ -392,15 +392,15 @@ export default function PromotionsPage() {
       )}
 
       {step === "mapping" && (
-        <section className="flex flex-col gap-4 rounded border border-slate-200 p-4">
+        <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <h2 className="text-lg font-semibold text-slate-900">2. Correspondance des classes</h2>
           {sourceClasses.length === 0 ? (
-            <p className="text-sm text-slate-400">Aucune classe pour l&apos;année source.</p>
+            <p className="text-sm text-slate-600">Aucune classe pour l&apos;année source.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                  <tr className="border-b border-slate-200 text-xs uppercase text-slate-600">
                     <th className="px-3 py-2 font-medium">Classe source</th>
                     <th className="px-3 py-2 font-medium">Destination</th>
                     <th className="px-3 py-2 font-medium">Capacité / action</th>
@@ -419,7 +419,7 @@ export default function PromotionsPage() {
                             <select
                               value={targetId}
                               onChange={(e) => setTargetFor(sc.id, e.target.value)}
-                              className="rounded border border-slate-300 px-2 py-1 text-sm"
+                              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                               aria-label={`Classe cible pour ${sc.name}`}
                             >
                               <option value="">Aucune correspondance</option>
@@ -433,7 +433,7 @@ export default function PromotionsPage() {
                               <select
                                 value={disposition?.exit_type ?? ""}
                                 onChange={(e) => setExitFor(sc.id, e.target.value as ExitType | "")}
-                                className="rounded border border-slate-300 px-2 py-1 text-sm"
+                                className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                                 aria-label={`Disposition pour ${sc.name}`}
                               >
                                 <option value="">Non traité</option>
@@ -449,13 +449,13 @@ export default function PromotionsPage() {
                                 placeholder="Motif (facultatif)"
                                 value={disposition.reason}
                                 onChange={(e) => setExitReasonFor(sc.id, e.target.value)}
-                                className="rounded border border-slate-300 px-2 py-1 text-xs"
+                                className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 aria-label={`Motif de sortie pour ${sc.name}`}
                               />
                             )}
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-slate-500">
+                        <td className="px-3 py-2 text-slate-600">
                           {targetClass
                             ? (targetClass.capacity ?? "Illimitée")
                             : disposition
@@ -478,7 +478,7 @@ export default function PromotionsPage() {
             <button
               type="button"
               onClick={() => setStep("years")}
-              className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               Précédent
             </button>
@@ -486,7 +486,7 @@ export default function PromotionsPage() {
               type="button"
               onClick={() => setStep("students")}
               disabled={classMappings.length === 0 && exitDispositions.length === 0}
-              className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
               data-testid="promotion-mapping-next"
             >
               Suivant
@@ -496,14 +496,14 @@ export default function PromotionsPage() {
       )}
 
       {step === "students" && (
-        <section className="flex flex-col gap-4 rounded border border-slate-200 p-4">
+        <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <h2 className="text-lg font-semibold text-slate-900">3. Sélection des élèves</h2>
           <div className="flex flex-wrap gap-3">
             <select
               value={classFilter}
               onChange={(e) => setClassFilter(e.target.value)}
               aria-label="Filtrer par classe source"
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             >
               <option value="">Toutes les classes source</option>
               {sourceClasses.map((c) => (
@@ -516,7 +516,7 @@ export default function PromotionsPage() {
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as StudentStatus | "")}
               aria-label="Filtrer par statut"
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             >
               <option value="">Tous statuts</option>
               {Object.entries(STATUS_LABELS).map(([value, label]) => (
@@ -528,9 +528,9 @@ export default function PromotionsPage() {
           </div>
 
           {studentsError && <ErrorRetry message={studentsError} onRetry={() => loadStudentsForSourceClass(classFilter)} />}
-          {studentsLoading && <p className="text-sm text-slate-500">Chargement des élèves...</p>}
+          {studentsLoading && <p className="text-sm text-slate-600">Chargement des élèves...</p>}
 
-          <div className="overflow-x-auto rounded border border-slate-200">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="w-full min-w-[500px] text-left text-sm">
               <thead className="bg-slate-50">
                 <tr>
@@ -553,7 +553,7 @@ export default function PromotionsPage() {
               <tbody>
                 {visibleStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-4 text-center text-slate-400">
+                    <td colSpan={7} className="px-3 py-4 text-center text-slate-600">
                       Aucun élève.
                     </td>
                   </tr>
@@ -588,7 +588,7 @@ export default function PromotionsPage() {
             <button
               type="button"
               onClick={() => setStep("mapping")}
-              className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               Précédent
             </button>
@@ -596,7 +596,7 @@ export default function PromotionsPage() {
               type="button"
               onClick={() => setStep("preview")}
               disabled={selectedIds.size === 0}
-              className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
               data-testid="promotion-students-next"
             >
               Suivant
@@ -606,19 +606,19 @@ export default function PromotionsPage() {
       )}
 
       {step === "preview" && (
-        <section className="flex flex-col gap-4 rounded border border-slate-200 p-4">
+        <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <h2 className="text-lg font-semibold text-slate-900">4. Aperçu</h2>
-          <label className="flex w-fit flex-col gap-1 text-xs text-slate-600">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800 w-full sm:w-72">
             Date d&apos;inscription
             <input
               type="date"
               value={enrollmentDate}
               onChange={(e) => setEnrollmentDate(e.target.value)}
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className="block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
             />
           </label>
 
-          {previewLoading && <p className="text-sm text-slate-500">Calcul de l&apos;aperçu...</p>}
+          {previewLoading && <p className="text-sm text-slate-600">Calcul de l&apos;aperçu...</p>}
 
           {previewError && (
             <p className="text-sm font-medium text-red-700" data-testid="promotion-preview-error">
@@ -643,8 +643,8 @@ export default function PromotionsPage() {
               </ul>
 
               {preview.exit_count > 0 && (
-                <div className="rounded border border-slate-200 bg-slate-50 p-3" data-testid="promotion-exit-breakdown">
-                  <p className="text-sm font-semibold text-slate-900">Sorties de l&apos;établissement</p>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid="promotion-exit-breakdown">
+                  <p className="text-base font-bold text-slate-900">Sorties de l&apos;établissement</p>
                   <ul className="text-sm text-slate-700">
                     {(Object.entries(EXIT_TYPE_LABELS) as [ExitType, string][]).map(([type, label]) => (
                       <li key={type}>
@@ -657,7 +657,7 @@ export default function PromotionsPage() {
 
               {preview.unprocessed_no_target_class_count > 0 && (
                 <p
-                  className="rounded border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-700"
+                  className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800"
                   data-testid="promotion-unprocessed-alert"
                 >
                   {preview.unprocessed_no_target_class_count} élève(s) n&apos;ont ni classe cible ni disposition de
@@ -669,7 +669,7 @@ export default function PromotionsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[500px] text-left text-sm">
                     <thead>
-                      <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                      <tr className="border-b border-slate-200 text-xs uppercase text-slate-600">
                         <th className="px-3 py-2 font-medium">Classe cible</th>
                         <th className="px-3 py-2 font-medium">Capacité</th>
                         <th className="px-3 py-2 font-medium">Effectif actuel</th>
@@ -707,7 +707,7 @@ export default function PromotionsPage() {
               type="button"
               onClick={() => setStep("students")}
               disabled={confirming}
-              className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               Précédent
             </button>
@@ -722,14 +722,14 @@ export default function PromotionsPage() {
                 preview.blocking_errors.length > 0 ||
                 preview.unprocessed_no_target_class_count > 0
               }
-              className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
               data-testid="promotion-confirm"
             >
               {confirming ? "Réinscription en cours..." : "Confirmer la réinscription"}
             </button>
           </div>
           {confirmError && (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {confirmError.kind === "blocking" ? "Capacité insuffisante — " : ""}
               {confirmError.message}
             </p>
@@ -738,7 +738,7 @@ export default function PromotionsPage() {
       )}
 
       {step === "result" && result && (
-        <section className="flex flex-col gap-4 rounded border border-slate-200 p-4">
+        <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <h2 className="text-lg font-semibold text-slate-900">Réinscription terminée</h2>
           <p className="text-sm text-slate-700" data-testid="promotion-result-summary">
             {result.selected_count} élève{result.selected_count > 1 ? "s" : ""} traité
@@ -763,7 +763,7 @@ export default function PromotionsPage() {
           <button
             type="button"
             onClick={resetWizard}
-            className="w-fit rounded bg-slate-900 px-4 py-2 text-sm text-white"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 w-fit"
             data-testid="promotion-done"
           >
             Nouvelle réinscription
