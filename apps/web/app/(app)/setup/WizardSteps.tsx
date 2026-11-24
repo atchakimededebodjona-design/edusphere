@@ -17,14 +17,17 @@ import {
 } from "@/lib/academics/client";
 import { formatWizardError } from "@/lib/wizard/errors";
 
-const inputClass = "rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100";
-const labelClass = "flex flex-col gap-1 text-xs text-slate-600";
-const primaryButtonClass = "rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50";
+// Phase 4 B (2026-11-24) — mêmes styles que les champs et boutons communs (components/ui).
+const inputClass =
+  "block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500";
+const labelClass = "flex flex-col gap-1 text-sm font-medium text-slate-800";
+const primaryButtonClass =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10";
 
 export function StepError({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
       {message}
     </p>
   );
@@ -70,7 +73,7 @@ export function StepYear({
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (years === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (years === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   return (
     <div className="flex flex-col gap-4">
@@ -85,8 +88,8 @@ export function StepYear({
           {years.map((year) => (
             <label
               key={year.id}
-              className={`flex cursor-pointer items-center gap-2 rounded border px-3 py-2 text-sm ${
-                selectedYearId === year.id ? "border-slate-900 bg-slate-50" : "border-slate-200"
+              className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                selectedYearId === year.id ? "border-primary-600 bg-primary-50 text-primary-900" : "border-slate-200 bg-white"
               }`}
             >
               <input
@@ -101,7 +104,7 @@ export function StepYear({
         </fieldset>
       )}
 
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
+      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
         <label className={labelClass}>
           Nom
           <input
@@ -188,7 +191,7 @@ export function StepTerms({ yearId }: { yearId: string }) {
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (terms === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (terms === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   return (
     <div className="flex flex-col gap-4">
@@ -199,19 +202,19 @@ export function StepTerms({ yearId }: { yearId: string }) {
 
       <ul className="flex flex-col gap-1">
         {terms.map((t) => (
-          <li key={t.id} className="rounded border border-slate-200 px-3 py-2 text-sm">
+          <li key={t.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             {t.name} ({t.start_date} → {t.end_date})
           </li>
         ))}
         {terms.length === 0 && (
-          <li className="rounded border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">
+          <li className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
             Aucun terme pour cette année pour l&apos;instant — ajoutez-en au moins un ci-dessous avant de
             passer à la saisie des présences/notes plus tard.
           </li>
         )}
       </ul>
 
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
+      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
         <label className={labelClass}>
           Nom
           <input
@@ -295,7 +298,7 @@ export function StepLevels({ schoolId }: { schoolId: string }) {
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (levels === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (levels === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   return (
     <div className="flex flex-col gap-4">
@@ -305,17 +308,17 @@ export function StepLevels({ schoolId }: { schoolId: string }) {
       </p>
       <ul className="flex flex-col gap-1">
         {levels.map((l) => (
-          <li key={l.id} className="rounded border border-slate-200 px-3 py-2 text-sm">
+          <li key={l.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             {l.name}
           </li>
         ))}
         {levels.length === 0 && (
-          <li className="rounded border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">
+          <li className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
             Aucun niveau pour l&apos;instant — vous en aurez besoin pour créer une classe.
           </li>
         )}
       </ul>
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
+      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
         <label className={labelClass}>
           Nom
           <input
@@ -375,7 +378,7 @@ export function StepSubjects({ schoolId }: { schoolId: string }) {
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (subjects === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (subjects === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   return (
     <div className="flex flex-col gap-4">
@@ -385,17 +388,17 @@ export function StepSubjects({ schoolId }: { schoolId: string }) {
       </p>
       <ul className="flex flex-col gap-1">
         {subjects.map((s) => (
-          <li key={s.id} className="rounded border border-slate-200 px-3 py-2 text-sm">
-            {s.name} {s.code && <span className="text-slate-400">({s.code})</span>}
+          <li key={s.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+            {s.name} {s.code && <span className="text-slate-600">({s.code})</span>}
           </li>
         ))}
         {subjects.length === 0 && (
-          <li className="rounded border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">
+          <li className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
             Aucune matière pour l&apos;instant.
           </li>
         )}
       </ul>
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
+      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
         <label className={labelClass}>
           Nom
           <input
@@ -466,11 +469,11 @@ export function StepClasses({ schoolId, yearId }: { schoolId: string; yearId: st
   }
 
   if (loadError) return <StepError message={loadError} />;
-  if (levels === null || classes === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (levels === null || classes === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   if (levels.length === 0) {
     return (
-      <p className="rounded border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">
+      <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
         Aucun niveau n&apos;a encore été créé — revenez à l&apos;étape « Niveaux » avant de créer une
         classe.
       </p>
@@ -482,17 +485,17 @@ export function StepClasses({ schoolId, yearId }: { schoolId: string; yearId: st
       <p className="text-sm text-slate-600">Créez les classes de cette année scolaire.</p>
       <ul className="flex flex-col gap-1">
         {classesForYear.map((c) => (
-          <li key={c.id} className="rounded border border-slate-200 px-3 py-2 text-sm">
+          <li key={c.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             {c.name} — {levels.find((l) => l.id === c.education_level_id)?.name ?? "—"}
           </li>
         ))}
         {classesForYear.length === 0 && (
-          <li className="rounded border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">
+          <li className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
             Aucune classe pour cette année pour l&apos;instant.
           </li>
         )}
       </ul>
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
+      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
         <label className={labelClass}>
           Nom
           <input
@@ -557,11 +560,11 @@ export function StepAssignments({ schoolId, yearId }: { schoolId: string; yearId
   const selectedClass = classesForYear.find((c) => c.id === selectedClassId) ?? null;
 
   if (loadError) return <StepError message={loadError} />;
-  if (classes === null || subjects === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (classes === null || subjects === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   if (classesForYear.length === 0) {
     return (
-      <p className="rounded border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">
+      <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
         Aucune classe pour cette année — revenez à l&apos;étape « Classes » avant d&apos;affecter des
         enseignants.
       </p>
@@ -573,7 +576,7 @@ export function StepAssignments({ schoolId, yearId }: { schoolId: string; yearId
       <p className="text-sm text-slate-600">
         Pour chaque classe, attachez les matières enseignées puis affectez un enseignant à chacune.
       </p>
-      <label className="flex w-fit flex-col gap-1 text-xs text-slate-600">
+      <label className="flex flex-col gap-1 text-sm font-medium text-slate-800 w-full sm:w-72">
         Classe
         <select
           value={selectedClassId}
@@ -678,17 +681,17 @@ export function StepSummary({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+      <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
         Configuration de l&apos;école — {year.name}
       </p>
       <StepError message={loadError} />
       <ul className="flex flex-col gap-1">
         {rows.map((row) => (
-          <li key={row.label} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-sm">
+          <li key={row.label} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             <span>
               {row.label} : <strong>{row.value}</strong>
             </span>
-            <button type="button" onClick={() => onGoToStep(row.step)} className="text-xs text-slate-700 underline">
+            <button type="button" onClick={() => onGoToStep(row.step)} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
               Modifier
             </button>
           </li>

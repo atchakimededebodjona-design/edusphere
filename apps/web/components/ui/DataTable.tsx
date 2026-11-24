@@ -30,8 +30,10 @@ export type Column<T> = {
 };
 
 const MOBILE_CELL: Record<NonNullable<Column<unknown>["mobile"]> | "default", string> = {
-  title: "max-sm:block max-sm:grow max-sm:basis-[60%] max-sm:text-base max-sm:font-semibold max-sm:text-slate-900",
-  lead: "max-sm:block max-sm:shrink-0",
+  // `order-first` : le titre (et ce qui le précède) ouvre la carte même s'il n'est pas la première colonne
+  // du tableau sur ordinateur.
+  title: "max-sm:order-first max-sm:block max-sm:grow max-sm:basis-[60%] max-sm:text-base max-sm:font-semibold max-sm:text-slate-900",
+  lead: "max-sm:order-first max-sm:block max-sm:shrink-0",
   full: "max-sm:block max-sm:w-full",
   hidden: "max-sm:hidden",
   // Libellé écrit par le CSS (`data-label`) : il ne s'ajoute pas au texte de la cellule, que les tests

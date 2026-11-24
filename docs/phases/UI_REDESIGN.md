@@ -19,7 +19,7 @@
 | 1 | Enveloppes et navigation, accueil selon le rôle (caisse) | Livrée, validée sur téléphone le 2026-11-23 |
 | 2 | Écrans du quotidien : tableaux de bord, caisse, appel et notes, fiche enfant | Livrée (voir plus bas) |
 | 3 | Écrans de gestion. Lot A : élèves, paiements, frais en retard, utilisateurs, notifications. Lot B : barèmes de frais, fiche élève, bulletins, annonces, école, académique | Lots A et B livrés (voir plus bas) |
-| 4 | A : plateforme et partenaire. B : assistant, réinscriptions, journal d'audit. C : pages publiques et mot de passe | A livrée (voir plus bas), B et C à faire |
+| 4 | A : plateforme et partenaire. B : assistant, réinscriptions, journal d'audit. C : pages publiques et mot de passe | A et B livrées (voir plus bas), C à faire |
 | 5 | Finitions : accessibilité, états vides et de chargement, tests e2e | À faire |
 
 ## Phase 0 — fondations
@@ -420,3 +420,33 @@ Ils demandent Docker et la CI ne les lance pas ; ils n'ont pas été exécutés.
   - téléphone : lignes en cartes, pas de défilement horizontal, aucun champ ni bouton hors de l'écran ;
   - partout : aucun texte en gris clair, aucune erreur JavaScript ou CSP, aucun refus 403 nouveau.
 - **Non-régression** : phase 2 (95, dont les tableaux de bord plateforme et partenaire) et phase 1 (105).
+
+## Phase 4, partie B — assistant, réinscriptions, journal d'audit (2026-11-24)
+
+**Règle inchangée** : mêmes appels à l'API, mêmes libellés et mêmes repères de test (`setup-wizard`, `students-bulk-promotion`, `students-exit-disposition`, `audit-logs`).
+
+- **Assistant de mise en place** (`setup/page.tsx`, `WizardSteps.tsx`, 717 lignes) et **réinscriptions** (`promotions/page.tsx`, 775 lignes) :
+  - styles remplacés par ceux du système commun, par substitution exacte des valeurs de `className` : boutons bleus, champs de 44 px, cadres arrondis, alertes communes, plus de texte en gris clair ;
+  - logique et texte inchangés ;
+  - les tableaux des réinscriptions gardent leur défilement horizontal : ils croisent classes sources et destinations, et l'écran sert surtout sur ordinateur.
+- **Journal d'audit** :
+  - en-tête commun, filtres dans une carte avec libellés lisibles ;
+  - tableau commun (cartes sur téléphone) avec le repère `audit-log-row` gardé ;
+  - pagination commune et état vide « Aucun événement d'audit. ».
+- **Assistant** : les styles déclarés en constantes en tête de `WizardSteps.tsx` (champ, libellé, bouton principal) sont alignés à la main sur le système commun. La pastille de l'étape en cours passe en bleu, et les étapes non encore accessibles restent lisibles (gris moyen au lieu de gris très clair).
+- **`DataTable`** : sur téléphone, la colonne « titre » ouvre toujours la carte (`order-first`), même si elle n'est pas la première sur ordinateur. Le journal garde ainsi son ordre de colonnes (Date, Utilisateur, Action, Entité, Résumé), tandis que sa carte s'ouvre sur le résumé.
+
+## Vérifications de la phase 4, partie B (2026-11-24)
+
+- **Site** : vérification des types, analyse du code, build de production.
+- **Assistant, réinscriptions, journal d'audit** : build de production, **vraie API**, sur ordinateur et sur téléphone. **29 vérifications réussies** :
+  - aucun bouton noir ni texte en gris clair ;
+  - pas de défilement horizontal, aucun champ ni bouton hors de l'écran ;
+  - journal : repère `audit-log-row`, colonnes dans l'ordre d'origine sur ordinateur, carte ouverte par le résumé sur téléphone, filtre « Type d'entité », état vide ;
+  - aucune erreur JavaScript ou CSP, aucun refus 403 nouveau.
+- **Non-régression**, après le changement de `DataTable` :
+  - phase 3 lot A : 143 ;
+  - phase 3 lot B : 136 ;
+  - phase 4 A : 100 ;
+  - phase 2 : 95 ;
+  - phase 1 : 105.

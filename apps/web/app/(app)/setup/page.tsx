@@ -31,14 +31,14 @@ export default function SetupWizardPage() {
   const canManage = permissions.includes("academics.manage");
 
   if (!currentSchoolId) {
-    return <p className="text-sm text-slate-500">Chargement...</p>;
+    return <p className="text-sm text-slate-600">Chargement...</p>;
   }
 
   if (!canManage) {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Mise en place de l&apos;école</h1>
-        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           Vous n&apos;avez pas la permission d&apos;accéder à cette page.
         </p>
       </div>
@@ -57,7 +57,7 @@ export default function SetupWizardPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Mise en place de l&apos;école</h1>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-600">
           Un parcours guidé pour configurer l&apos;essentiel : année scolaire, termes, niveaux, matières,
           classes et affectations enseignants. Vous pouvez revenir en arrière à tout moment ; rien
           n&apos;est perdu, chaque étape enregistre directement sur le serveur.
@@ -75,12 +75,12 @@ export default function SetupWizardPage() {
                 onClick={() => goTo(index)}
                 disabled={!reachable}
                 aria-current={current ? "step" : undefined}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                className={`inline-flex min-h-9 items-center rounded-full px-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 ${
                   current
-                    ? "bg-slate-900 text-white"
+                    ? "bg-primary-600 text-white"
                     : reachable
-                      ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      : "cursor-not-allowed bg-slate-50 text-slate-300"
+                      ? "bg-primary-50 text-primary-800 hover:bg-primary-100"
+                      : "cursor-not-allowed bg-slate-100 text-slate-500"
                 }`}
               >
                 {index + 1}. {s.title}
@@ -90,9 +90,9 @@ export default function SetupWizardPage() {
         })}
       </ol>
 
-      <div className="rounded border border-slate-200 p-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
         <h2 className="text-lg font-semibold text-slate-900">{STEPS[step].title}</h2>
-        <p className="mb-4 text-sm text-slate-500">{STEPS[step].description}</p>
+        <p className="mb-4 text-sm text-slate-600">{STEPS[step].description}</p>
 
         {step === 0 && (
           <StepYear
@@ -116,7 +116,7 @@ export default function SetupWizardPage() {
           type="button"
           onClick={() => goTo(step - 1)}
           disabled={step === 0}
-          className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
         >
           Précédent
         </button>
@@ -125,7 +125,7 @@ export default function SetupWizardPage() {
             type="button"
             onClick={() => goTo(step + 1)}
             disabled={step === 0 && !canLeaveStep0}
-            className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
           >
             Continuer
           </button>
