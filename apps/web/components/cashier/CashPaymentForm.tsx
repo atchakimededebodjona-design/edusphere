@@ -204,7 +204,7 @@ export function CashPaymentForm({
     return (
       <section className="flex flex-col gap-3">
         <FeeSituation fees={fees} summary={summary} currency={currency} />
-        <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           {fees.length === 0 ? "Aucun frais à encaisser pour cet élève." : "Tous les frais de cet élève sont soldés."}
         </p>
       </section>
@@ -213,29 +213,29 @@ export function CashPaymentForm({
 
   if (step === "confirm" && check.amountCents !== null) {
     return (
-      <section aria-labelledby="cash-confirm-title" className="flex flex-col gap-4 rounded border border-slate-300 bg-white p-4">
+      <section aria-labelledby="cash-confirm-title" className="flex flex-col gap-4 rounded-xl border border-slate-300 bg-white p-4">
         <h2 id="cash-confirm-title" className="text-lg font-semibold text-slate-900">
           Récapitulatif de l&apos;encaissement
         </h2>
         <dl className="grid gap-2 text-sm sm:grid-cols-[max-content_1fr] sm:gap-x-6">
-          <dt className="text-slate-500">Élève</dt>
+          <dt className="text-slate-600">Élève</dt>
           <dd className="font-medium text-slate-900">
             {student.last_name} {student.first_name} ({student.matricule})
           </dd>
-          <dt className="text-slate-500">Montant reçu</dt>
+          <dt className="text-slate-600">Montant reçu</dt>
           <dd className="text-xl font-bold text-slate-900">{formatMoney(check.amountCents, currency)}</dd>
-          <dt className="text-slate-500">Mode</dt>
+          <dt className="text-slate-600">Mode</dt>
           <dd className="font-medium text-slate-900">ESPÈCES</dd>
           {payerName.trim() && (
             <>
-              <dt className="text-slate-500">Payeur</dt>
+              <dt className="text-slate-600">Payeur</dt>
               <dd className="text-slate-900">{payerName.trim()}</dd>
             </>
           )}
         </dl>
         <div>
           <h3 className="mb-2 text-sm font-semibold text-slate-700">Détail des allocations</h3>
-          <ul className="divide-y divide-slate-100 rounded border border-slate-200 text-sm">
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
             {allocationLines.map((line) => (
               <li key={line.fee.id} className="flex justify-between gap-3 px-3 py-2">
                 <span>{line.fee.fee_schedule_name}</span>
@@ -249,7 +249,7 @@ export function CashPaymentForm({
           </ul>
         </div>
         {submitError && (
-          <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {submitError}
           </p>
         )}
@@ -258,7 +258,7 @@ export function CashPaymentForm({
             type="button"
             onClick={() => setStep("form")}
             disabled={isSubmitting}
-            className="rounded border border-slate-300 px-4 py-3 text-sm text-slate-700 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:opacity-50"
           >
             Modifier
           </button>
@@ -266,7 +266,7 @@ export function CashPaymentForm({
             type="button"
             onClick={() => void confirmPayment()}
             disabled={isSubmitting}
-            className="rounded bg-emerald-700 px-6 py-3 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-emerald-700 px-6 py-3 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? "Enregistrement..." : "Confirmer l'encaissement"}
           </button>
@@ -285,23 +285,23 @@ export function CashPaymentForm({
           e.preventDefault();
           goToConfirmation();
         }}
-        className="flex flex-col gap-4 rounded border border-slate-200 bg-white p-4"
+        className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4"
       >
         <h2 id="cash-form-title" className="text-lg font-semibold text-slate-900">
           Nouvel encaissement
         </h2>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm text-slate-700">
+          <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-700">
             Mode de paiement
             <input
               value="ESPÈCES"
               readOnly
               aria-readonly="true"
-              className="rounded border border-slate-200 bg-slate-100 px-3 py-2 font-semibold text-slate-900"
+              className="min-h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-100 px-3 font-semibold text-slate-900 sm:min-h-10"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-700">
+          <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-700">
             Montant reçu{currency ? ` (${currencyLabel(currency)})` : ""}
             <input
               value={amountInput}
@@ -313,7 +313,7 @@ export function CashPaymentForm({
               autoComplete="off"
               placeholder="0"
               aria-invalid={amountInput.trim() !== "" && (check.amountCents === null || check.amountCents <= 0)}
-              className="rounded border border-slate-300 px-3 py-3 text-2xl font-bold text-slate-900"
+              className="w-full min-w-0 rounded-lg border border-slate-300 px-3 py-3 text-2xl font-bold tabular-nums text-slate-900 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
             />
           </label>
         </div>
@@ -323,14 +323,14 @@ export function CashPaymentForm({
             type="button"
             onClick={handleAutoAllocate}
             disabled={check.amountCents === null || check.amountCents <= 0}
-            className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:opacity-50"
           >
             Répartir automatiquement
           </button>
           <button
             type="button"
             onClick={handlePayAll}
-            className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
           >
             Tout payer ({formatMoney(remainingTotal, currency)})
           </button>
@@ -338,7 +338,7 @@ export function CashPaymentForm({
 
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 text-sm font-semibold text-slate-700">Répartition sur les frais</legend>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-600">
             Le total affecté doit être exactement égal au montant reçu, sans dépasser le solde d&apos;un frais.
           </p>
           <ul className="grid gap-2 lg:grid-cols-2">
@@ -347,10 +347,10 @@ export function CashPaymentForm({
               const exceeding = check.exceedingFeeIds.includes(fee.id);
               const invalid = check.invalidFeeIds.includes(fee.id);
               return (
-                <li key={fee.id} className="flex flex-wrap items-end justify-between gap-2 rounded border border-slate-200 p-3">
+                <li key={fee.id} className="flex flex-wrap items-end justify-between gap-2 rounded-lg border border-slate-200 p-3">
                   <div className="text-sm">
                     <p className="font-medium text-slate-900">{fee.fee_schedule_name}</p>
-                    <p className="text-xs text-slate-500">Solde : {formatMoney(balance, currency)}</p>
+                    <p className="text-xs text-slate-600">Solde : {formatMoney(balance, currency)}</p>
                   </div>
                   <label className="flex flex-col gap-1 text-xs text-slate-600">
                     Montant affecté — {fee.fee_schedule_name}
@@ -365,7 +365,7 @@ export function CashPaymentForm({
                       autoComplete="off"
                       placeholder="0"
                       aria-invalid={exceeding || invalid}
-                      className={`w-36 rounded border px-2 py-2 text-right text-base ${
+                      className={`min-h-11 w-36 rounded-lg border px-2 text-right text-base tabular-nums focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 ${
                         exceeding || invalid ? "border-red-400 bg-red-50" : "border-slate-300"
                       } disabled:bg-slate-100`}
                     />
@@ -389,7 +389,7 @@ export function CashPaymentForm({
                   setPayerName(e.target.value);
                 }}
                 maxLength={255}
-                className="rounded border border-slate-300 px-2 py-2 text-sm"
+                className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-600">
@@ -401,7 +401,7 @@ export function CashPaymentForm({
                   setReference(e.target.value);
                 }}
                 maxLength={255}
-                className="rounded border border-slate-300 px-2 py-2 text-sm"
+                className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-600">
@@ -413,28 +413,33 @@ export function CashPaymentForm({
                   setNote(e.target.value);
                 }}
                 maxLength={2000}
-                className="rounded border border-slate-300 px-2 py-2 text-sm"
+                className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
               />
             </label>
           </div>
         </details>
 
-        <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-col gap-3 rounded-b border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Refonte, phase 2 (2026-11-23) : collée au-dessus de la barre du bas et des bandeaux (avant, elle
+            passait dessous sur téléphone). */}
+        <div
+          className="sticky z-30 -mx-4 -mb-4 flex flex-col gap-3 rounded-b-xl border-t border-slate-200 bg-slate-50 p-4 shadow-[0_-4px_12px_-8px_rgba(15,23,42,0.25)] sm:flex-row sm:items-center sm:justify-between"
+          style={{ bottom: "calc(var(--bottom-nav-height, 0px) + var(--bottom-banners-height, 0px))" }}
+        >
           <dl aria-label="Totaux de l'encaissement" className="grid grid-cols-3 gap-3 text-xs sm:text-sm">
             <div>
-              <dt className="text-slate-500">Total affecté</dt>
+              <dt className="text-slate-600">Total affecté</dt>
               <dd data-testid="cash-total-allocated" className="text-base font-bold text-slate-900 sm:text-lg">
                 {formatMoney(check.allocatedCents, currency)}
               </dd>
             </div>
             <div>
-              <dt className="text-slate-500">Montant reçu</dt>
+              <dt className="text-slate-600">Montant reçu</dt>
               <dd data-testid="cash-amount-received" className="text-base font-bold text-slate-900 sm:text-lg">
                 {formatMoney(check.amountCents ?? 0, currency)}
               </dd>
             </div>
             <div>
-              <dt className="text-slate-500">Reste non affecté</dt>
+              <dt className="text-slate-600">Reste non affecté</dt>
               <dd
                 data-testid="cash-unallocated"
                 className={`text-base font-bold sm:text-lg ${check.unallocatedCents === 0 ? "text-slate-900" : "text-red-700"}`}
@@ -447,7 +452,7 @@ export function CashPaymentForm({
             <button
               type="submit"
               disabled={!check.canSubmit}
-              className="rounded bg-slate-900 px-6 py-3 text-base font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex min-h-12 items-center justify-center rounded-lg bg-primary-600 px-6 text-base font-semibold text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Encaisser
             </button>
@@ -478,28 +483,28 @@ function FeeSituation({
       {fees.length > 0 && (
         <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {fees.map((fee) => (
-            <li key={fee.id} data-testid="fee-situation-item" className="rounded border border-slate-200 bg-white p-3 text-sm">
+            <li key={fee.id} data-testid="fee-situation-item" className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
               <div className="flex items-start justify-between gap-2">
                 <p className="font-semibold text-slate-900">{fee.fee_schedule_name}</p>
-                <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 font-semibold text-xs text-slate-700">
                   {STUDENT_FEE_STATUS_LABELS[fee.status]}
                 </span>
               </div>
               <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
                 <div>
-                  <dt className="text-slate-500">Dû</dt>
+                  <dt className="text-slate-600">Dû</dt>
                   <dd className="font-medium text-slate-900">{formatApiAmount(fee.amount_due, currency)}</dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Payé</dt>
+                  <dt className="text-slate-600">Payé</dt>
                   <dd className="font-medium text-slate-900">{formatApiAmount(fee.amount_paid, currency)}</dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Solde</dt>
+                  <dt className="text-slate-600">Solde</dt>
                   <dd className="font-semibold text-slate-900">{formatApiAmount(fee.balance, currency)}</dd>
                 </div>
               </dl>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-600">
                 Échéance : {fee.due_date ? formatDateFR(fee.due_date) : "non définie"}
               </p>
             </li>

@@ -1,68 +1,45 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { ChildCard, ChildrenSkeleton } from "@/components/parent-shell/ChildCard";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
-import { ApiError } from "@/lib/api/client";
+import { EmptyState, PageHeader } from "@/components/ui/Surface";
+import { useAsyncData } from "@/lib/api/useAsyncData";
 import { useAuth } from "@/lib/auth/useAuth";
 import { parentChildren } from "@/lib/parent/client";
-import type { Student } from "@/lib/students/client";
 
+const NO_CHILD =
+  "Aucun enfant n'est encore rattaché à votre compte. Contactez l'administration de l'école de votre enfant pour faire le lien.";
+
+// Refonte, phase 2 (2026-11-23) — accueil parent : une carte par enfant, qui mène à sa fiche (notes,
+// présences, frais, bulletins). Mêmes données qu'avant (GET /parent/children).
 export default function ParentDashboardPage() {
   const { user } = useAuth();
-  const [children, setChildren] = useState<Student[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setError(null);
-    parentChildren
-      .list()
-      .then(setChildren)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: children, error, retry } = useAsyncData(parentChildren.list, []);
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-slate-900">
-        Bonjour{user ? `, ${user.full_name}` : ""}
-      </h1>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title={`Bonjour${user ? `, ${user.full_name}` : ""}`}
+        description={
+          children && children.length > 0
+            ? children.length === 1
+              ? "1 enfant est rattaché à votre compte."
+              : `${children.length} enfants sont rattachés à votre compte.`
+            : undefined
+        }
+      />
 
-      {error && <ErrorRetry message={error} onRetry={load} />}
-      {!error && children === null && <p className="text-sm text-slate-500">Chargement...</p>}
+      {error && <ErrorRetry message={error} onRetry={retry} />}
+      {!error && children === null && <ChildrenSkeleton />}
 
-      {children && children.length === 0 && (
-        <p className="max-w-md text-sm text-slate-600">
-          Aucun enfant n&apos;est encore rattaché à votre compte. Contactez l&apos;administration de
-          l&apos;école de votre enfant pour faire le lien.
-        </p>
-      )}
+      {children && children.length === 0 && <EmptyState icon="users" title="Aucun enfant rattaché" description={NO_CHILD} />}
 
       {children && children.length > 0 && (
-        <>
-          <p className="text-slate-600">
-            {children.length === 1
-              ? "1 enfant est rattaché à votre compte."
-              : `${children.length} enfants sont rattachés à votre compte.`}
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {children.map((child) => (
-              <Link
-                key={child.id}
-                href={`/parent/children/${child.id}`}
-                className="rounded border border-slate-200 bg-white p-4 hover:border-slate-400"
-              >
-                <p className="font-semibold text-slate-900">
-                  {child.first_name} {child.last_name}
-                </p>
-                <p className="text-sm text-slate-500">Matricule {child.matricule}</p>
-              </Link>
-            ))}
-          </div>
-        </>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {children.map((child) => (
+            <ChildCard key={child.id} child={child} />
+          ))}
+        </div>
       )}
     </div>
   );

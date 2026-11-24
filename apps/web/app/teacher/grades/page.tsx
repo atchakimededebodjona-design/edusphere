@@ -12,6 +12,12 @@ import {
   type AssessmentType,
 } from "@/lib/grades/client";
 import { OutboxFailures } from "@/components/pwa/OutboxFailures";
+import { TeacherFormSkeleton } from "@/components/teacher-shell/TeacherFormSkeleton";
+import { ActionBar } from "@/components/ui/ActionBar";
+import { Button } from "@/components/ui/Button";
+import { SelectField, TextField, controlClass } from "@/components/ui/Field";
+import { Icon } from "@/components/ui/Icon";
+import { Alert, Badge, Card, EmptyState, PageHeader } from "@/components/ui/Surface";
 import {
   findOutboxEntry,
   gradesKey,
@@ -23,6 +29,7 @@ import {
 } from "@/lib/offline/outbox";
 import { saveNow, type SaveOutcome } from "@/lib/offline/sync";
 import { useOutbox } from "@/lib/offline/useOutbox";
+import { useReveal } from "@/components/ui/useReveal";
 import { describeTeacherError, teacherApi, type TeacherAssessment, type TeacherClass, type TeacherStudent } from "@/lib/teacher/client";
 
 // Notes & évaluations du portail. Les matières proposées sont uniquement celles de l'enseignant
@@ -31,6 +38,16 @@ import { describeTeacherError, teacherApi, type TeacherAssessment, type TeacherC
 //
 // Phase 32, lot 2 — utilisable sans connexion : création d'évaluation et saisie des notes passent
 // par la boîte d'envoi (lib/offline/sync.ts::saveNow), comme l'appel (voir teacher/attendance).
+
+//
+// Refonte, phase 2 (2026-11-23) — présentation seulement : champs avec libellés, évaluations en cartes,
+// saisie juste sous la liste, grands champs de note et bouton d'enregistrement collé en bas de l'écran.
+// Même saisie, mêmes contrôles, mêmes envois.
+
+function frenchDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split("-");
+  return day && month && year ? `${day}/${month}/${year}` : isoDate;
+}
 
 /** Évaluation du serveur, ou créée sur l'appareil et pas encore envoyée (`pendingCreate`). */
 type AssessmentView = TeacherAssessment & { pendingCreate?: NewAssessment };
@@ -70,6 +87,9 @@ function TeacherGradesPageContent() {
   // celles du serveur avec une feuille qui n'est pas la sienne).
   const [scoresLoaded, setScoresLoaded] = useState(false);
   const outbox = useOutbox();
+  // Refonte, phase 2 : la saisie ouverte est amenée à l'écran (sur téléphone, elle est sous la liste).
+  const [reveal, setReveal] = useState(0);
+  const entryRef = useReveal<HTMLElement>(reveal);
   const [form, setForm] = useState({ name: "", max_score: "20", assessment_date: new Date().toISOString().slice(0, 10) });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,100 +309,203 @@ function TeacherGradesPageContent() {
     }
   }
 
-  if (classes === null && !error) return <p className="text-sm text-slate-400">Chargement...</p>;
-  if (classes && classes.length === 0) return <p className="text-sm text-slate-500">Aucune classe ne vous est affectée.</p>;
+  if (classes === null && !error) return <TeacherFormSkeleton />;
+  if (classes && classes.length === 0) {
+    return <EmptyState icon="layers" title="Aucune classe" description="Aucune classe ne vous est affectée." />;
+  }
+
+  const allAssessments: AssessmentView[] = [...localAssessments, ...assessments];
+  const filledCount = students.filter((s) => scores[s.id]?.absent || (scores[s.id]?.score ?? "") !== "").length;
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-slate-900">Notes &amp; évaluations</h1>
-      <div className="flex flex-wrap items-end gap-3 text-sm">
-        <label className="flex flex-col gap-1">
-          Classe
-          <select value={classId} onChange={(e) => setClassId(e.target.value)} className="rounded border border-slate-300 px-2 py-2">
+      <PageHeader title="Notes & évaluations" description="Choisissez la classe et la matière, ouvrez une évaluation, puis saisissez les notes." />
+      <Card>
+        <div className="grid items-end gap-3 sm:grid-cols-3">
+          <SelectField label="Classe" value={classId} onChange={(e) => setClassId(e.target.value)}>
             {(classes ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Matière
-          <select value={classSubjectId} onChange={(e) => setClassSubjectId(e.target.value)} className="rounded border border-slate-300 px-2 py-2">
+          </SelectField>
+          <SelectField label="Matière" value={classSubjectId} onChange={(e) => setClassSubjectId(e.target.value)}>
             {(selectedClass?.subjects ?? []).map((s) => <option key={s.class_subject_id} value={s.class_subject_id}>{s.subject_name}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Période
-          <select value={termId} onChange={(e) => setTermId(e.target.value)} className="rounded border border-slate-300 px-2 py-2">
+          </SelectField>
+          <SelectField label="Période" value={termId} onChange={(e) => setTermId(e.target.value)}>
             {terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </label>
-      </div>
+          </SelectField>
+        </div>
+      </Card>
 
       <OutboxFailures kind="grades" />
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {message && <p className="text-sm text-emerald-700">{message}</p>}
+      {error && <Alert tone="danger">{error}</Alert>}
+      {message && <Alert tone="success">{message}</Alert>}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Créer une évaluation</h2>
-        <div className="flex flex-wrap items-end gap-3 text-sm">
-          <input placeholder="Nom de l'évaluation" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded border border-slate-300 px-2 py-2" />
-          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} className="rounded border border-slate-300 px-2 py-2">
-            {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <input type="number" min="1" value={form.max_score} onChange={(e) => setForm({ ...form, max_score: e.target.value })} className="w-24 rounded border border-slate-300 px-2 py-2" aria-label="Note maximale" />
-          <input type="date" value={form.assessment_date} onChange={(e) => setForm({ ...form, assessment_date: e.target.value })} className="rounded border border-slate-300 px-2 py-2" />
-          <button type="button" onClick={createAssessment} disabled={busy || !form.name || !classSubjectId || !termId || !typeId} className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50">
-            Créer
-          </button>
-        </div>
-      </section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section aria-labelledby="grades-assessments" className="flex flex-col gap-2">
+          <h2 id="grades-assessments" className="text-lg font-bold text-slate-900">Évaluations</h2>
+          {allAssessments.length === 0 ? (
+            <p className="text-sm text-slate-600">Aucune évaluation pour cette classe.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {allAssessments.map((a) => {
+                const state = entryStateFor(a);
+                const current = activeAssessment?.id === a.id;
+                return (
+                  <li key={a.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openAssessment(a);
+                        setReveal((n) => n + 1);
+                      }}
+                      aria-pressed={current}
+                      className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 ${
+                        current ? "border-primary-600 bg-primary-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-semibold text-slate-900">{a.name}</span>
+                        <span className="block text-xs text-slate-600">
+                          {a.subject_name} · {frenchDate(a.assessment_date)} · sur {a.max_score}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        {state === "pending" && <Badge tone="warning">en attente d&apos;envoi</Badge>}
+                        {state === "failed" && <Badge tone="danger">refusée par le serveur</Badge>}
+                        <Icon name="chevronRight" className="h-4 w-4 text-slate-500" />
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-2 text-sm font-semibold text-slate-900">Évaluations</h2>
-        {localAssessments.length + assessments.length === 0 ? (
-          <p className="text-sm text-slate-400">Aucune évaluation pour cette classe.</p>
-        ) : (
-          <ul className="flex flex-col gap-1 text-sm">
-            {[...localAssessments, ...assessments].map((a: AssessmentView) => {
-              const state = entryStateFor(a);
-              return (
-                <li key={a.id}>
-                  <button type="button" onClick={() => openAssessment(a)} className="text-slate-900 underline">
-                    {a.name} — {a.subject_name} ({a.assessment_date}, /{a.max_score})
-                  </button>
-                  {state === "pending" && <span className="ml-2 text-xs text-amber-700">en attente d&apos;envoi</span>}
-                  {state === "failed" && <span className="ml-2 text-xs text-red-700">refusée par le serveur</span>}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+        <section aria-labelledby="grades-create">
+          <Card className="flex flex-col gap-3">
+            <h2 id="grades-create" className="text-lg font-bold text-slate-900">Créer une évaluation</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextField
+                label="Nom de l'évaluation"
+                placeholder="Ex. : Devoir n°1"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+              <SelectField label="Type" value={typeId} onChange={(e) => setTypeId(e.target.value)}>
+                {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </SelectField>
+              <TextField
+                label="Note maximale"
+                type="number"
+                min="1"
+                inputMode="decimal"
+                value={form.max_score}
+                onChange={(e) => setForm({ ...form, max_score: e.target.value })}
+              />
+              <TextField
+                label="Date de l'évaluation"
+                type="date"
+                value={form.assessment_date}
+                onChange={(e) => setForm({ ...form, assessment_date: e.target.value })}
+              />
+            </div>
+            <Button
+              onClick={createAssessment}
+              disabled={busy || !form.name || !classSubjectId || !termId || !typeId}
+              icon="listChecks"
+              className="w-full sm:w-fit"
+            >
+              Créer
+            </Button>
+          </Card>
+        </section>
+      </div>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-2 text-sm font-semibold text-slate-900">
+      {activeAssessment && (
+        <section ref={entryRef} aria-labelledby="grades-entry" className="flex scroll-mt-20 flex-col gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="grades-entry" className="text-lg font-bold text-slate-900">Saisie : {activeAssessment.name}</h2>
+            <p className="text-sm text-slate-600">
+              {activeAssessment.subject_name} · notes sur {activeAssessment.max_score}
+            </p>
+          </div>
+          {students.length === 0 ? (
+            <p className="text-sm text-slate-600">Aucun élève dans cette classe.</p>
+          ) : (
+            <Card padded={false}>
+              <ul className="divide-y divide-slate-100">
+                {students.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                    <span className="min-w-0 font-medium text-slate-900">
+                      {s.last_name} {s.first_name}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      <input
+                        type="number"
+                        min="0"
+                        max={activeAssessment.max_score}
+                        step="any"
+                        inputMode="decimal"
+                        aria-label={`Note de ${s.last_name} ${s.first_name}`}
+                        value={scores[s.id]?.score ?? ""}
+                        disabled={!scoresLoaded || scores[s.id]?.absent}
+                        onChange={(e) => setScores((prev) => ({ ...prev, [s.id]: { score: e.target.value, absent: prev[s.id]?.absent ?? false } }))}
+                        className={`${controlClass} w-24 text-right text-base font-semibold tabular-nums`}
+                      />
+                      <label className="flex min-h-11 items-center gap-2 text-sm text-slate-800 sm:min-h-9">
+                        <input
+                          type="checkbox"
+                          disabled={!scoresLoaded}
+                          checked={scores[s.id]?.absent ?? false}
+                          onChange={(e) => setScores((prev) => ({ ...prev, [s.id]: { score: "", absent: e.target.checked } }))}
+                          className="h-5 w-5 rounded border-slate-400 accent-primary-600"
+                        />
+                        Absent
+                      </label>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+          <ActionBar className="-mx-4 px-4 md:mx-0 md:rounded-xl md:border">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-700">
+                {scoresLoaded ? `${filledCount} / ${students.length} élève${students.length > 1 ? "s" : ""} noté${filledCount > 1 ? "s" : ""} ou absent${filledCount > 1 ? "s" : ""}` : "Chargement des notes..."}
+              </p>
+              <Button onClick={saveScores} disabled={busy || !scoresLoaded} icon="checkSquare" className="w-full sm:w-auto">
+                Enregistrer les notes
+              </Button>
+            </div>
+          </ActionBar>
+        </section>
+      )}
+
+      <section aria-labelledby="grades-averages" className="flex flex-col gap-2">
+        <h2 id="grades-averages" className="text-lg font-bold text-slate-900">
           Moyennes — {terms.find((t) => t.id === termId)?.name ?? "période"}
         </h2>
         {students.length === 0 ? (
-          <p className="text-sm text-slate-400">Aucun élève dans cette classe.</p>
+          <p className="text-sm text-slate-600">Aucun élève dans cette classe.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
-              <thead className="text-left text-slate-500">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-600">
                 <tr>
-                  <th className="py-1 pr-4">Élève</th>
-                  <th className="py-1 pr-4">Moyenne matière</th>
-                  <th className="py-1 pr-4">Moyenne générale</th>
-                  <th className="py-1">Rang</th>
+                  <th scope="col" className="px-4 py-2">Élève</th>
+                  <th scope="col" className="px-4 py-2 text-right">Moy. matière</th>
+                  <th scope="col" className="px-4 py-2 text-right">Moy. générale</th>
+                  <th scope="col" className="px-4 py-2 text-right">Rang</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {students.map((s) => {
                   const a = averages[s.id];
                   return (
-                    <tr key={s.id} className="border-t border-slate-100">
-                      <td className="py-1 pr-4">{s.last_name} {s.first_name}</td>
-                      <td className="py-1 pr-4">{a?.subject != null ? a.subject.toFixed(2) : "—"}</td>
-                      <td className="py-1 pr-4">{a?.general != null ? a.general.toFixed(2) : "—"}</td>
-                      <td className="py-1">{a?.rank ?? "—"}</td>
+                    <tr key={s.id}>
+                      <td className="px-4 py-2 text-slate-900">{s.last_name} {s.first_name}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{a?.subject != null ? a.subject.toFixed(2) : "—"}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{a?.general != null ? a.general.toFixed(2) : "—"}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{a?.rank ?? "—"}</td>
                     </tr>
                   );
                 })}
@@ -391,50 +514,13 @@ function TeacherGradesPageContent() {
           </div>
         )}
       </section>
-
-      {activeAssessment && (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Saisie : {activeAssessment.name}</h2>
-          <ul className="flex flex-col gap-2 text-sm">
-            {students.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-3">
-                <span>{s.last_name} {s.first_name}</span>
-                <span className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max={activeAssessment.max_score}
-                    aria-label={`Note de ${s.last_name}`}
-                    value={scores[s.id]?.score ?? ""}
-                    disabled={!scoresLoaded || scores[s.id]?.absent}
-                    onChange={(e) => setScores((prev) => ({ ...prev, [s.id]: { score: e.target.value, absent: prev[s.id]?.absent ?? false } }))}
-                    className="w-24 rounded border border-slate-300 px-2 py-1"
-                  />
-                  <label className="flex items-center gap-1 text-xs">
-                    <input
-                      type="checkbox"
-                      disabled={!scoresLoaded}
-                      checked={scores[s.id]?.absent ?? false}
-                      onChange={(e) => setScores((prev) => ({ ...prev, [s.id]: { score: "", absent: e.target.checked } }))}
-                    />
-                    Absent
-                  </label>
-                </span>
-              </li>
-            ))}
-          </ul>
-          <button type="button" onClick={saveScores} disabled={busy || !scoresLoaded} className="mt-4 rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">
-            Enregistrer les notes
-          </button>
-        </section>
-      )}
     </div>
   );
 }
 
 export default function TeacherGradesPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-slate-400">Chargement...</p>}>
+    <Suspense fallback={<TeacherFormSkeleton />}>
       <TeacherGradesPageContent />
     </Suspense>
   );

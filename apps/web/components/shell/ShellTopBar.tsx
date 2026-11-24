@@ -47,7 +47,7 @@ export function ShellTopBar({
   );
 
   return (
-    <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 backdrop-blur md:px-6">
+    <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2 md:px-6">
       {/* 2026-11-16 : la marque ramène à la page d'accueil publique ; la session reste ouverte. */}
       <Link href={brandHref} className="flex shrink-0 items-center gap-2 rounded-lg hover:opacity-80" title="Page d'accueil EduLinkage">
         <BrandSymbol className="h-9 w-9" priority />

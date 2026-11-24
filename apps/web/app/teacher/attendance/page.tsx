@@ -4,6 +4,12 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { OutboxFailures } from "@/components/pwa/OutboxFailures";
+import { TeacherFormSkeleton } from "@/components/teacher-shell/TeacherFormSkeleton";
+import { ActionBar } from "@/components/ui/ActionBar";
+import { Button } from "@/components/ui/Button";
+import { SelectField, TextField, controlClass } from "@/components/ui/Field";
+import { Segmented, type SegmentTone } from "@/components/ui/Segmented";
+import { Alert, Badge, Card, EmptyState, PageHeader } from "@/components/ui/Surface";
 import { attendanceRecords, type AttendanceRecordEntry, type AttendanceStatusValue } from "@/lib/attendance/client";
 import { academicTerms } from "@/lib/academics/client";
 import {
@@ -17,6 +23,7 @@ import {
 } from "@/lib/offline/outbox";
 import { saveNow, type SaveOutcome } from "@/lib/offline/sync";
 import { useOutbox } from "@/lib/offline/useOutbox";
+import { useReveal } from "@/components/ui/useReveal";
 import { describeTeacherError, teacherApi, type TeacherAttendanceSession, type TeacherClass, type TeacherStudent } from "@/lib/teacher/client";
 
 // Vue simplifiée de l'appel. Les classes proposées sont celles du backend (affectations de
@@ -27,7 +34,14 @@ import { describeTeacherError, teacherApi, type TeacherAttendanceSession, type T
 // Phase 32, lot 2 — utilisable sans connexion : chaque création de séance et chaque appel passe
 // par la boîte d'envoi (lib/offline/sync.ts::saveNow). Avec internet, rien ne change à l'écran ;
 // sans, la saisie est gardée sur l'appareil et part automatiquement au retour du réseau.
-const STATUS_LABELS: Record<AttendanceStatusValue, string> = { PRESENT: "Présent", ABSENT: "Absent", LATE: "Retard" };
+//
+// Refonte, phase 2 (2026-11-23) — présentation seulement : statut en boutons au pouce (vrais boutons
+// radio), compteurs, bouton d'enregistrement collé en bas de l'écran. Même saisie, mêmes envois.
+const STATUS_OPTIONS: { value: AttendanceStatusValue; label: string; tone: SegmentTone }[] = [
+  { value: "PRESENT", label: "Présent", tone: "success" },
+  { value: "ABSENT", label: "Absent", tone: "danger" },
+  { value: "LATE", label: "Retard", tone: "warning" },
+];
 
 type RollEntry = { status: AttendanceStatusValue; justified: boolean; reason: string };
 /** Séance du serveur, ou séance créée sur l'appareil et pas encore envoyée (`pendingCreate`). */
@@ -74,6 +88,9 @@ function TeacherAttendancePageContent() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const outbox = useOutbox();
+  // Refonte, phase 2 : la feuille d'appel ouverte est amenée à l'écran (sur téléphone, elle est sous la liste).
+  const [reveal, setReveal] = useState(0);
+  const rollRef = useReveal<HTMLElement>(reveal);
 
   const selectedClass = useMemo(() => classes?.find((c) => c.id === classId) ?? null, [classes, classId]);
 
@@ -248,61 +265,83 @@ function TeacherAttendancePageContent() {
     }
   }
 
-  if (classes === null && !error) return <p className="text-sm text-slate-400">Chargement...</p>;
-  if (classes && classes.length === 0) return <p className="text-sm text-slate-500">Aucune classe ne vous est affectée.</p>;
+  if (classes === null && !error) return <TeacherFormSkeleton />;
+  if (classes && classes.length === 0) {
+    return <EmptyState icon="layers" title="Aucune classe" description="Aucune classe ne vous est affectée." />;
+  }
 
   const locked = activeSession?.locked ?? false;
   const displayedSessions: SessionView[] = [...localSessions, ...sessions];
+  const counts = students.reduce(
+    (acc, s) => {
+      const status = statuses[s.id]?.status ?? "PRESENT";
+      acc[status] += 1;
+      return acc;
+    },
+    { PRESENT: 0, ABSENT: 0, LATE: 0 } as Record<AttendanceStatusValue, number>,
+  );
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-slate-900">Présences</h1>
-      <div className="flex flex-wrap items-end gap-3 text-sm">
-        <label className="flex flex-col gap-1">
-          Classe
-          <select value={classId} onChange={(e) => setClassId(e.target.value)} className="rounded border border-slate-300 px-2 py-2">
+      <PageHeader title="Présences" description="Choisissez la classe et la date, créez la session, puis faites l'appel." />
+      <Card>
+        <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <SelectField label="Classe" value={classId} onChange={(e) => setClassId(e.target.value)}>
             {(classes ?? []).map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Date
-          <input type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} className="rounded border border-slate-300 px-2 py-2" />
-        </label>
-        <label className="flex flex-col gap-1">
-          Période
-          <select value={termId} onChange={(e) => setTermId(e.target.value)} className="rounded border border-slate-300 px-2 py-2">
+          </SelectField>
+          <TextField label="Date" type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
+          <SelectField label="Période" value={termId} onChange={(e) => setTermId(e.target.value)}>
             {terms.map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
-          </select>
-        </label>
-        <button type="button" onClick={createSession} disabled={busy || !termId} className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50">
-          Créer la session
-        </button>
-      </div>
+          </SelectField>
+          <Button
+            onClick={() => void createSession().then(() => setReveal((n) => n + 1))}
+            disabled={busy || !termId}
+            icon="clipboard"
+          >
+            Créer la session
+          </Button>
+        </div>
+      </Card>
 
       <OutboxFailures kind="attendance" />
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {message && <p className="text-sm text-emerald-700">{message}</p>}
+      {error && <Alert tone="danger">{error}</Alert>}
+      {message && <Alert tone="success">{message}</Alert>}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-2 text-sm font-semibold text-slate-900">Sessions de la classe</h2>
+      <section aria-labelledby="attendance-sessions" className="flex flex-col gap-2">
+        <h2 id="attendance-sessions" className="text-lg font-bold text-slate-900">Sessions de la classe</h2>
         {displayedSessions.length === 0 ? (
-          <p className="text-sm text-slate-400">Aucune session pour cette classe.</p>
+          <p className="text-sm text-slate-600">Aucune session pour cette classe.</p>
         ) : (
-          <ul className="flex flex-col gap-1 text-sm">
+          <ul className="flex flex-wrap gap-2">
             {displayedSessions.map((s) => {
               const state = entryStateFor(s);
+              const current = activeSession?.id === s.id;
               return (
-                <li key={s.id}>
-                  <button type="button" onClick={() => openSession(s)} className="text-slate-900 underline">
-                    {s.session_date}
+                <li key={s.id} className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void openSession(s);
+                      setReveal((n) => n + 1);
+                    }}
+                    aria-pressed={current}
+                    className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 sm:min-h-10 ${
+                      current ? "border-primary-600 bg-primary-50 text-primary-800" : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    {frenchDate(s.session_date)}
                   </button>
-                  {s.locked && <span className="ml-2 text-xs text-slate-500">verrouillée</span>}
-                  {state === "pending" && <span className="ml-2 text-xs text-amber-700">en attente d&apos;envoi</span>}
-                  {state === "failed" && <span className="ml-2 text-xs text-red-700">refusée par le serveur</span>}
+                  {(s.locked || state) && (
+                    <span className="flex flex-wrap gap-1">
+                      {s.locked && <Badge>verrouillée</Badge>}
+                      {state === "pending" && <Badge tone="warning">en attente d&apos;envoi</Badge>}
+                      {state === "failed" && <Badge tone="danger">refusée par le serveur</Badge>}
+                    </span>
+                  )}
                 </li>
               );
             })}
@@ -311,66 +350,88 @@ function TeacherAttendancePageContent() {
       </section>
 
       {activeSession && (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Appel du {activeSession.session_date}</h2>
-          {locked && <p className="mb-3 text-sm text-amber-700">Session verrouillée : seule l&apos;administration peut la déverrouiller.</p>}
+        <section ref={rollRef} aria-labelledby="attendance-roll" className="flex scroll-mt-20 flex-col gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="attendance-roll" className="text-lg font-bold text-slate-900">
+              Appel du {frenchDate(activeSession.session_date)}
+            </h2>
+            {students.length > 0 && rollLoaded && (
+              <p className="flex flex-wrap gap-2 text-sm">
+                <Badge tone="success">{counts.PRESENT} présent{counts.PRESENT > 1 ? "s" : ""}</Badge>
+                <Badge tone="danger">{counts.ABSENT} absent{counts.ABSENT > 1 ? "s" : ""}</Badge>
+                <Badge tone="warning">{counts.LATE} retard{counts.LATE > 1 ? "s" : ""}</Badge>
+              </p>
+            )}
+          </div>
+          {locked && <Alert tone="warning">Session verrouillée : seule l&apos;administration peut la déverrouiller.</Alert>}
           {students.length === 0 ? (
-            <p className="text-sm text-slate-400">Aucun élève dans cette classe.</p>
+            <p className="text-sm text-slate-600">Aucun élève dans cette classe.</p>
           ) : (
-            <ul className="flex flex-col gap-2">
-              {students.map((s) => {
-                const entry = statuses[s.id] ?? { status: "PRESENT" as AttendanceStatusValue, justified: false, reason: "" };
-                return (
-                  <li key={s.id} className="flex flex-wrap items-center gap-3 border-b border-slate-100 pb-2 text-sm last:border-b-0">
-                    <span className="min-w-[10rem]">{s.last_name} {s.first_name}</span>
-                    <select
-                      aria-label={`Statut de ${s.last_name}`}
-                      disabled={locked || !rollLoaded}
-                      value={entry.status}
-                      onChange={(e) =>
-                        setStatuses((prev) => ({ ...prev, [s.id]: { ...entry, status: e.target.value as AttendanceStatusValue } }))
-                      }
-                      className="rounded border border-slate-300 px-2 py-1"
-                    >
-                      {(Object.keys(STATUS_LABELS) as AttendanceStatusValue[]).map((v) => (
-                        <option key={v} value={v}>{STATUS_LABELS[v]}</option>
-                      ))}
-                    </select>
-                    {entry.status === "ABSENT" && (
-                      <>
-                        <label className="flex items-center gap-1 text-xs">
+            <Card padded={false}>
+              <ul className="divide-y divide-slate-100">
+                {students.map((s) => {
+                  const entry = statuses[s.id] ?? { status: "PRESENT" as AttendanceStatusValue, justified: false, reason: "" };
+                  return (
+                    <li key={s.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                      <span className="font-medium text-slate-900">
+                        {s.last_name} {s.first_name}
+                      </span>
+                      <Segmented
+                        label={`Statut de ${s.last_name} ${s.first_name}`}
+                        name={`status-${s.id}`}
+                        value={entry.status}
+                        options={STATUS_OPTIONS}
+                        disabled={locked || !rollLoaded}
+                        onChange={(status) => setStatuses((prev) => ({ ...prev, [s.id]: { ...entry, status } }))}
+                        className="w-full sm:w-auto"
+                      />
+                      {entry.status === "ABSENT" && (
+                        <div className="flex w-full flex-wrap items-center gap-3">
+                          <label className="flex min-h-11 items-center gap-2 text-sm text-slate-800 sm:min-h-9">
+                            <input
+                              type="checkbox"
+                              disabled={locked || !rollLoaded}
+                              checked={entry.justified}
+                              onChange={(e) => setStatuses((prev) => ({ ...prev, [s.id]: { ...entry, justified: e.target.checked } }))}
+                              className="h-5 w-5 rounded border-slate-400 accent-primary-600"
+                            />
+                            Justifiée
+                          </label>
                           <input
-                            type="checkbox"
+                            type="text"
+                            placeholder="Motif (optionnel)"
+                            aria-label={`Motif de ${s.last_name} ${s.first_name}`}
                             disabled={locked || !rollLoaded}
-                            checked={entry.justified}
-                            onChange={(e) => setStatuses((prev) => ({ ...prev, [s.id]: { ...entry, justified: e.target.checked } }))}
+                            value={entry.reason}
+                            onChange={(e) => setStatuses((prev) => ({ ...prev, [s.id]: { ...entry, reason: e.target.value } }))}
+                            className={`${controlClass} min-w-[12rem] flex-1 sm:w-auto`}
                           />
-                          Justifiée
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Motif (optionnel)"
-                          aria-label={`Motif de ${s.last_name}`}
-                          disabled={locked || !rollLoaded}
-                          value={entry.reason}
-                          onChange={(e) => setStatuses((prev) => ({ ...prev, [s.id]: { ...entry, reason: e.target.value } }))}
-                          className="min-w-[10rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-                        />
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
           )}
-          <button
-            type="button"
-            onClick={saveRoll}
-            disabled={busy || locked || !rollLoaded || students.length === 0}
-            className="mt-4 rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            Enregistrer l&apos;appel
-          </button>
+          <ActionBar className="-mx-4 px-4 md:mx-0 md:rounded-xl md:border">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-700">
+                {students.length} élève{students.length > 1 ? "s" : ""}
+                {rollLoaded && counts.ABSENT + counts.LATE > 0
+                  ? ` · ${counts.ABSENT} absent${counts.ABSENT > 1 ? "s" : ""}, ${counts.LATE} retard${counts.LATE > 1 ? "s" : ""}`
+                  : ""}
+              </p>
+              <Button
+                onClick={saveRoll}
+                disabled={busy || locked || !rollLoaded || students.length === 0}
+                icon="checkSquare"
+                className="w-full sm:w-auto"
+              >
+                Enregistrer l&apos;appel
+              </Button>
+            </div>
+          </ActionBar>
         </section>
       )}
     </div>
@@ -379,7 +440,7 @@ function TeacherAttendancePageContent() {
 
 export default function TeacherAttendancePage() {
   return (
-    <Suspense fallback={<p className="text-sm text-slate-400">Chargement...</p>}>
+    <Suspense fallback={<TeacherFormSkeleton />}>
       <TeacherAttendancePageContent />
     </Suspense>
   );

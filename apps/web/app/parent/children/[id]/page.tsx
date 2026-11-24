@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useId, useState } from "react";
 import { useParams } from "next/navigation";
+import { ChildInitials } from "@/components/parent-shell/ChildCard";
+import { ButtonLink } from "@/components/ui/Button";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
-import { ApiError } from "@/lib/api/client";
+import { EmptyState, Skeleton } from "@/components/ui/Surface";
+import { TabPanel, Tabs } from "@/components/ui/Tabs";
+import { useAsyncData } from "@/lib/api/useAsyncData";
 import { parentChildren } from "@/lib/parent/client";
-import type { Student } from "@/lib/students/client";
 import { ChildAttendance } from "@/app/parent/children/[id]/ChildAttendance";
 import { ChildGrades } from "@/app/parent/children/[id]/ChildGrades";
 import { ChildReportCards } from "@/app/parent/children/[id]/ChildReportCards";
@@ -26,70 +29,70 @@ const TABS: { key: TabKey; label: string }[] = [
 // les données : chaque onglet ci-dessous refait son propre appel `/parent/children/{id}/...`, qui
 // revalide indépendamment côté serveur que cet élève est bien un enfant de l'utilisateur courant
 // (`_get_child_or_404`). Un id dans l'URL n'est donc jamais une preuve d'autorisation à lui seul.
+//
+// Refonte, phase 2 (2026-11-23) : en-tête de l'enfant, vrais onglets accessibles (défilants sur
+// téléphone), mêmes appels qu'avant.
 export default function ChildDetailPage() {
   const params = useParams<{ id: string }>();
   const studentId = params.id;
-
-  const [children, setChildren] = useState<Student[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const tabsId = useId();
   const [tab, setTab] = useState<TabKey>("attendance");
+  const { data: children, error, retry } = useAsyncData(parentChildren.list, []);
 
-  const load = useCallback(() => {
-    setError(null);
-    setChildren(null);
-    parentChildren
-      .list()
-      .then(setChildren)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  if (error) return <ErrorRetry message={error} onRetry={load} />;
-  if (children === null) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (error) return <ErrorRetry message={error} onRetry={retry} />;
+  if (children === null) {
+    return (
+      <div className="flex flex-col gap-4" aria-busy="true" aria-label="Chargement">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-14 w-14 rounded-full" />
+          <div>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="mt-2 h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-11 w-full" />
+      </div>
+    );
+  }
 
   const child = children.find((c) => c.id === studentId);
   if (!child) {
     return (
-      <p className="max-w-md text-sm text-slate-600">
-        Cet élève n&apos;est pas rattaché à votre compte, ou n&apos;existe pas.
-      </p>
+      <EmptyState
+        icon="user"
+        title="Fiche introuvable"
+        description="Cet élève n'est pas rattaché à votre compte, ou n'existe pas."
+        action={
+          <ButtonLink href="/parent/children" variant="secondary">
+            Mes enfants
+          </ButtonLink>
+        }
+      />
     );
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
+    <div className="flex max-w-4xl flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <ChildInitials child={child} size="lg" />
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-900">
+            {child.first_name} {child.last_name}
+          </h1>
+          <p className="text-sm text-slate-600">Matricule {child.matricule}</p>
+        </div>
+      </div>
+
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          {child.first_name} {child.last_name}
-        </h1>
-        <p className="text-sm text-slate-500">Matricule {child.matricule}</p>
-      </div>
-
-      <div className="flex flex-wrap gap-1 border-b border-slate-200">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`rounded-t px-3 py-2 text-sm font-medium ${
-              tab === t.key ? "border-b-2 border-slate-900 text-slate-900" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="pt-2">
-        {tab === "attendance" && <ChildAttendance studentId={child.id} />}
-        {tab === "grades" && <ChildGrades studentId={child.id} />}
-        {tab === "report-cards" && (
-          <ChildReportCards studentId={child.id} studentLabel={`${child.first_name}_${child.last_name}`} />
-        )}
-        {tab === "fees" && <ChildFees studentId={child.id} />}
+        <Tabs id={tabsId} label={`Suivi de ${child.first_name}`} tabs={TABS} value={tab} onChange={setTab} />
+        <TabPanel id={tabsId} active={tab}>
+          {tab === "attendance" && <ChildAttendance studentId={child.id} />}
+          {tab === "grades" && <ChildGrades studentId={child.id} />}
+          {tab === "report-cards" && (
+            <ChildReportCards studentId={child.id} studentLabel={`${child.first_name}_${child.last_name}`} />
+          )}
+          {tab === "fees" && <ChildFees studentId={child.id} />}
+        </TabPanel>
       </div>
     </div>
   );

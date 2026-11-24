@@ -1,72 +1,64 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { ButtonLink } from "@/components/ui/Button";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
-import { ApiError } from "@/lib/api/client";
-import { getPlatformDashboard, type PlatformDashboard as PlatformDashboardData } from "@/lib/platform/client";
+import { PageHeader, SectionTitle, Skeleton, StatCard } from "@/components/ui/Surface";
+import { useAsyncData } from "@/lib/api/useAsyncData";
+import { useAuth } from "@/lib/auth/useAuth";
+import { PLATFORM_MENU, allowedMenu } from "@/lib/navigation/menus";
+import { getPlatformDashboard } from "@/lib/platform/client";
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-slate-200 p-4">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
+// Refonte, phase 2 (2026-11-23) — accueil de la plateforme : mêmes compteurs, chacun menant à sa liste.
 export function PlatformDashboard() {
-  const [dashboard, setDashboard] = useState<PlatformDashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setDashboard(null);
-    setError(null);
-    getPlatformDashboard()
-      .then(setDashboard)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Une erreur est survenue."));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data, error, retry } = useAsyncData(getPlatformDashboard, []);
+  const { permissions } = useAuth();
+  const allowed = allowedMenu(PLATFORM_MENU, permissions).flatMap((group) => group.items);
+  // Une carte ne mène à une liste que si le menu du compte la propose (mêmes permissions).
+  const link = (href: string) => (allowed.some((item) => item.href === href) ? href : undefined);
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-slate-900">Administration de la plateforme</h1>
-      <p className="text-slate-600">Bienvenue dans l&apos;espace d&apos;administration EduLinkage.</p>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Administration de la plateforme"
+        description="Bienvenue dans l'espace d'administration EduLinkage."
+        actions={
+          <>
+            {/* Seul point d'entrée d'inscription d'une organisation : réservé à ce tableau de bord
+                (PlatformDashboard n'est rendu que pour un platform admin, voir dashboard/page.tsx). */}
+            <ButtonLink href="/dashboard/organizations/new">+ Inscrire une organisation</ButtonLink>
+            {/* PR #19 — ajout d'un établissement à une organisation EXISTANTE (même page, parcours
+                « Organisation existante ») : l'organisation n'est jamais recréée. */}
+            <ButtonLink href="/dashboard/organizations/new?mode=existing" variant="secondary">
+              + Ajouter un établissement
+            </ButtonLink>
+          </>
+        }
+      />
 
-      {/* Seul point d'entrée d'inscription d'une organisation : réservé à ce tableau de bord
-          (PlatformDashboard n'est rendu que pour un platform admin, voir dashboard/page.tsx). */}
-      <div>
-        <Link
-          href="/dashboard/organizations/new"
-          className="inline-flex rounded-lg bg-gradient-to-r from-brand-blue to-brand-cyan px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
-        >
-          + Inscrire une organisation
-        </Link>
-        {/* PR #19 — ajout d'un établissement à une organisation EXISTANTE (même page, parcours
-            « Organisation existante ») : l'organisation n'est jamais recréée. */}
-        <Link
-          href="/dashboard/organizations/new?mode=existing"
-          className="ml-3 inline-flex rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-        >
-          + Ajouter un établissement
-        </Link>
-      </div>
-
-      {error && <ErrorRetry message={error} onRetry={load} />}
-      {!error && dashboard === null && <p className="text-sm text-slate-400">Chargement des indicateurs...</p>}
-      {dashboard && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="Organisations" value={String(dashboard.organization_count)} />
-          <MetricCard label="Écoles" value={String(dashboard.school_count)} />
-          <MetricCard label="Utilisateurs" value={String(dashboard.user_count)} />
-          <MetricCard label="Élèves" value={String(dashboard.student_count)} />
-          <MetricCard label="Partenaires" value={String(dashboard.partner_count)} />
-          <MetricCard label="Inscriptions suivies" value={String(dashboard.enrollment_count)} />
-        </div>
-      )}
+      <section aria-labelledby="platform-figures" className="flex flex-col gap-3">
+        <SectionTitle id="platform-figures" title="En chiffres" />
+        {error && <ErrorRetry message={error} onRetry={retry} />}
+        {!data && !error && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="rounded-xl border border-slate-200 bg-white p-4">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="mt-2 h-7 w-16" />
+              </div>
+            ))}
+          </div>
+        )}
+        {data && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <StatCard icon="building" label="Organisations" value={String(data.organization_count)} href={link("/platform/organizations")} />
+            <StatCard icon="school" label="Écoles" value={String(data.school_count)} href={link("/platform/schools")} />
+            <StatCard icon="users" label="Utilisateurs" value={String(data.user_count)} href={link("/platform/accounts")} />
+            <StatCard icon="student" label="Élèves" value={String(data.student_count)} />
+            <StatCard icon="link" label="Partenaires" value={String(data.partner_count)} href={link("/platform/partners")} />
+            <StatCard icon="listChecks" label="Inscriptions suivies" value={String(data.enrollment_count)} />
+          </div>
+        )}
+      </section>
     </div>
   );
 }

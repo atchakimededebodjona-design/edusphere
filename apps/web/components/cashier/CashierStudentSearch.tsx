@@ -100,16 +100,16 @@ export function CashierStudentSearch({
           placeholder="Ex. : Ama, Koffi, EL-CM1-002"
           autoComplete="off"
           autoFocus
-          className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-base font-normal"
+          className="w-full min-h-12 rounded-lg border border-slate-300 bg-white px-4 text-base font-normal text-slate-900 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25"
         />
       </label>
 
       {term.trim().length > 0 && term.trim().length < MIN_SEARCH_LENGTH && (
-        <p className="text-xs text-slate-500">Saisissez au moins {MIN_SEARCH_LENGTH} caractères.</p>
+        <p className="text-xs text-slate-600">Saisissez au moins {MIN_SEARCH_LENGTH} caractères.</p>
       )}
-      {isSearching && <p className="text-xs text-slate-500">Recherche...</p>}
+      {isSearching && <p className="text-xs text-slate-600">Recherche...</p>}
       {error && (
-        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </p>
       )}
@@ -121,7 +121,7 @@ export function CashierStudentSearch({
         </p>
       )}
       {results !== null && !isSearching && results.length === 0 && (
-        <p className="text-sm text-slate-500">Aucun élève trouvé.</p>
+        <p className="text-sm text-slate-600">Aucun élève trouvé.</p>
       )}
 
       {results !== null && results.length > 0 && (
@@ -129,13 +129,13 @@ export function CashierStudentSearch({
           {results.map((student) => (
             <li
               key={student.id}
-              className="flex items-center justify-between gap-3 rounded border border-slate-200 bg-white p-3"
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"
             >
               <div className="min-w-0 text-sm">
                 <p className="truncate font-semibold text-slate-900">
                   {student.last_name} {student.first_name}
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-600">
                   {student.matricule}
                   {student.current_class_name ? ` · ${student.current_class_name}` : " · Classe non renseignée"}
                 </p>
@@ -144,7 +144,7 @@ export function CashierStudentSearch({
                 type="button"
                 onClick={() => onSelect(student)}
                 aria-label={`Sélectionner ${student.last_name} ${student.first_name}`}
-                className="shrink-0 rounded bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-700"
+                className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 sm:min-h-9 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
               >
                 Sélectionner
               </button>
@@ -153,7 +153,7 @@ export function CashierStudentSearch({
         </ul>
       )}
       {results !== null && results.length === MAX_RESULTS && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-600">
           Seuls les {MAX_RESULTS} premiers résultats sont affichés : précisez la recherche.
         </p>
       )}

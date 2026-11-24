@@ -1,15 +1,39 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { TabSkeleton } from "@/app/parent/children/[id]/ChildAttendance";
+import { Button } from "@/components/ui/Button";
 import { ErrorRetry } from "@/components/ui/ErrorRetry";
+import { Alert, Badge, Card, SectionTitle, StatCard, type Tone } from "@/components/ui/Surface";
 import { ApiError } from "@/lib/api/client";
-import type { FinancialSummary, Payment } from "@/lib/fees/client";
+import { formatApiAmount } from "@/lib/fees/allocation";
+import type { FinancialSummary, Payment, PaymentStatus, StudentFeeStatus } from "@/lib/fees/client";
+import { PAYMENT_STATUS_LABELS, STUDENT_FEE_STATUS_LABELS } from "@/lib/fees/labels";
+import { formatDateFR } from "@/lib/format/date";
 import { parentChildren } from "@/lib/parent/client";
+
+const FEE_TONES: Record<StudentFeeStatus, Tone> = {
+  PAID: "success",
+  PARTIALLY_PAID: "warning",
+  PENDING: "info",
+  CANCELLED: "neutral",
+};
+
+const PAYMENT_TONES: Record<PaymentStatus, Tone> = { COMPLETED: "success", CANCELLED: "neutral" };
+
+// L'espace parent ne connaît pas la devise de l'école (pas de lecture de l'école, voir
+// parent/children/page.tsx) : les montants sont affichés avec séparateur de milliers, sans unité.
+function amount(value: string): string {
+  return formatApiAmount(value, "");
+}
 
 // Lecture seule uniquement (consigne Phase 28A) : aucun formulaire d'enregistrement de paiement
 // ici, contrairement à app/(app)/students/[id]/StudentFinancialSummary.tsx côté admin — le
 // backend `/parent/*` n'expose d'ailleurs aucun endpoint d'écriture pour ce module (voir
 // parent/router.py, "le parent ne peut jamais créer, modifier, annuler un paiement").
+//
+// Refonte, phase 2 (2026-11-23) : reste à payer en tête, frais et paiements en lignes lisibles sur
+// téléphone (au lieu de tableaux à faire défiler), statuts et dates en français.
 export function ChildFees({ studentId }: { studentId: string }) {
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
   const [payments, setPayments] = useState<Payment[] | null>(null);
@@ -43,105 +67,91 @@ export function ChildFees({ studentId }: { studentId: string }) {
   }
 
   if (error) return <ErrorRetry message={error} onRetry={load} />;
-  if (summary === null || payments === null) return <p className="text-sm text-slate-500">Chargement...</p>;
+  if (summary === null || payments === null) return <TabSkeleton />;
+
+  const hasBalance = !/^0+(\.0+)?$/.test(summary.balance.trim());
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap gap-6 text-sm">
-        <div>
-          <p className="text-slate-500">Total dû</p>
-          <p className="font-semibold text-slate-900">{summary.total_due}</p>
-        </div>
-        <div>
-          <p className="text-slate-500">Total payé</p>
-          <p className="font-semibold text-slate-900">{summary.total_paid}</p>
-        </div>
-        <div>
-          <p className="text-slate-500">Solde</p>
-          <p className="font-semibold text-slate-900">{summary.balance}</p>
-        </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard icon="wallet" label="Total dû" value={amount(summary.total_due)} />
+        <StatCard icon="checkSquare" tone="success" label="Total payé" value={amount(summary.total_paid)} />
+        <StatCard
+          icon="chart"
+          tone={hasBalance ? "warning" : "success"}
+          label="Reste à payer"
+          value={amount(summary.balance)}
+          hint={hasBalance ? undefined : "Tout est réglé"}
+        />
       </div>
 
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-900">Frais</h3>
-        <div className="overflow-x-auto rounded border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Frais</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Échéance</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600">Dû</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600">Payé</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600">Solde</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Statut</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+      <section aria-labelledby="child-fees-title" className="flex flex-col gap-3">
+        <SectionTitle id="child-fees-title" title="Frais" />
+        {summary.fees.length === 0 ? (
+          <p className="text-sm text-slate-600">Aucun frais affecté à cet élève.</p>
+        ) : (
+          <Card padded={false}>
+            <ul className="divide-y divide-slate-100">
               {summary.fees.map((fee) => (
-                <tr key={fee.id}>
-                  <td className="px-3 py-2">{fee.fee_schedule_name}</td>
-                  <td className="px-3 py-2">{fee.due_date ?? "—"}</td>
-                  <td className="px-3 py-2 text-right">{fee.amount_due}</td>
-                  <td className="px-3 py-2 text-right">{fee.amount_paid}</td>
-                  <td className="px-3 py-2 text-right">{fee.balance}</td>
-                  <td className="px-3 py-2">{fee.status}</td>
-                </tr>
+                <li key={fee.id} className="flex flex-col gap-2 px-4 py-3 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900">{fee.fee_schedule_name}</p>
+                      <p className="text-xs text-slate-600">
+                        Échéance : {fee.due_date ? formatDateFR(fee.due_date) : "non définie"}
+                      </p>
+                    </div>
+                    <Badge tone={FEE_TONES[fee.status]}>{STUDENT_FEE_STATUS_LABELS[fee.status]}</Badge>
+                  </div>
+                  <dl className="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <dt className="text-slate-600">Dû</dt>
+                      <dd className="font-medium tabular-nums text-slate-900">{amount(fee.amount_due)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-600">Payé</dt>
+                      <dd className="font-medium tabular-nums text-slate-900">{amount(fee.amount_paid)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-600">Reste</dt>
+                      <dd className="font-semibold tabular-nums text-slate-900">{amount(fee.balance)}</dd>
+                    </div>
+                  </dl>
+                </li>
               ))}
-              {summary.fees.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-3 py-4 text-center text-slate-400">
-                    Aucun frais affecté à cet élève.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </ul>
+          </Card>
+        )}
+      </section>
 
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-900">Historique des paiements</h3>
-        {downloadError && <p className="mb-2 text-sm text-red-700">{downloadError}</p>}
-        <div className="overflow-x-auto rounded border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Reçu</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Date</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600">Montant</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Statut</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+      <section aria-labelledby="child-payments-title" className="flex flex-col gap-3">
+        <SectionTitle id="child-payments-title" title="Historique des paiements" />
+        {downloadError && <Alert tone="danger">{downloadError}</Alert>}
+        {payments.length === 0 ? (
+          <p className="text-sm text-slate-600">Aucun paiement enregistré.</p>
+        ) : (
+          <Card padded={false}>
+            <ul className="divide-y divide-slate-100">
               {payments.map((p) => (
-                <tr key={p.id}>
-                  <td className="px-3 py-2">{p.receipt_number}</td>
-                  <td className="px-3 py-2">{p.paid_at}</td>
-                  <td className="px-3 py-2 text-right">{p.amount}</td>
-                  <td className="px-3 py-2">{p.status}</td>
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => void handleDownloadReceipt(p.id)}
-                      className="text-xs text-slate-700 underline"
-                    >
+                <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-semibold tabular-nums text-slate-900">{amount(p.amount)}</p>
+                    <p className="text-xs text-slate-600">
+                      {p.receipt_number} · {formatDateFR(p.paid_at)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone={PAYMENT_TONES[p.status]}>{PAYMENT_STATUS_LABELS[p.status]}</Badge>
+                    <Button variant="secondary" size="sm" icon="receipt" onClick={() => void handleDownloadReceipt(p.id)}>
                       Reçu
-                    </button>
-                  </td>
-                </tr>
+                    </Button>
+                  </div>
+                </li>
               ))}
-              {payments.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
-                    Aucun paiement enregistré.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </ul>
+          </Card>
+        )}
+      </section>
     </div>
   );
 }

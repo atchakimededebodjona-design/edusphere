@@ -178,7 +178,9 @@ test("portail enseignant : régression — justification et motif d'une absence 
   await page.getByRole("button", { name: "Créer la session" }).click();
   await expect(page.getByRole("heading", { name: /Appel du/ })).toBeVisible();
 
-  await page.getByLabel("Statut de Alpha").selectOption("ABSENT");
+  // Refonte, phase 2 : le statut se choisit avec des boutons (groupe de boutons radio « Statut de … »).
+  const alphaStatus = page.getByRole("radiogroup", { name: "Statut de Alpha" });
+  await alphaStatus.getByText("Absent", { exact: true }).click();
   await page.getByLabel("Justifiée").check();
   await page.getByLabel("Motif de Alpha").fill("Certificat médical");
   await page.getByRole("button", { name: "Enregistrer l'appel" }).click();
@@ -187,8 +189,9 @@ test("portail enseignant : régression — justification et motif d'une absence 
   // Rechargement complet : la session doit être relue avec justified/reason réellement persistés
   // (pas seulement l'état React local).
   await page.reload();
-  await page.getByRole("button", { name: new Date().toISOString().slice(0, 10) }).click();
-  await expect(page.getByLabel("Statut de Alpha")).toHaveValue("ABSENT");
+  // Les séances sont affichées au format français (jj/mm/aaaa).
+  await page.getByRole("button", { name: new Date().toISOString().slice(0, 10).split("-").reverse().join("/") }).click();
+  await expect(alphaStatus.getByRole("radio", { name: "Absent" })).toBeChecked();
   await expect(page.getByLabel("Justifiée")).toBeChecked();
   await expect(page.getByLabel("Motif de Alpha")).toHaveValue("Certificat médical");
 });
