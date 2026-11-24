@@ -120,19 +120,19 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
   }
 
   if (loadError) return <ErrorRetry message={loadError} onRetry={loadDocuments} />;
-  if (items === null) return <p className="text-sm text-slate-400">Chargement...</p>;
+  if (items === null) return <p className="text-sm text-slate-600">Chargement...</p>;
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <section className="flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">Documents</h2>
-        <span className="text-sm text-slate-500" data-testid="documents-count">
+        <h2 className="text-lg font-bold text-slate-900">Documents</h2>
+        <span className="text-sm text-slate-600" data-testid="documents-count">
           {items.length} document{items.length > 1 ? "s" : ""}
         </span>
       </div>
 
       {items.length === 0 ? (
-        <p className="text-sm text-slate-400" data-testid="documents-empty">
+        <p className="text-sm text-slate-600" data-testid="documents-empty">
           Aucun document.
         </p>
       ) : (
@@ -140,7 +140,7 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
           <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[640px] text-left text-sm" data-testid="documents-table">
               <thead>
-                <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                <tr className="border-b border-slate-200 text-xs uppercase text-slate-600">
                   <th className="px-3 py-2 font-medium">Type</th>
                   <th className="px-3 py-2 font-medium">Nom du fichier</th>
                   <th className="px-3 py-2 font-medium">Date</th>
@@ -175,10 +175,10 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
 
           <div className="flex flex-col gap-2 sm:hidden">
             {items.map((doc) => (
-              <div key={doc.id} className="rounded border border-slate-200 p-3 text-sm" data-testid="document-card">
+              <div key={doc.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm" data-testid="document-card">
                 <p className="font-medium text-slate-900">{doc.document_type}</p>
-                <p className="text-slate-500">{doc.original_filename}</p>
-                <p className="text-xs text-slate-500">
+                <p className="text-slate-600">{doc.original_filename}</p>
+                <p className="text-xs text-slate-600">
                   {formatDocumentDate(doc.created_at)} — {formatFileSize(doc.file_size)}
                 </p>
                 <div className="mt-2">
@@ -200,7 +200,7 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
       )}
 
       {canManage && (
-        <form onSubmit={handleUpload} className="flex flex-col gap-3 rounded border border-dashed border-slate-300 p-3">
+        <form onSubmit={handleUpload} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <div className="flex flex-col gap-1">
             <span className="text-xs text-slate-600">Type de document</span>
             <div className="flex flex-wrap gap-2">
@@ -233,25 +233,25 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
                 value={customType}
                 onChange={(e) => setCustomType(e.target.value)}
                 required
-                className="mt-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                className="mt-1 block w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-h-10 placeholder:text-slate-500 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600/25 disabled:bg-slate-100 disabled:text-slate-500"
                 data-testid="document-type-custom"
               />
             )}
           </div>
 
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-800">
             Fichier
             <input
               type="file"
               accept={ALLOWED_MIME_TYPES.join(",")}
               onChange={handleFileChange}
               required
-              className="text-sm"
+              className="min-w-0 text-sm text-slate-700 file:mr-3 file:min-h-10 file:cursor-pointer file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:font-medium file:text-primary-800 hover:file:bg-primary-100"
               data-testid="document-file-input"
             />
           </label>
           {file && (
-            <p className="text-xs text-slate-500" data-testid="document-file-preview">
+            <p className="text-xs text-slate-600" data-testid="document-file-preview">
               {file.name} — {formatFileSize(file.size)} — {file.type || "type inconnu"}
             </p>
           )}
@@ -264,7 +264,7 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
           <button
             type="submit"
             disabled={busy || !file || !documentType}
-            className="w-fit rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 w-fit"
           >
             {busy ? "Envoi..." : "Ajouter le document"}
           </button>
@@ -276,11 +276,11 @@ export function StudentDocuments({ studentId, canManage }: { studentId: string; 
         </p>
       )}
       {error && (
-        <p className="text-sm text-red-700" data-testid="document-error">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" data-testid="document-error">
           {error}
         </p>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -307,10 +307,10 @@ function DocumentActions({
     return (
       <div className="flex items-center gap-2 text-xs" data-testid="document-delete-confirm">
         <span className="text-slate-700">Supprimer {doc.original_filename} ?</span>
-        <button type="button" onClick={onConfirmDelete} disabled={busy} className="text-red-700 underline" data-testid="document-delete-confirm-yes">
+        <button type="button" onClick={onConfirmDelete} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50" data-testid="document-delete-confirm-yes">
           Oui, supprimer
         </button>
-        <button type="button" onClick={onCancelDelete} disabled={busy} className="text-slate-600 underline">
+        <button type="button" onClick={onCancelDelete} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
           Annuler
         </button>
       </div>
@@ -318,11 +318,11 @@ function DocumentActions({
   }
   return (
     <div className="flex gap-3">
-      <button type="button" onClick={onDownload} className="text-xs text-slate-700 underline" data-testid="document-download">
+      <button type="button" onClick={onDownload} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50" data-testid="document-download">
         Télécharger
       </button>
       {canManage && (
-        <button type="button" onClick={onAskDelete} disabled={busy} className="text-xs text-red-700 underline" data-testid="document-delete">
+        <button type="button" onClick={onAskDelete} disabled={busy} className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50" data-testid="document-delete">
           Supprimer
         </button>
       )}

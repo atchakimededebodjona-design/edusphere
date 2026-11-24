@@ -167,7 +167,7 @@ export function PassportPhotoPicker({
           type="button"
           disabled={disabled || busy}
           onClick={() => cameraInput.current?.click()}
-          className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
         >
           📷 Prendre une photo
         </button>
@@ -175,11 +175,11 @@ export function PassportPhotoPicker({
           type="button"
           disabled={disabled || busy}
           onClick={() => fileInput.current?.click()}
-          className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
         >
           Choisir un fichier
         </button>
-        {busy && !source && <span className="self-center text-sm text-slate-500">Envoi...</span>}
+        {busy && !source && <span className="self-center text-sm text-slate-600">Envoi...</span>}
       </div>
       <input
         ref={cameraInput}
@@ -249,7 +249,7 @@ export function PassportPhotoPicker({
                 aria-label="Zoom"
               />
             </label>
-            <p className="text-center text-xs text-slate-500">Faites glisser la photo pour la déplacer.</p>
+            <p className="text-center text-xs text-slate-600">Faites glisser la photo pour la déplacer.</p>
             {error && (
               <p role="alert" className="text-sm text-red-700">
                 {error}
@@ -260,7 +260,7 @@ export function PassportPhotoPicker({
                 type="button"
                 disabled={busy}
                 onClick={() => void validate()}
-                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
               >
                 {busy ? "Envoi..." : "Valider la photo"}
               </button>
@@ -268,7 +268,7 @@ export function PassportPhotoPicker({
                 type="button"
                 disabled={busy}
                 onClick={() => cameraInput.current?.click()}
-                className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-800 disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
               >
                 Reprendre
               </button>

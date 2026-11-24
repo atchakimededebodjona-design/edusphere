@@ -1,7 +1,17 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { controlClass } from "@/components/ui/Field";
+import { Icon } from "@/components/ui/Icon";
+import { Card, EmptyState, SectionTitle } from "@/components/ui/Surface";
 import { ApiError } from "@/lib/api/client";
+import { formatDateFR } from "@/lib/format/date";
+
+// Refonte, phase 3 lot B (2026-11-24) — liste + ajout + modification en ligne, sur le tableau commun
+// (cartes sur téléphone). Mêmes props et même comportement qu'avant : seuls l'affichage, les libellés
+// des champs et les dates en français changent.
 
 export type FieldType = "text" | "number" | "date" | "checkbox";
 
@@ -44,35 +54,50 @@ function coerce(type: FieldType, raw: string | number | boolean): string | numbe
   return raw;
 }
 
+function display(type: FieldType, value: unknown): string {
+  if (type === "checkbox") return value ? "Oui" : "Non";
+  if (value === null || value === undefined || value === "") return "—";
+  if (type === "date") return formatDateFR(String(value));
+  return String(value);
+}
+
+const checkboxClass = "h-5 w-5 rounded border-slate-400 accent-primary-600";
+
 function FieldInput({
   field,
   value,
   onChange,
   disabled,
+  ariaLabel,
 }: {
   field: { key: string; label: string; type: FieldType; required?: boolean };
   value: string | number | boolean;
   onChange: (value: string | number | boolean) => void;
   disabled: boolean;
+  /** Nom du champ quand il n'a pas de libellé visible (modification dans la ligne). */
+  ariaLabel?: string;
 }) {
   if (field.type === "checkbox") {
     return (
       <input
         type="checkbox"
+        aria-label={ariaLabel}
         checked={Boolean(value)}
         onChange={(e) => onChange(e.target.checked)}
         disabled={disabled}
+        className={checkboxClass}
       />
     );
   }
   return (
     <input
       type={field.type}
+      aria-label={ariaLabel}
       value={value as string | number}
       onChange={(e) => onChange(coerce(field.type, e.target.value))}
       disabled={disabled}
       required={field.required}
-      className="w-full rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100"
+      className={controlClass}
     />
   );
 }
@@ -140,130 +165,131 @@ export function ResourceCrudPanel<T extends { id: string }>({
     }
   }
 
+  const columns: Column<T>[] = [
+    ...(renderRowExtra
+      ? [
+          {
+            key: "__expand",
+            header: <span className="sr-only">Détail</span>,
+            mobile: "lead" as const,
+            cell: (item: T) => {
+              const expanded = expandedIds.has(item.id);
+              return (
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(item.id)}
+                  aria-label="Afficher le détail"
+                  aria-expanded={expanded}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600"
+                >
+                  <Icon name={expanded ? "chevronDown" : "chevronRight"} className="h-5 w-5" />
+                </button>
+              );
+            },
+          },
+        ]
+      : []),
+    ...fields.map(
+      (field, index): Column<T> => ({
+        key: field.key,
+        header: field.label,
+        mobile: index === 0 ? "title" : undefined,
+        cell: (item: T) =>
+          editingId === item.id ? (
+            <FieldInput
+              field={field}
+              value={editValues[field.key]}
+              onChange={(value) => setEditValues((prev) => ({ ...prev, [field.key]: value }))}
+              disabled={saving}
+              ariaLabel={field.label}
+            />
+          ) : (
+            display(field.type, item[field.key])
+          ),
+      }),
+    ),
+    ...(canManage
+      ? [
+          {
+            key: "__actions",
+            header: <span className="sr-only">Actions</span>,
+            align: "right" as const,
+            mobile: "full" as const,
+            cell: (item: T) =>
+              editingId === item.id ? (
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button size="sm" onClick={() => handleSaveEdit(item.id)} disabled={saving}>
+                    {saving ? "Enregistrement..." : "Enregistrer"}
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setEditingId(null)} disabled={saving}>
+                    Annuler
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="quiet" size="sm" onClick={() => startEdit(item)} className="max-sm:-ml-3">
+                  Modifier
+                </Button>
+              ),
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+      <SectionTitle title={title} />
 
-      <div className="overflow-x-auto rounded border border-slate-200">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              {renderRowExtra && <th className="w-8" />}
-              {fields.map((field) => (
-                <th key={field.key} className="px-3 py-2 text-left font-medium text-slate-600">
-                  {field.label}
-                </th>
-              ))}
-              {canManage && <th className="w-24" />}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {items.map((item) => {
-              const isEditing = editingId === item.id;
-              const isExpanded = expandedIds.has(item.id);
-              return (
-                <Fragment key={item.id}>
-                  <tr>
-                    {renderRowExtra && (
-                      <td className="px-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(item.id)}
-                          className="text-slate-500 hover:text-slate-900"
-                          aria-label="Afficher le détail"
-                        >
-                          {isExpanded ? "▾" : "▸"}
-                        </button>
-                      </td>
-                    )}
-                    {fields.map((field) => (
-                      <td key={field.key} className="px-3 py-2">
-                        {isEditing ? (
-                          <FieldInput
-                            field={field}
-                            value={editValues[field.key]}
-                            onChange={(value) => setEditValues((prev) => ({ ...prev, [field.key]: value }))}
-                            disabled={saving}
-                          />
-                        ) : field.type === "checkbox" ? (
-                          item[field.key] ? "Oui" : "Non"
-                        ) : (
-                          String(item[field.key] ?? "")
-                        )}
-                      </td>
-                    ))}
-                    {canManage && (
-                      <td className="px-3 py-2 text-right">
-                        {isEditing ? (
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEdit(item.id)}
-                              disabled={saving}
-                              className="text-xs text-slate-900 underline"
-                            >
-                              Enregistrer
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="text-xs text-slate-500 underline"
-                            >
-                              Annuler
-                            </button>
-                          </div>
-                        ) : (
-                          <button type="button" onClick={() => startEdit(item)} className="text-xs text-slate-700 underline">
-                            Modifier
-                          </button>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                  {renderRowExtra && isExpanded && (
-                    <tr>
-                      <td colSpan={fields.length + 1 + (canManage ? 1 : 0)} className="bg-slate-50 px-6 py-3">
-                        {renderRowExtra(item)}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={fields.length + (renderRowExtra ? 1 : 0) + (canManage ? 1 : 0)} className="px-3 py-4 text-center text-slate-400">
-                  Aucun élément.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        caption={title}
+        columns={columns}
+        rows={items}
+        rowKey={(item) => item.id}
+        rowTone={(item) => (editingId === item.id ? "highlight" : undefined)}
+        after={renderRowExtra ? (item) => (expandedIds.has(item.id) ? renderRowExtra(item) : null) : undefined}
+        empty={<EmptyState title="Aucun élément." description={canManage ? "Ajoutez le premier avec le formulaire ci-dessous." : undefined} />}
+      />
+
+      {error && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
 
       {canManage && (
-        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded border border-dashed border-slate-300 p-3">
-          {fields.map((field) => (
-            <label key={field.key} className="flex flex-col gap-1 text-xs text-slate-600">
-              {field.label}
-              <FieldInput
-                field={field}
-                value={createValues[field.key]}
-                onChange={(value) => setCreateValues((prev) => ({ ...prev, [field.key]: value }))}
-                disabled={creating}
-              />
-            </label>
-          ))}
-          <button
-            type="submit"
-            disabled={creating}
-            className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-          >
-            {creating ? "Ajout..." : "Ajouter"}
-          </button>
+        <form onSubmit={handleCreate}>
+          <Card className="flex flex-col gap-3">
+            <p className="text-sm font-semibold text-slate-900">Ajouter</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {fields.map((field) =>
+                field.type === "checkbox" ? (
+                  <label key={field.key} className="flex min-h-11 items-center gap-2 self-end text-sm font-medium text-slate-800">
+                    <FieldInput
+                      field={field}
+                      value={createValues[field.key]}
+                      onChange={(value) => setCreateValues((prev) => ({ ...prev, [field.key]: value }))}
+                      disabled={creating}
+                    />
+                    {field.label}
+                  </label>
+                ) : (
+                  <label key={field.key} className="flex flex-col gap-1 text-sm font-medium text-slate-800">
+                    {field.label}
+                    <FieldInput
+                      field={field}
+                      value={createValues[field.key]}
+                      onChange={(value) => setCreateValues((prev) => ({ ...prev, [field.key]: value }))}
+                      disabled={creating}
+                    />
+                  </label>
+                ),
+              )}
+            </div>
+            <Button type="submit" icon="plus" disabled={creating} className="self-start">
+              {creating ? "Ajout..." : "Ajouter"}
+            </Button>
+          </Card>
         </form>
       )}
-      {error && <p className="text-sm text-red-700">{error}</p>}
     </div>
   );
 }

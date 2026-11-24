@@ -49,12 +49,12 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
         <img
           src={photoUrl}
           alt="Photo de l'élève"
-          className="h-[103px] w-20 rounded object-cover"
+          className="h-[103px] w-20 rounded-lg object-cover"
           data-testid="student-photo-img"
         />
       ) : (
         <div
-          className="flex h-[103px] w-20 items-center justify-center rounded bg-slate-200 text-center text-xs text-slate-500"
+          className="flex h-[103px] w-20 items-center justify-center rounded-lg bg-slate-100 text-center text-xs text-slate-600"
           data-testid="student-photo-empty"
         >
           Aucune photo
@@ -70,7 +70,7 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
                 type="button"
                 onClick={handleDelete}
                 disabled={deleting}
-                className="text-red-700 underline disabled:opacity-50"
+                className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                 data-testid="photo-delete-confirm-yes"
               >
                 Oui, supprimer
@@ -79,7 +79,7 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
                 type="button"
                 onClick={() => setConfirmingDelete(false)}
                 disabled={deleting}
-                className="text-slate-600 underline disabled:opacity-50"
+                className="inline-flex min-h-9 items-center rounded-lg px-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Annuler
               </button>
@@ -92,7 +92,7 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
                   disabled={deleting}
-                  className="self-start rounded border border-slate-300 px-3 py-2 text-sm text-red-700 hover:bg-slate-100 disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center self-start rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
                   data-testid="photo-delete"
                 >
                   Supprimer la photo
@@ -103,7 +103,7 @@ export function StudentPhoto({ studentId, canManage }: { studentId: string; canM
         </div>
       )}
       {error && (
-        <p className="text-sm text-red-700" data-testid="photo-error">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" data-testid="photo-error">
           {error}
         </p>
       )}
