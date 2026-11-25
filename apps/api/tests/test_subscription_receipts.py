@@ -16,7 +16,7 @@ from app.modules.report_cards.service import html_to_pdf
 from app.modules.schools.models import School
 from app.modules.subscriptions import pricing
 from app.modules.subscriptions.models import SchoolSubscriptionPeriod, SubscriptionInvoice, SubscriptionPayment
-from app.modules.subscriptions.service import _receipt_html, receipt_amounts
+from app.modules.subscriptions.service import _issuer_html, _receipt_html, receipt_amounts
 
 NBSP = " "
 
@@ -192,9 +192,18 @@ def test_receipt_of_a_tpu_company_without_vat(company: None, monkeypatch: pytest
     # Décision du 2026-11-15 : entreprise à la TPU, aucune TVA ; la grille porte les prix HT.
     monkeypatch.setattr(settings, "billing_tax_regime", "TPU")
     html = _receipt(_invoice(tier=1, base="30000", supplement="10000", total="40000", vat_rate=None))
-    assert "NIF : 1000000000 — RCCM : TG-LOM 2020 A 00000 — Régime fiscal : TPU" in html
+    # Une mention par ligne : une étiquette n'est jamais séparée de sa valeur par le retour à la ligne.
+    assert "NIF : 1000000000<br/>RCCM : TG-LOM 2020 A 00000<br/>Régime fiscal : TPU<br/>Tél. : +228 90 00 00 00" in html
     assert "TVA" not in html and "HT" not in html and "TTC" not in html
     assert "Montant (FCFA)" in html and f"Montant payé : 40{NBSP}000 FCFA" in html
+
+
+def test_receipt_contacts_each_on_their_own_line(company: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "billing_phone", "+228 90 00 00 00 / +228 91 11 11 11")
+    monkeypatch.setattr(settings, "billing_email", "contact@example.com")
+    html = _receipt(_invoice(tier=1, base="30000", supplement="10000", total="40000", vat_rate=None))
+    assert "<br/>Tél. : +228 90 00 00 00 / +228 91 11 11 11<br/>E-mail : contact@example.com</td>" in html
+    assert " — " not in _issuer_html()  # plus de mentions regroupées sur une même ligne
 
 
 def test_receipt_renders_as_pdf(company: None) -> None:
