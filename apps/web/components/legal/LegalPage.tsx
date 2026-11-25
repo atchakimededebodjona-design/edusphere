@@ -60,11 +60,6 @@ export function LegalPage({
   );
 }
 
-function emailParts(email: string): [string, string] | undefined {
-  const at = email.lastIndexOf("@");
-  return at > 0 && at < email.length - 1 ? [email.slice(0, at), email.slice(at + 1)] : undefined;
-}
-
 /** Identité de l'exploitant : seuls les champs renseignés sur le serveur s'affichent. */
 export function LegalIdentityBlock({ identity }: { identity: LegalIdentity }) {
   const company = [identity.legal_name, identity.legal_form].filter(Boolean).join(", ");
@@ -77,10 +72,10 @@ export function LegalIdentityBlock({ identity }: { identity: LegalIdentity }) {
     ["Téléphone", identity.phone || CONTACT_PHONE_DISPLAY],
     [
       "E-mail",
-      // Adresse assemblée dans le navigateur (anti-spam), celle du serveur si elle est renseignée.
+      // 2026-11-25 — choix de l'exploitant : l'adresse de contact du site (lib/landing/contact.ts), pas celle
+      // des reçus (BILLING_EMAIL). Assemblée dans le navigateur (anti-spam).
       <ProtectedEmail
         key="email"
-        parts={emailParts(identity.email)}
         className="inline-flex min-h-6 items-center break-all text-brand-blue underline-offset-2 hover:underline"
       />,
     ],
