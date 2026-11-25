@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "test:config": "node --test config/apiUrl.test.js lib/landing/pricing.test.mjs lib/photos/passport.test.mjs scripts/generate-sw.test.mjs",
+    "test:config": "node --test config/apiUrl.test.js config/analytics.test.js lib/landing/pricing.test.mjs lib/photos/passport.test.mjs scripts/generate-sw.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

@@ -74,6 +74,9 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        # 2026-11-24 — mesure d'audience Umami, facultative (vides = aucune mesure) : voir docs/deployment/UMAMI.md.
+        NEXT_PUBLIC_UMAMI_SRC: ${NEXT_PUBLIC_UMAMI_SRC:-}
+        NEXT_PUBLIC_UMAMI_WEBSITE_ID: ${NEXT_PUBLIC_UMAMI_WEBSITE_ID:-}
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
@@ -81,6 +84,27 @@ services:
       - "127.0.0.1:3000:3000"
     depends_on:
       - api
+
+  # 2026-11-24 — mesure d'audience Umami, hébergée sur le serveur (docs/deployment/UMAMI.md). Profil
+  # « analytics » : ne démarre qu'avec `docker compose --profile analytics up -d umami`, jamais avec les
+  # commandes habituelles. Base `umami` dans le même PostgreSQL, rôle et mot de passe dédiés. Image figée
+  # par son empreinte (UMAMI_IMAGE), relevée lors de l'installation.
+  # Pas de « ${VAR:?} » ici : Compose vérifie ces variables même quand le profil est inactif, ce qui
+  # bloquerait toutes les commandes du serveur avant l'installation. La procédure crée les deux secrets
+  # avant le premier démarrage.
+  umami:
+    image: ${UMAMI_IMAGE:-ghcr.io/umami-software/umami:latest}
+    profiles: ["analytics"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:-}@db:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:-}
+      DISABLE_TELEMETRY: "1"
+    ports:
+      - "127.0.0.1:3010:3000"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

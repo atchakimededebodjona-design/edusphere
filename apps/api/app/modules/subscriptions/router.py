@@ -21,6 +21,7 @@ from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response, status
 
+from app.core.config import settings
 from app.core.permissions import CurrentUser, DbSession, ensure_permission, require_permission
 from app.core.rate_limit import (
     ensure_paygate_callback_not_rate_limited,
@@ -44,6 +45,7 @@ from app.modules.subscriptions.schemas import (
     OnlinePaymentOut,
     PlatformInvoiceOut,
     PlatformSchoolSubscriptionsPage,
+    LegalIdentityOut,
     PublicPricingOut,
     QuoteInput,
     SchoolSubscriptionOut,
@@ -198,6 +200,27 @@ async def public_subscription_pricing(request: Request, response: Response, db: 
     await register_public_pricing_attempt(client_ip)
     response.headers["Cache-Control"] = "public, max-age=300"
     return await service.public_pricing(db)
+
+
+# Pages juridiques du site (2026-11-24) : identité de l'entreprise, lue dans la configuration du serveur
+# (la même que sur les reçus). Sans authentification, en lecture seule ; même limite par IP que les
+# tarifs publics. Les pages la lisent côté serveur, au plus une fois par heure.
+@router.get("/public/legal-identity", response_model=LegalIdentityOut)
+async def public_legal_identity(request: Request, response: Response) -> LegalIdentityOut:
+    client_ip = request.client.host if request.client else None
+    await ensure_public_pricing_not_rate_limited(client_ip)
+    await register_public_pricing_attempt(client_ip)
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return LegalIdentityOut(
+        trade_name=settings.billing_trade_name,
+        legal_name=settings.billing_legal_name,
+        legal_form=settings.billing_legal_form,
+        address=settings.billing_address,
+        nif=settings.billing_nif,
+        rccm=settings.billing_rccm,
+        phone=settings.billing_phone,
+        email=settings.billing_email,
+    )
 
 
 @router.post("/payment-providers/paygate/callback")

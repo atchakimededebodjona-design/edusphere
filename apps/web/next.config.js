@@ -13,12 +13,13 @@
 // Jamais un domaine inventé (voir docs/phases/PHASE_28A_PARENT_WEB_PORTAL.md).
 const { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } = require("next/constants");
 const { resolveApiUrl } = require("./config/apiUrl");
+const { resolveAnalytics } = require("./config/analytics");
 
 function isStrictBuild(phase) {
   return phase === PHASE_PRODUCTION_BUILD && !process.argv.includes("lint");
 }
 
-function createNextConfig(resolvedApiUrl, phase) {
+function createNextConfig(resolvedApiUrl, phase, analytics = resolveAnalytics(process.env)) {
   /** @type {import('next').NextConfig} */
   const nextConfig = {
     reactStrictMode: true,
@@ -37,6 +38,9 @@ function createNextConfig(resolvedApiUrl, phase) {
 
     env: {
       NEXT_PUBLIC_API_URL: resolvedApiUrl,
+      // 2026-11-24 — mesure d'audience Umami (config/analytics.js) : vides = aucune mesure, aucun bandeau.
+      NEXT_PUBLIC_UMAMI_SRC: analytics ? analytics.src : "",
+      NEXT_PUBLIC_UMAMI_WEBSITE_ID: analytics ? analytics.websiteId : "",
     },
 
     // Phase 26.2 — CSP d'abord en Report-Only (observation seulement).
@@ -51,13 +55,16 @@ function createNextConfig(resolvedApiUrl, phase) {
     async headers() {
       const apiOrigin = resolvedApiUrl;
       const devEval = phase === PHASE_DEVELOPMENT_SERVER ? " 'unsafe-eval'" : "";
+      // 2026-11-24 — Umami (s'il est configuré) : son script (script-src) et l'envoi des visites (connect-src),
+      // depuis la seule origine du serveur de mesure. Rien d'autre n'est ouvert.
+      const analyticsOrigin = analytics ? ` ${analytics.origin}` : "";
       const csp = [
         "default-src 'self'",
-        `script-src 'self' 'unsafe-inline'${devEval}`,
+        `script-src 'self' 'unsafe-inline'${devEval}${analyticsOrigin}`,
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self'",
-        `connect-src 'self' ${apiOrigin}`,
+        `connect-src 'self' ${apiOrigin}${analyticsOrigin}`,
         "worker-src 'self'",
         "manifest-src 'self'",
         "object-src 'none'",

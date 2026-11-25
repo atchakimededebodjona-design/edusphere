@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
+import { ConsentSettingsButton } from "@/components/consent/ConsentSettingsButton";
 import { ProtectedEmail } from "@/components/landing/ProtectedEmail";
 import { CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
 
@@ -23,6 +24,14 @@ const COLUMNS = [
     ],
   },
   {
+    title: "Informations légales",
+    links: [
+      { label: "Confidentialité", href: "/confidentialite" },
+      { label: "Conditions d'utilisation", href: "/cgu" },
+      { label: "Conditions de vente", href: "/cgv" },
+    ],
+  },
+  {
     title: "Contact",
     links: [
       { label: "WhatsApp", href: whatsappLink() },
@@ -35,7 +44,7 @@ export function LandingFooter() {
   return (
     <footer className="bg-white">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <div className="flex items-center gap-2">
               <BrandSymbol className="h-8 w-8" />
@@ -72,6 +81,13 @@ export function LandingFooter() {
                     )}
                   </li>
                 ))}
+                {column.title === "Informations légales" && (
+                  <li>
+                    <ConsentSettingsButton className="text-left text-sm text-slate-600 transition hover:text-brand-blue">
+                      Mesure d&apos;audience
+                    </ConsentSettingsButton>
+                  </li>
+                )}
                 {column.title === "Contact" && (
                   <li>
                     <ProtectedEmail className="break-all text-sm text-slate-600 transition hover:text-brand-blue" />

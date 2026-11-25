@@ -109,6 +109,21 @@ class PublicTierOut(BaseModel):
     max_students: int
 
 
+class LegalIdentityOut(BaseModel):
+    """Identité de l'entreprise qui exploite EduLinkage (2026-11-24), lue dans la configuration du
+    serveur (BILLING_*, la même que sur les reçus). Ce sont les mentions légales d'une entreprise,
+    publiques par nature ; elles restent hors du dépôt. Un champ vide vaut chaîne vide."""
+
+    trade_name: str
+    legal_name: str
+    legal_form: str
+    address: str
+    nif: str
+    rccm: str
+    phone: str
+    email: str
+
+
 class PublicPricingOut(BaseModel):
     """Montants de la grille ACTIVE et bornes des tranches, sans rien d'autre : ni identifiant, ni
     libellé, ni historique. `periods` est vide sans grille active (la page affiche alors « tarifs
