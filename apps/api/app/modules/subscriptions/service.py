@@ -1007,7 +1007,10 @@ def receipt_amounts(invoice: SubscriptionInvoice) -> tuple[list[tuple[str, Decim
 
 
 def _issuer_html() -> str:
-    """Identité de l'entreprise (réglages `BILLING_*` du serveur) ; un champ vide n'est pas imprimé."""
+    """Identité de l'entreprise (réglages `BILLING_*` du serveur) ; un champ vide n'est pas imprimé.
+    2026-11-25 : une mention par ligne (NIF, RCCM, régime fiscal, téléphone, e-mail). Regroupées sur une
+    même ligne, le retour à la ligne du PDF séparait « RCCM : » ou « E-mail : » de leur valeur ; xhtml2pdf
+    ne gère pas `white-space: nowrap` de façon fiable."""
     esc = html_escape
     s = settings
     rows = [f"<strong>{esc(s.billing_legal_name)}</strong>" if s.billing_legal_name else ""]
@@ -1018,7 +1021,7 @@ def _issuer_html() -> str:
         f"Régime fiscal : {esc(s.billing_tax_regime)}" if s.billing_tax_regime else "",
     ]
     contacts = [f"Tél. : {esc(s.billing_phone)}" if s.billing_phone else "", f"E-mail : {esc(s.billing_email)}" if s.billing_email else ""]
-    rows += [" — ".join(part for part in group if part) for group in (ids, contacts)]
+    rows += ids + contacts
     return "<br/>".join(row for row in rows if row)
 
 
