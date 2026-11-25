@@ -4,6 +4,8 @@ Choix de l'exploitant (2026-11-24) : **Umami hébergé sur le serveur**, sans co
 
 Le site ne charge le script qu'après « Accepter », et seulement sur les pages publiques : l'accueil, la politique de confidentialité, les CGU et les CGV. L'espace connecté des écoles n'est jamais mesuré.
 
+Le suivi automatique d'Umami est désactivé (`data-auto-track="false"`). Le site envoie lui-même une page vue (`umami.track()`) à chaque arrivée sur une page publique, y compris sans rechargement. Un visiteur qui passe de l'accueil à la connexion, puis à son espace, n'envoie donc rien au-delà de l'accueil.
+
 - **Version** : Umami 3.5.0 (12 novembre 2026). L'image `ghcr.io/umami-software/umami` est figée par son **empreinte** (`UMAMI_IMAGE=…@sha256:…`), relevée lors de l'installation.
 - **Base de données** : une base `umami`, avec son propre rôle, dans le même PostgreSQL que l'application. Umami n'a aucun accès aux données des écoles.
 - **Adresse** : `https://stats.edulinkage.com` (nginx et certificat Let's Encrypt). Le conteneur écoute sur `127.0.0.1:3010`.
@@ -24,6 +26,13 @@ Le site ne charge le script qu'après « Accepter », et seulement sur les pages
 7. **Site** : ajouter à `.env` `NEXT_PUBLIC_UMAMI_SRC=https://stats.edulinkage.com/script.js` et `NEXT_PUBLIC_UMAMI_WEBSITE_ID=<UUID>`, puis reconstruire le site (`docker compose build web`). La CSP s'ouvre alors à cette seule origine.
 
 Les commandes exactes sont données à l'exploitant au moment de l'installation, avec des vérifications à chaque étape.
+
+## En production (2026-11-25)
+
+- `https://stats.edulinkage.com` : nginx `/etc/nginx/sites-available/stats.edulinkage.com`, certificat Let's Encrypt renouvelé automatiquement ;
+- site `edulinkage.com` créé dans Umami ;
+- mot de passe `admin` changé ;
+- site reconstruit avec `NEXT_PUBLIC_UMAMI_*`.
 
 ## Retour en arrière
 

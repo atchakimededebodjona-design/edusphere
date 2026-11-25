@@ -9,6 +9,9 @@ import { useEffect, useState } from "react";
 // pages publiques : l'espace connecté des écoles n'est jamais mesuré. Le choix est gardé sur l'appareil
 // (localStorage) ; « Modifier mon choix » (ConsentSettingsButton) rouvre le bandeau.
 // Sans configuration Umami au build (config/analytics.js), rien ne s'affiche.
+// 2026-11-25 — suivi automatique d'Umami DÉSACTIVÉ (`data-auto-track="false"`) : une fois chargé, il
+// suivrait aussi les navigations sans rechargement (accueil → connexion → tableau de bord). Le site
+// enregistre lui-même chaque page vue, et seulement celles des pages publiques.
 
 const SRC = process.env.NEXT_PUBLIC_UMAMI_SRC ?? "";
 const WEBSITE_ID = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID ?? "";
@@ -22,6 +25,12 @@ const CHOICE_BUTTON_CLASS =
 
 type Choice = "granted" | "denied";
 
+declare global {
+  interface Window {
+    umami?: { track: (...args: unknown[]) => unknown };
+  }
+}
+
 function readChoice(): Choice | null {
   try {
     const value = window.localStorage.getItem(STORAGE_KEY);
@@ -31,14 +40,31 @@ function readChoice(): Choice | null {
   }
 }
 
-function loadUmami() {
-  if (!SRC || !WEBSITE_ID || document.querySelector("script[data-edulinkage-umami]")) return;
+/** Une page vue, pour l'adresse affichée à cet instant, si (et seulement si) c'est une page publique. */
+function trackPublicPageview() {
+  if (!PUBLIC_PATHS.has(window.location.pathname)) return;
+  try {
+    window.umami?.track();
+  } catch {
+    // Mesure indisponible : sans effet sur le site.
+  }
+}
+
+/** Charge Umami une seule fois ; la page vue est enregistrée dès qu'il est prêt. */
+function loadUmamiAndTrack() {
+  if (!SRC || !WEBSITE_ID) return;
+  if (document.querySelector("script[data-edulinkage-umami]")) {
+    trackPublicPageview(); // Sans effet tant que le script se charge : son « load » s'en chargera.
+    return;
+  }
   const script = document.createElement("script");
   script.src = SRC;
   script.defer = true;
   script.dataset.websiteId = WEBSITE_ID;
+  script.dataset.autoTrack = "false";
   script.dataset.doNotTrack = "true";
   script.dataset.edulinkageUmami = "true";
+  script.addEventListener("load", trackPublicPageview, { once: true });
   document.head.appendChild(script);
 }
 
@@ -59,9 +85,10 @@ export function AnalyticsConsent() {
     return () => window.removeEventListener(OPEN_CONSENT_EVENT, reopen);
   }, [configured]);
 
+  // Une page vue à chaque arrivée sur une page publique, y compris entre deux pages publiques sans rechargement.
   useEffect(() => {
-    if (configured && onPublicPage && choice === "granted") loadUmami();
-  }, [configured, onPublicPage, choice]);
+    if (configured && onPublicPage && choice === "granted") loadUmamiAndTrack();
+  }, [configured, onPublicPage, choice, pathname]);
 
   function decide(next: Choice) {
     try {
