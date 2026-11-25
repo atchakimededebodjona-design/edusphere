@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.core.permissions import CurrentUser, DbSession, get_all_permission_codes
 from app.core.rate_limit import (
+    ensure_forgot_password_ip_not_rate_limited,
     ensure_forgot_password_not_rate_limited,
     ensure_login_ip_not_rate_limited,
     ensure_login_not_rate_limited,
@@ -12,6 +13,7 @@ from app.core.rate_limit import (
     register_failed_login_attempt,
     register_failed_login_ip_attempt,
     register_forgot_password_attempt,
+    register_forgot_password_ip_attempt,
     register_reset_password_attempt,
     reset_login_attempts,
 )
@@ -83,13 +85,17 @@ async def logout(payload: LogoutRequest, db: DbSession) -> None:
 
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
-async def forgot_password(payload: ForgotPasswordRequest, db: DbSession) -> dict:
+async def forgot_password(payload: ForgotPasswordRequest, request: Request, db: DbSession) -> dict:
+    # 2026-11-24 (anti-spam) — par adresse IP d'abord, puis par email (voir app/core/rate_limit.py).
+    ip = _client_ip(request)
+    await ensure_forgot_password_ip_not_rate_limited(ip)
     await ensure_forgot_password_not_rate_limited(payload.email)
     dev_token = await service.request_password_reset(db, payload.email)
     # Comptée après chaque demande, que le compte existe ou non (Phase 10.1 — voir
     # app/core/rate_limit.py::register_forgot_password_attempt) : limite l'abus d'envoi d'email
     # sans jamais révéler si un compte existe.
     await register_forgot_password_attempt(payload.email)
+    await register_forgot_password_ip_attempt(ip)
     # dev_token n'est renseigné que hors environnement "production" (email non intégré
     # en Phase 1) — voir app/modules/auth/service.py::request_password_reset.
     return {"detail": "If this email exists, a reset link has been sent.", "dev_token": dev_token}

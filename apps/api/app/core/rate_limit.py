@@ -171,6 +171,45 @@ async def register_forgot_password_attempt(email: str) -> None:
         logger.warning("Rate limiting Redis indisponible — demande non comptabilisée (forgot-password).")
 
 
+# --- Mot de passe oublié, par adresse IP (2026-11-24, protection anti-spam) --------------------
+#
+# Complète la limite par email ci-dessus : un robot qui change d'adresse email à chaque demande ne
+# la déclenche jamais, et pourrait faire envoyer des centaines d'emails de réinitialisation à des
+# inconnus depuis la même machine. La demande est comptée qu'elle aboutisse ou non (réponse 202).
+
+
+def _forgot_password_ip_key(ip: str) -> str:
+    return f"forgot_password_ip_attempts:{ip}"
+
+
+async def ensure_forgot_password_ip_not_rate_limited(ip: str | None) -> None:
+    key = _forgot_password_ip_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.get(key)
+        if count is not None and int(count) >= settings.forgot_password_ip_rate_limit_max_attempts:
+            ttl = await client.ttl(key)
+            retry_after = max(ttl, 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many password reset requests. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — vérification ignorée pour cette requête (forgot-password, IP).")
+
+
+async def register_forgot_password_ip_attempt(ip: str | None) -> None:
+    key = _forgot_password_ip_key(ip or "unknown")
+    try:
+        client = _get_client()
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, settings.forgot_password_ip_rate_limit_window_seconds)
+    except RedisError:
+        logger.warning("Rate limiting Redis indisponible — demande non comptabilisée (forgot-password, IP).")
+
+
 # --- Refresh de token (Phase 20) ---------------------------------------------------------------
 #
 # Clé user_id, PAS le refresh token lui-même : le token tourne à chaque appel (rotation déjà en

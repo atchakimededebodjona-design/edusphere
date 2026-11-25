@@ -50,7 +50,7 @@ export function ProductPreview() {
               <p className="text-xs font-semibold text-brand-text">Présence</p>
             </div>
             <p className="mt-2 text-2xl font-bold text-brand-text">96%</p>
-            <p className="text-[11px] text-slate-400">Cette semaine</p>
+            <p className="text-[11px] text-slate-500">Cette semaine</p>
           </ScrollReveal>
 
           <ScrollReveal
@@ -62,7 +62,7 @@ export function ProductPreview() {
               <p className="text-xs font-semibold text-brand-text">Bulletins</p>
             </div>
             <p className="mt-2 text-2xl font-bold text-brand-text">12 publiés</p>
-            <p className="text-[11px] text-slate-400">Ce trimestre</p>
+            <p className="text-[11px] text-slate-500">Ce trimestre</p>
           </ScrollReveal>
         </div>
       </div>

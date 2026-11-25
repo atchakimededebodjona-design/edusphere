@@ -22,7 +22,7 @@ function MockNotifRow({ icon, text, time }: { icon: React.ReactNode; text: strin
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium text-brand-text">{text}</p>
       </div>
-      <span className="shrink-0 text-[11px] text-slate-400">{time}</span>
+      <span className="shrink-0 text-[11px] text-slate-500">{time}</span>
     </div>
   );
 }
@@ -44,7 +44,7 @@ export function DashboardMockup() {
             <span className="h-2.5 w-2.5 rounded-full bg-brand-blue" />
             <span className="text-xs font-semibold text-slate-500">Tableau de bord — École Les Palmiers</span>
           </div>
-          <span className="hidden text-xs text-slate-400 sm:inline">Aujourd&apos;hui</span>
+          <span className="hidden text-xs text-slate-500 sm:inline">Aujourd&apos;hui</span>
         </div>
 
         <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
@@ -56,7 +56,7 @@ export function DashboardMockup() {
 
         <div className="grid grid-cols-1 gap-4 px-5 pb-5 sm:grid-cols-5">
           <div className="col-span-3 rounded-xl border border-slate-100 p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Activité de la semaine
             </p>
             <div className="flex h-20 items-end gap-2">
@@ -71,10 +71,10 @@ export function DashboardMockup() {
           </div>
 
           <div className="col-span-2 rounded-xl border border-slate-100 p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Cette semaine</p>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cette semaine</p>
             <div className="grid grid-cols-7 gap-1 text-center">
               {WEEKDAY_LABELS.map((d, i) => (
-                <span key={`label-${i}`} className="text-[9px] text-slate-400">
+                <span key={`label-${i}`} className="text-[9px] text-slate-500">
                   {d}
                 </span>
               ))}
@@ -93,7 +93,7 @@ export function DashboardMockup() {
         </div>
 
         <div className="space-y-1 border-t border-slate-100 px-5 py-4">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Activité récente</p>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Activité récente</p>
           <MockNotifRow
             icon={<ClipboardCheckIcon className="h-3.5 w-3.5" />}
             text="Présences enregistrées — CE2 B"
@@ -116,7 +116,7 @@ export function DashboardMockup() {
           <CheckCircleIcon className="h-5 w-5 text-brand-blue" />
           <div>
             <p className="text-xs font-semibold text-brand-text">Présence à jour</p>
-            <p className="text-[11px] text-slate-400">32 classes</p>
+            <p className="text-[11px] text-slate-500">32 classes</p>
           </div>
         </div>
       </div>
@@ -130,7 +130,7 @@ export function DashboardMockup() {
           <BellIcon className="h-5 w-5 text-brand-cyan" />
           <div>
             <p className="text-xs font-semibold text-brand-text">3 notifications</p>
-            <p className="text-[11px] text-slate-400">Nouveaux messages</p>
+            <p className="text-[11px] text-slate-500">Nouveaux messages</p>
           </div>
         </div>
       </div>

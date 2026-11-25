@@ -12,6 +12,7 @@ import { FinalCta } from "@/components/landing/FinalCta";
 import { PartnerSection } from "@/components/landing/PartnerSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
+import { StickyCta } from "@/components/landing/StickyCta";
 import { fetchPublicPricing } from "@/lib/landing/fetchPricing";
 
 const TITLE = "EduLinkage — Une école, des liens, un avenir.";
@@ -22,7 +23,8 @@ const DESCRIPTION =
 // sur, les métadonnées par défaut du layout racine pour cette seule page. Le layout racine et son
 // titre/description par défaut restent inchangés pour toutes les autres routes.
 export const metadata: Metadata = {
-  title: TITLE,
+  // `absolute` : le titre complet de la page d'accueil, sans le suffixe « — EduLinkage » du modèle.
+  title: { absolute: TITLE },
   description: DESCRIPTION,
   alternates: {
     canonical: "https://edulinkage.com/",
@@ -34,13 +36,14 @@ export const metadata: Metadata = {
     siteName: "EduLinkage",
     locale: "fr_FR",
     type: "website",
-    images: ["/branding/edulinkage-full.png"],
+    // 2026-11-24 — aperçu au format recommandé par Facebook, WhatsApp, LinkedIn et X (1200 × 630, 42 Ko).
+    images: [{ url: "/og-image.jpg", width: 1200, height: 630, alt: "EduLinkage — Une école, des liens, un avenir" }],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
-    images: ["/branding/edulinkage-full.png"],
+    images: [{ url: "/og-image.jpg", alt: "EduLinkage — Une école, des liens, un avenir" }],
   },
 };
 
@@ -70,6 +73,7 @@ export default async function LandingPage() {
         <FinalCta />
       </main>
       <LandingFooter />
+      <StickyCta />
     </>
   );
 }

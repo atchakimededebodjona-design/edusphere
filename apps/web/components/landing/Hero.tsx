@@ -44,7 +44,7 @@ export function Hero() {
               className="flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-brand-blue to-brand-cyan px-6 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
             >
               <MessageSquareIcon className="h-5 w-5" />
-              Écrire sur WhatsApp
+              Essayer gratuitement
             </a>
             <a
               href="#tarifs"
@@ -53,10 +53,13 @@ export function Hero() {
               Voir les tarifs
             </a>
           </div>
+          <p className="mt-3 text-sm text-slate-600">
+            Premier trimestre offert. Écrivez-nous sur WhatsApp : nous créons l&apos;espace de votre école avec vous.
+          </p>
 
           <a
             href={CONTACT_PHONE_LINK}
-            className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-brand-blue"
+            className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-brand-blue"
           >
             <PhoneIcon className="h-4 w-4" />
             Ou appelez-nous au {CONTACT_PHONE_DISPLAY}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BrandSymbol } from "@/components/branding/BrandLogo";
-import { CONTACT_EMAIL, CONTACT_EMAIL_LINK, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
+import { ProtectedEmail } from "@/components/landing/ProtectedEmail";
+import { CONTACT_PHONE_DISPLAY, CONTACT_PHONE_LINK, whatsappLink } from "@/lib/landing/contact";
 
 // Aucun lien social : aucun compte social réel n'existe encore pour ce projet — mieux vaut n'en
 // afficher aucun que d'inventer une URL. Contacts publics : WhatsApp et appel (2026-11-16), e-mail (2026-11-24).
@@ -26,7 +27,6 @@ const COLUMNS = [
     links: [
       { label: "WhatsApp", href: whatsappLink() },
       { label: CONTACT_PHONE_DISPLAY, href: CONTACT_PHONE_LINK },
-      { label: CONTACT_EMAIL, href: CONTACT_EMAIL_LINK },
     ],
   },
 ];
@@ -41,7 +41,7 @@ export function LandingFooter() {
               <BrandSymbol className="h-8 w-8" />
               <span className="text-lg font-bold text-brand-text">EduLinkage</span>
             </div>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-500">
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-600">
               La plateforme qui connecte les écoles, les enseignants, les parents et les élèves.
             </p>
           </div>
@@ -57,28 +57,33 @@ export function LandingFooter() {
                         href={link.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-slate-500 transition hover:text-brand-blue"
+                        className="text-sm text-slate-600 transition hover:text-brand-blue"
                       >
                         {link.label}
                       </a>
                     ) : link.href.startsWith("/") ? (
-                      <Link href={link.href} className="text-sm text-slate-500 transition hover:text-brand-blue">
+                      <Link href={link.href} className="text-sm text-slate-600 transition hover:text-brand-blue">
                         {link.label}
                       </Link>
                     ) : (
-                      <a href={link.href} className="break-all text-sm text-slate-500 transition hover:text-brand-blue">
+                      <a href={link.href} className="break-all text-sm text-slate-600 transition hover:text-brand-blue">
                         {link.label}
                       </a>
                     )}
                   </li>
                 ))}
+                {column.title === "Contact" && (
+                  <li>
+                    <ProtectedEmail className="break-all text-sm text-slate-600 transition hover:text-brand-blue" />
+                  </li>
+                )}
               </ul>
             </div>
           ))}
         </div>
 
         <div className="mt-10 border-t border-slate-100 pt-6">
-          <p className="text-xs text-slate-400">© 2026 EduLinkage. Tous droits réservés.</p>
+          <p className="text-xs text-slate-600">© 2026 EduLinkage. Tous droits réservés.</p>
         </div>
       </div>
     </footer>

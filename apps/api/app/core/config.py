@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # utilisateur légitime.
     forgot_password_rate_limit_max_attempts: int = 3
     forgot_password_rate_limit_window_seconds: int = 900
+    # 2026-11-24 (protection anti-spam) — la limite par email ne freine pas un robot qui fait envoyer
+    # des emails à des centaines d'adresses DIFFÉRENTES depuis la même machine : limite par adresse IP
+    # en plus. 10 demandes par heure suffisent largement à toute une école derrière la même connexion.
+    forgot_password_ip_rate_limit_max_attempts: int = 10
+    forgot_password_ip_rate_limit_window_seconds: int = 3600
 
     # Rate limiting refresh (Phase 20). Clé user_id (résolu après validation du refresh token,
     # avant toute mutation) : le token de refresh tourne à chaque appel (rotation déjà en place

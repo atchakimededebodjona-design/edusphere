@@ -1,13 +1,14 @@
 import Image from "next/image";
 
-// Assets officiels EduLinkage (apps/web/public/branding/) — fichiers fournis tels quels, jamais
-// recréés en HTML/CSS/SVG ni recolorés. Dimensions réelles des fichiers sources : next/image
-// calcule le ratio d'affichage à partir de ces valeurs, ce qui empêche toute déformation quelle
-// que soit la classe Tailwind appliquée (hauteur fixée, largeur toujours proportionnelle).
+// Assets officiels EduLinkage — jamais recréés en HTML/CSS/SVG ni recolorés. 2026-11-24 : les fichiers
+// servis sont les originaux REDIMENSIONNÉS (sans retouche), car les images sont servies telles quelles
+// (images.unoptimized, revue de sécurité) : le symbole de 1254 px pesait 657 Ko pour un affichage de
+// 32 à 40 px, le logo complet 1,7 Mo pour 260 px. Originaux gardés dans apps/web/branding-sources/
+// (non servis). Dimensions des fichiers servis : next/image en déduit le ratio d'affichage.
 const SYMBOL_SRC = "/branding/edulinkage-symbol.png";
-const SYMBOL_SIZE = { width: 1254, height: 1254 };
-const FULL_SRC = "/branding/edulinkage-full.png";
-const FULL_SIZE = { width: 1536, height: 1024 };
+const SYMBOL_SIZE = { width: 256, height: 256 };
+const FULL_SRC = "/branding/edulinkage-full.webp";
+const FULL_SIZE = { width: 780, height: 520 };
 
 /** Symbole seul (mortier académique + "e") — favicon, sidebar compacte, espaces étroits. */
 export function BrandSymbol({
